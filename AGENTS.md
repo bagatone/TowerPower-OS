@@ -320,6 +320,7 @@ data_idratazione_o_semina:
 fase:
 quantita:
 unita_operativa:
+grammi_seme:
 posizione:
 responsabile:
 qualita:
@@ -338,6 +339,44 @@ luce
 pronto
 raccolto
 scartato
+```
+
+### Calcolo Grammi Seme
+
+Quando l'azione e `nuova idratazione/semina` e sono noti varieta e set, il Farm Manager Agent deve calcolare i grammi seme usando le grammature TowerPower ufficiali.
+
+Formato output:
+
+```text
+grammi_seme: totale (g/set)
+```
+
+Grammature TowerPower ufficiali:
+
+```text
+AFI / Afila = 30 g/set
+CIL / Cilantro = 16 g/set
+RAB / Rabano Morado = 16 g/set
+MOS / Mostaza = 12 g/set
+MIZ / Mizuna Roja = 10 g/set
+LEN / Lenticchie = 20 g/set
+GIR / Girasole = 20 g/set
+COL / Col Roja = 14 g/set
+HIN / Hinojo = 21 g/set
+```
+
+Esempi:
+
+```text
+2 set Cilantro = 32 (16/set)
+6 set Afila = 180 (30/set)
+3 set Rabano Morado = 48 (16/set)
+```
+
+Se varieta o set non sono chiari, scrivere:
+
+```text
+grammi_seme: DA CONFERMARE
 ```
 
 ### Protocollo Di Aggiornamento
@@ -362,6 +401,7 @@ data_idratazione_o_semina: 2026-07-03
 fase: idratazione
 quantita: 1
 unita_operativa: set
+grammi_seme: 16 (16/set)
 posizione: DA CONFERMARE
 responsabile: Matteo
 qualita: DA CONFERMARE

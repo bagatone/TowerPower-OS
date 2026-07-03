@@ -244,6 +244,191 @@ Conferma richiesta:
 
 ---
 
+## Farm Manager Agent
+
+### Scopo
+
+Questa sezione definisce il protocollo operativo che il Farm Manager Agent deve usare per creare e aggiornare i lotti TowerPower.
+
+Un lotto e l'unita minima di tracciabilita agricola. Serve a seguire una coltura dalla nuova idratazione/semina fino alla raccolta o allo scarto.
+
+### Regola Di Identita Del Lotto
+
+```text
+1 lotto = stessa varieta + stessa semina + stesso momento
+```
+
+Se due semine hanno la stessa varieta ma sono state fatte in momenti diversi, devono avere due ID lotto diversi.
+
+Se due varieta diverse vengono seminate nello stesso momento, devono avere due ID lotto diversi.
+
+### Formato ID Lotto
+
+```text
+AAA-GGMM-L
+```
+
+Dove:
+
+- `AAA` = codice breve della varieta.
+- `GGMM` = giorno e mese della semina o idratazione.
+- `L` = lettera progressiva del lotto creato nello stesso giorno per quella varieta.
+
+Esempi:
+
+```text
+CIL-0307-A
+RAB-0307-A
+RAB-0307-B
+AFI-0407-A
+```
+
+### Codici Varieta Ufficiali
+
+```text
+AFI = Afila
+CIL = Cilantro
+RAB = Rabano Morado
+MOS = mostaza
+MIZ = Mizuna Roja
+LEN = Lenticchie
+GIR = Girasole
+COL = Col Roja
+HIN = Hinojo
+```
+
+### Regola Sui Dati Mancanti
+
+L'agente non deve mai inventare dati.
+
+Se manca un dato, deve scrivere:
+
+```text
+DA CONFERMARE
+```
+
+Questa regola vale per date, quantita, varieta, stato, posizione, qualita, note, problemi, cliente collegato e raccolto previsto.
+
+### Campi Minimi Di Un Lotto
+
+Ogni nuovo lotto deve avere almeno questi campi:
+
+```text
+id_lotto:
+varieta:
+data_idratazione_o_semina:
+fase:
+quantita:
+unita_operativa:
+posizione:
+responsabile:
+qualita:
+problemi:
+raccolto_previsto:
+note:
+ultimo_aggiornamento:
+```
+
+Valori ammessi per `fase`:
+
+```text
+idratazione
+germinazione
+luce
+pronto
+raccolto
+scartato
+```
+
+### Protocollo Di Aggiornamento
+
+Ogni aggiornamento deve:
+
+- Mantenere lo stesso `id_lotto`.
+- Cambiare solo i campi realmente verificati.
+- Usare `DA CONFERMARE` quando un dato non e certo.
+- Registrare sempre data e fase.
+- Segnalare problemi senza trasformarli in diagnosi inventate.
+- Non dichiarare un lotto vendibile senza conferma di qualita.
+
+### Esempio: Nuova Idratazione/Semina
+
+```text
+Agente: Farm Manager Agent
+Azione: nuova idratazione/semina
+id_lotto: RAB-0307-A
+varieta: rabano morado
+data_idratazione_o_semina: 2026-07-03
+fase: idratazione
+quantita: 1
+unita_operativa: set
+posizione: DA CONFERMARE
+responsabile: Matteo
+qualita: DA CONFERMARE
+problemi: Nessuno osservato
+raccolto_previsto: DA CONFERMARE
+note: Lotto creato per disponibilita HORECA
+ultimo_aggiornamento: 2026-07-03
+```
+
+### Esempio: Passaggio A Germinazione
+
+```text
+Agente: Farm Manager Agent
+Azione: passaggio a germinazione
+id_lotto: RAB-0307-A
+varieta: rabano morado
+fase_precedente: idratazione
+nuova_fase: germinazione
+data_passaggio: 2026-07-04
+giorno_ciclo: 1
+posizione: DA CONFERMARE
+qualita: DA CONFERMARE
+problemi: Nessuno osservato
+azione_successiva: controllare umidita e uniformita germinazione
+ultimo_aggiornamento: 2026-07-04
+```
+
+### Esempio: Passaggio A Luce
+
+```text
+Agente: Farm Manager Agent
+Azione: passaggio a luce
+id_lotto: RAB-0307-A
+varieta: rabano morado
+fase_precedente: germinazione
+nuova_fase: luce
+data_passaggio: 2026-07-06
+giorno_ciclo: 3
+posizione: scaffale luce DA CONFERMARE
+qualita: Buona
+problemi: Nessuno osservato
+azione_successiva: monitorare colore, altezza e umidita
+ultimo_aggiornamento: 2026-07-06
+```
+
+### Esempio: Raccolta
+
+```text
+Agente: Farm Manager Agent
+Azione: raccolta
+id_lotto: RAB-0307-A
+varieta: rabano morado
+fase_precedente: pronto
+nuova_fase: raccolto
+data_raccolta: 2026-07-10
+quantita_raccolta: DA CONFERMARE
+unita_operativa: DA CONFERMARE
+qualita: DA CONFERMARE
+scarti: DA CONFERMARE
+destinazione: DA CONFERMARE
+problemi: DA CONFERMARE
+azione_successiva: aggiornare STOCK e RACCOLTI
+ultimo_aggiornamento: 2026-07-10
+```
+
+---
+
 ## Production Planner
 
 ### Ruolo

@@ -721,6 +721,266 @@ Decisione richiesta:
 
 ---
 
+## Data Manager Agent
+
+### Scopo
+
+Questa sezione definisce il protocollo ufficiale per trasformare i report narrativi scritti in TPO in righe strutturate per Google Sheets.
+
+TPO e la fonte primaria narrativa. Google Sheets e il database operativo. ChatGPT coordina la trasformazione del contenuto, Codex esegue modifiche tecniche quando servono aggiornamenti a file, formato o struttura.
+
+### Regole Fondamentali
+
+- TPO e la fonte primaria narrativa.
+- Google Sheets e il database operativo.
+- ChatGPT coordina.
+- Codex esegue modifiche tecniche.
+- Gli agenti non devono mai inventare dati.
+- Se un dato manca o non e certo, usare `DA CONFERMARE`.
+- Ogni dato strutturato deve indicare il foglio di destinazione.
+- Per nuove idratazioni/semina usare il Farm Manager Agent per generare automaticamente l'ID lotto quando i dati minimi sono disponibili.
+- Ogni nuova semina deve generare righe per `SEMINE` e `LOTTI`.
+- Ogni raccolta deve generare righe per `RACCOLTI` e aggiornamento `LOTTI`.
+- Ogni problema deve generare una riga in `PROBLEMI`.
+- Ogni consegna deve generare o aggiornare una riga in `CONSEGNE`.
+
+### Protocollo Di Trasformazione
+
+Il Data Manager Agent deve trasformare ogni report TPO in blocchi strutturati pronti per Google Sheets. Il risultato non deve essere un riassunto narrativo: deve essere una lista di righe operative, ognuna associata a un foglio preciso.
+
+Procedura obbligatoria:
+
+1. Leggere il report TPO dall'inizio alla fine.
+2. Identificare ogni evento operativo presente nel report.
+3. Classificare ogni evento come semina, aggiornamento lotto, raccolta, problema o consegna.
+4. Estrarre solo dati presenti nel report TPO o gia confermati in contesto operativo.
+5. Non inventare date, quantita, clienti, lotti, varieta, rese, problemi, prezzi, stati o destinazioni.
+6. Usare `DA CONFERMARE` per ogni campo mancante, ambiguo, incompleto o non verificabile.
+7. Separare eventi diversi in blocchi diversi, anche quando arrivano dallo stesso report TPO.
+8. Indicare sempre il foglio Google Sheets di destinazione nel campo `SHEET`.
+9. Indicare sempre l'azione nel campo `AZIONE`, usando solo `aggiungi` o `aggiorna`.
+10. Inserire i dati strutturati sotto `RIGA`, un campo per riga.
+11. Collegare le righe allo stesso `id_lotto` quando il report parla dello stesso lotto.
+12. Per nuove idratazioni/semina, quando sono disponibili almeno varieta, data e momento operativo, usare il Farm Manager Agent per generare automaticamente l'`id_lotto`.
+13. Se mancano i dati minimi per generare l'`id_lotto`, scrivere `DA CONFERMARE` e non crearne uno inventato.
+14. Se una nuova semina o idratazione crea un nuovo lotto, produrre sempre una riga per `SEMINE` e una riga per `LOTTI`.
+15. Se una raccolta chiude o aggiorna un lotto, produrre sempre una riga per `RACCOLTI` e una riga di aggiornamento per `LOTTI`.
+16. Se il report segnala un problema, produrre sempre una riga per `PROBLEMI`.
+17. Se il report segnala una consegna pianificata, preparata, completata, saltata o modificata, produrre sempre una riga per `CONSEGNE`.
+18. Conservare nelle note il riferimento narrativo utile, senza trasformarlo in diagnosi o conclusione non confermata.
+19. Non aggiornare direttamente Google Sheets se non richiesto: l'output standard serve come istruzione strutturata per l'inserimento o aggiornamento.
+
+Mappatura obbligatoria eventi-fogli:
+
+```text
+nuova idratazione/semina -> SEMINE + LOTTI
+passaggio a luce -> LOTTI
+raccolta -> RACCOLTI + LOTTI
+problema -> PROBLEMI
+consegna -> CONSEGNE
+```
+
+Azioni ammesse:
+
+```text
+aggiungi
+aggiorna
+```
+
+Fogli Google Sheets ammessi in questo protocollo:
+
+```text
+SEMINE
+LOTTI
+RACCOLTI
+PROBLEMI
+CONSEGNE
+```
+
+### Formato Standard Di Output
+
+```text
+SHEET:
+AZIONE:
+RIGA:
+NOME CAMPO: valore confermato o DA CONFERMARE
+NOME CAMPO: valore confermato o DA CONFERMARE
+NOME CAMPO: valore confermato o DA CONFERMARE
+```
+
+Regole del formato:
+
+- `SHEET` deve contenere uno di questi valori: `SEMINE`, `LOTTI`, `RACCOLTI`, `PROBLEMI`, `CONSEGNE`.
+- `AZIONE` deve contenere solo `aggiungi` o `aggiorna`.
+- `RIGA` deve contenere i campi da inserire o aggiornare nel foglio indicato.
+- Ogni blocco deve contenere una sola riga di destinazione.
+- Se un evento richiede piu fogli, produrre piu blocchi nello stesso output.
+- Se un campo non e applicabile ma serve alla tracciabilita, usare `DA CONFERMARE`.
+- Non usare abbreviazioni non gia definite nel sistema TowerPower.
+
+### Esempio 1: Nuova Idratazione/Semina
+
+Report TPO:
+
+```text
+04/07/2026 mattina
+idratazione
+3 set rábano morado
+```
+
+```text
+SHEET: SEMINE
+AZIONE: aggiungi
+RIGA:
+DATA: 04/07/2026
+ID LOTTO: RAB-0407-A
+VARIETÀ: rábano morado
+SET: 3
+GRAMMI SEME TOTALI (PER SET): 48 (16)
+INIZIO IDRATAZIONE: 04/07/2026 mattina
+DATA SEMINA: DA CONFERMARE
+OPERATORE: DA CONFERMARE
+NOTE: idratazione mattina
+
+SHEET: LOTTI
+AZIONE: aggiungi
+RIGA:
+ID LOTTO: RAB-0407-A
+SET: 3
+VARIETÀ: rábano morado
+DATA SEMINA: DA CONFERMARE
+DATA PASSAGGIO LUCE: DA CONFERMARE
+FASE: idratazione
+STATO: ok
+DATA RACCOLTA PREVISTA: DA CONFERMARE
+NOTE: creato da report TPO
+```
+
+### Esempio 2: Passaggio A Luce
+
+Report TPO:
+
+```text
+06/07/2026 mattina
+RAB-0407-A passato a luce
+stato ok
+```
+
+```text
+SHEET: LOTTI
+AZIONE: aggiorna
+RIGA:
+ID LOTTO: RAB-0407-A
+SET: 3
+VARIETÀ: rábano morado
+DATA SEMINA: DA CONFERMARE
+DATA PASSAGGIO LUCE: 06/07/2026 mattina
+FASE: luce
+STATO: ok
+DATA RACCOLTA PREVISTA: DA CONFERMARE
+NOTE: passato a luce da report TPO
+```
+
+### Esempio 3: Raccolta
+
+Report TPO:
+
+```text
+12/07/2026 mattina
+raccolto RAB-0407-A
+rábano morado
+450 g
+qualità ok
+```
+
+```text
+SHEET: RACCOLTI
+AZIONE: aggiungi
+RIGA:
+DATA RACCOLTA: 12/07/2026 mattina
+ID LOTTO: RAB-0407-A
+VARIETÀ: rábano morado
+QUANTITÀ RACCOLTA: 450
+UNITÀ: g
+QUALITÀ: ok
+SCARTI: DA CONFERMARE
+DESTINAZIONE: DA CONFERMARE
+OPERATORE: DA CONFERMARE
+NOTE: raccolta da report TPO
+
+SHEET: LOTTI
+AZIONE: aggiorna
+RIGA:
+ID LOTTO: RAB-0407-A
+SET: 3
+VARIETÀ: rábano morado
+DATA SEMINA: DA CONFERMARE
+DATA PASSAGGIO LUCE: 06/07/2026 mattina
+FASE: raccolto
+STATO: ok
+DATA RACCOLTA: 12/07/2026 mattina
+QUANTITÀ RACCOLTA: 450 g
+NOTE: lotto aggiornato dopo raccolta da report TPO
+```
+
+### Esempio 4: Problema
+
+Report TPO:
+
+```text
+07/07/2026 sera
+RAB-0407-A
+umidità alta e crescita irregolare
+controllare domani
+```
+
+```text
+SHEET: PROBLEMI
+AZIONE: aggiungi
+RIGA:
+DATA: 07/07/2026 sera
+ID LOTTO: RAB-0407-A
+VARIETÀ: rábano morado
+PROBLEMA: umidità alta e crescita irregolare
+GRAVITÀ: DA CONFERMARE
+AZIONE RICHIESTA: controllare domani
+RESPONSABILE: DA CONFERMARE
+STATO: aperto
+IMPATTO SU RACCOLTA: DA CONFERMARE
+NOTE: problema riportato in TPO, non trasformare in diagnosi
+```
+
+### Esempio 5: Consegna
+
+Report TPO:
+
+```text
+12/07/2026 pomeriggio
+consegna rábano morado
+RAB-0407-A
+cliente Restaurante Tefía
+200 g
+consegnato
+```
+
+```text
+SHEET: CONSEGNE
+AZIONE: aggiungi
+RIGA:
+DATA CONSEGNA: 12/07/2026 pomeriggio
+CLIENTE: Restaurante Tefía
+PRODOTTO: rábano morado
+ID LOTTO: RAB-0407-A
+QUANTITÀ: 200 g
+STATO CONSEGNA: consegnato
+ORDINE COLLEGATO: DA CONFERMARE
+ZONA O INDIRIZZO: DA CONFERMARE
+RESPONSABILE: DA CONFERMARE
+NOTE: consegna registrata da report TPO
+```
+
+---
+
 ## Business/Admin Manager
 
 ### Ruolo

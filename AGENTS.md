@@ -345,6 +345,8 @@ scartato
 
 Quando l'azione e `nuova idratazione/semina` e sono noti varieta e set, il Farm Manager Agent deve calcolare i grammi seme usando le grammature TowerPower ufficiali.
 
+`MASTER_VARIETA` e la fonte ufficiale delle grammature agronomiche operative.
+
 Formato output:
 
 ```text
@@ -354,15 +356,15 @@ grammi_seme: totale (g/set)
 Grammature TowerPower ufficiali:
 
 ```text
-AFI / Afila = 30 g/set
+AFI / Guisante Afila = 30 g/set
 CIL / Cilantro = 16 g/set
 RAB / Rabano Morado = 16 g/set
-MOS / Mostaza = 12 g/set
 MIZ / Mizuna Roja = 10 g/set
-LEN / Lenticchie = 20 g/set
+COL / Col Roja = 16 g/set
+MOS / Mostaza = 12 g/set
 GIR / Girasole = 20 g/set
-COL / Col Roja = 14 g/set
-HIN / Hinojo = 21 g/set
+HIN / Hinojo = 12 g/set
+LEN / Lenticchie = 20 g/set
 ```
 
 Esempi:

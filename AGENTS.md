@@ -1031,6 +1031,176 @@ Note:
 
 ---
 
+## Daily Briefing Agent
+
+### Scopo
+
+Questa sezione definisce il protocollo ufficiale per generare il briefing operativo giornaliero TowerPower usando i fogli Google Sheets esistenti.
+
+Il Daily Briefing Agent deve trasformare i dati operativi in un output chiaro per il foglio `BRIEFING_GIORNALIERO`, separando sempre `CHECK MATTUTINO` e `CHECK SERALE`.
+
+### Fogli Disponibili
+
+```text
+CLIENTI
+PIANO_SEMINE
+CALENDARIO_PRODUZIONE
+PIANO_EXTRA
+LOTTI
+SEMINE
+RACCOLTI
+STOCK
+CONSEGNE
+PROBLEMI
+MASTER_VARIETA
+BRIEFING_GIORNALIERO
+```
+
+### Fonti Principali
+
+Il briefing deve usare prima questi fogli:
+
+```text
+LOTTI
+SEMINE
+RACCOLTI
+CONSEGNE
+PROBLEMI
+PIANO_SEMINE
+MASTER_VARIETA
+```
+
+### Fonti Secondarie
+
+Questi fogli servono per completare o verificare il briefing quando il dato e disponibile:
+
+```text
+CLIENTI
+STOCK
+PIANO_EXTRA
+CALENDARIO_PRODUZIONE
+```
+
+### Output
+
+Il risultato operativo deve essere destinato al foglio:
+
+```text
+BRIEFING_GIORNALIERO
+```
+
+### Regole Fondamentali
+
+- Non inventare dati.
+- Usare `DA CONFERMARE` per dati mancanti, incompleti o non certi.
+- Indicare sempre la data del briefing.
+- Separare sempre `CHECK MATTUTINO` e `CHECK SERALE`.
+- Evidenziare lotti pronti.
+- Evidenziare lotti da passare a luce.
+- Evidenziare semine da fare.
+- Evidenziare raccolti previsti o completati.
+- Evidenziare consegne previste, completate, bloccate o da confermare.
+- Evidenziare problemi aperti.
+- Indicare sempre azioni richieste.
+- Indicare sempre rischi o blocchi.
+- Non modificare dati di origine senza istruzione esplicita.
+- Non trasformare un'osservazione in diagnosi non confermata.
+- Se una fonte principale non contiene dati per una sezione, scrivere `DA CONFERMARE` o `Nessun dato registrato`, secondo il caso.
+
+### Protocollo Di Generazione
+
+1. Leggere la data del briefing richiesta.
+2. Consultare le fonti principali per la data indicata.
+3. Consultare le fonti secondarie solo per completare contesto, clienti, stock, extra o calendario.
+4. Identificare lotti in fase `idratazione`, `germinazione`, `luce`, `pronto`, `raccolto` o `scartato`.
+5. Evidenziare lotti pronti per raccolta o vendita.
+6. Evidenziare lotti che devono passare a luce.
+7. Evidenziare semine pianificate o richieste da `PIANO_SEMINE`.
+8. Evidenziare raccolti previsti, raccolti completati e raccolti da confermare.
+9. Evidenziare consegne del giorno e consegne a rischio.
+10. Evidenziare problemi aperti da `PROBLEMI`.
+11. Collegare ogni azione richiesta al foglio di origine quando possibile.
+12. Usare `DA CONFERMARE` quando data, lotto, cliente, quantita, varieta, stato o responsabile non sono certi.
+13. Separare il risultato in `CHECK MATTUTINO` e `CHECK SERALE`.
+14. Preparare una o piu righe per `BRIEFING_GIORNALIERO`.
+
+### Formato Standard Di Output
+
+```text
+SHEET: BRIEFING_GIORNALIERO
+AZIONE: aggiungi
+RIGA:
+DATA BRIEFING:
+CHECK:
+LOTTI PRONTI:
+LOTTI DA PASSARE A LUCE:
+SEMINE DA FARE:
+RACCOLTI:
+CONSEGNE:
+CONSEGNE DOMANI:
+PROBLEMI APERTI:
+PRIORITÀ ALTA:
+PRIORITÀ MEDIA:
+PRIORITÀ BASSA:
+AZIONI RICHIESTE:
+RISCHI O BLOCCHI:
+TEMPO STIMATO CHECK:
+FONTI USATE:
+NOTE:
+```
+
+### Esempio: Check Mattutino
+
+```text
+SHEET: BRIEFING_GIORNALIERO
+AZIONE: aggiungi
+RIGA:
+DATA BRIEFING: 04/07/2026
+CHECK: CHECK MATTUTINO
+LOTTI PRONTI: DA CONFERMARE
+LOTTI DA PASSARE A LUCE: DA CONFERMARE
+SEMINE DA FARE: 3 set rábano morado da idratare, fonte PIANO_SEMINE DA CONFERMARE
+RACCOLTI: DA CONFERMARE
+CONSEGNE: DA CONFERMARE
+CONSEGNE DOMANI: DA CONFERMARE
+PROBLEMI APERTI: DA CONFERMARE
+PRIORITÀ ALTA: verificare PIANO_SEMINE; confermare lotti pronti; controllare problemi aperti
+PRIORITÀ MEDIA: aggiornare SEMINE e LOTTI se idratazione confermata; verificare consegne del giorno
+PRIORITÀ BASSA: controllare STOCK e PIANO_EXTRA se resta tempo operativo
+AZIONI RICHIESTE: verificare PIANO_SEMINE; creare righe SEMINE e LOTTI se idratazione confermata; controllare PROBLEMI aperti
+RISCHI O BLOCCHI: dati incompleti su lotti pronti, consegne e raccolti
+TEMPO STIMATO CHECK: 15 minuti
+FONTI USATE: LOTTI, SEMINE, RACCOLTI, CONSEGNE, PROBLEMI, PIANO_SEMINE, MASTER_VARIETA
+NOTE: briefing mattutino generato solo con dati confermati o marcati DA CONFERMARE
+```
+
+### Esempio: Check Serale
+
+```text
+SHEET: BRIEFING_GIORNALIERO
+AZIONE: aggiungi
+RIGA:
+DATA BRIEFING: 04/07/2026
+CHECK: CHECK SERALE
+LOTTI PRONTI: DA CONFERMARE
+LOTTI DA PASSARE A LUCE: DA CONFERMARE
+SEMINE DA FARE: DA CONFERMARE
+RACCOLTI: DA CONFERMARE
+CONSEGNE: DA CONFERMARE
+CONSEGNE DOMANI: DA CONFERMARE
+PROBLEMI APERTI: DA CONFERMARE
+PRIORITÀ ALTA: registrare raccolti completati; aggiornare consegne; confermare problemi ancora aperti
+PRIORITÀ MEDIA: confrontare SEMINE e LOTTI aggiornati; preparare azioni del check mattutino successivo
+PRIORITÀ BASSA: controllare STOCK, PIANO_EXTRA e CALENDARIO_PRODUZIONE per eventuali note del giorno dopo
+AZIONI RICHIESTE: confrontare SEMINE e LOTTI aggiornati; registrare raccolti completati; aggiornare consegne; chiudere o confermare problemi aperti
+RISCHI O BLOCCHI: eventuali dati serali mancanti devono restare DA CONFERMARE
+TEMPO STIMATO CHECK: 20 minuti
+FONTI USATE: LOTTI, SEMINE, RACCOLTI, CONSEGNE, PROBLEMI, STOCK, PIANO_EXTRA, CALENDARIO_PRODUZIONE
+NOTE: briefing serale destinato a preparare il controllo operativo del giorno successivo
+```
+
+---
+
 ## Daily Briefing System
 
 Ogni agente deve poter contribuire a un briefing giornaliero. Il briefing serve a rispondere in modo rapido a queste domande:

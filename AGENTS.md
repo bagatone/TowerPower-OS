@@ -958,7 +958,7 @@ Report TPO:
 12/07/2026 pomeriggio
 consegna rábano morado
 RAB-0407-A
-cliente Restaurante Tefía
+cliente esempio
 200 g
 consegnato
 ```
@@ -968,7 +968,7 @@ SHEET: CONSEGNE
 AZIONE: aggiungi
 RIGA:
 DATA CONSEGNA: 12/07/2026 pomeriggio
-CLIENTE: Restaurante Tefía
+CLIENTE: cliente esempio
 PRODOTTO: rábano morado
 ID LOTTO: RAB-0407-A
 QUANTITÀ: 200 g
@@ -1079,6 +1079,108 @@ CLIENTI
 STOCK
 PIANO_EXTRA
 CALENDARIO_PRODUZIONE
+```
+
+### Input Dati Operativi
+
+Questa sottosezione definisce il formato standard con cui Matteo o ChatGPT possono passare al Daily Briefing Agent i dati estratti da Google Sheets.
+
+Formato standard:
+
+```text
+DATI_LOTTI:
+
+DATI_SEMINE:
+
+DATI_RACCOLTI:
+
+DATI_CONSEGNE:
+
+DATI_PROBLEMI:
+
+DATI_STOCK:
+
+DATI_PIANO_SEMINE:
+```
+
+Regole per l'input:
+
+- Se una sezione non viene fornita, il briefing deve usare `DA CONFERMARE` per quella sezione.
+- Il Daily Briefing Agent deve usare solo i dati presenti nell'input.
+- Non deve inventare lotti, date, consegne o problemi.
+- Deve trasformare questi dati in `CHECK MATTUTINO` e `CHECK SERALE`.
+- Deve indicare `FONTI USATE` in base alle sezioni realmente fornite.
+- Se una sezione e presente ma vuota, trattarla come dato mancante e usare `DA CONFERMARE`.
+- Se un dato e parziale, usare il dato disponibile e marcare il resto come `DA CONFERMARE`.
+
+Esempio completo di input:
+
+```text
+DATI_LOTTI:
+- ID LOTTO: RAB-0407-A
+  VARIETÀ: rábano morado
+  SET: 3
+  FASE: idratazione
+  STATO: ok
+  DATA RACCOLTA PREVISTA: DA CONFERMARE
+  NOTE: creato da report TPO
+- ID LOTTO: CIL-0207-A
+  VARIETÀ: cilantro
+  SET: 2
+  FASE: luce
+  STATO: da controllare
+  DATA RACCOLTA PREVISTA: 08/07/2026
+  NOTE: verificare altezza e colore
+
+DATI_SEMINE:
+- DATA: 04/07/2026
+  ID LOTTO: RAB-0407-A
+  VARIETÀ: rábano morado
+  SET: 3
+  GRAMMI SEME TOTALI (PER SET): 48 (16)
+  INIZIO IDRATAZIONE: 04/07/2026 mattina
+  DATA SEMINA: DA CONFERMARE
+  OPERATORE: DA CONFERMARE
+
+DATI_RACCOLTI:
+- DATA RACCOLTA: 04/07/2026 mattina
+  ID LOTTO: AFI-2806-A
+  VARIETÀ: afila
+  QUANTITÀ RACCOLTA: 300
+  UNITÀ: g
+  QUALITÀ: ok
+  DESTINAZIONE: stock
+
+DATI_CONSEGNE:
+- DATA CONSEGNA: 04/07/2026 pomeriggio
+  CLIENTE: cliente esempio
+  PRODOTTO: afila
+  ID LOTTO: AFI-2806-A
+  QUANTITÀ: 200 g
+  STATO CONSEGNA: da preparare
+  ZONA O INDIRIZZO: DA CONFERMARE
+
+DATI_PROBLEMI:
+- DATA: 04/07/2026 mattina
+  ID LOTTO: CIL-0207-A
+  VARIETÀ: cilantro
+  PROBLEMA: crescita irregolare
+  GRAVITÀ: DA CONFERMARE
+  AZIONE RICHIESTA: controllare umidita e ventilazione
+  STATO: aperto
+
+DATI_STOCK:
+- PRODOTTO: afila
+  QUANTITÀ DISPONIBILE: 100 g
+  STATO: disponibile dopo consegna pianificata
+  NOTE: dato da confermare dopo preparazione ordine
+
+DATI_PIANO_SEMINE:
+- DATA: 04/07/2026
+  VARIETÀ: rábano morado
+  SET: 3
+  AZIONE: idratazione
+  PRIORITÀ: alta
 ```
 
 ### Output

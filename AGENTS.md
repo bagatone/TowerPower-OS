@@ -518,6 +518,106 @@ Conferma richiesta:
 
 ---
 
+## Planning Agent
+
+### Scopo
+
+Generare automaticamente le righe del foglio `PIANO_SEMINE` partendo da:
+
+- `CLIENTI`
+- `CONSEGNE`
+- `STOCK`
+- `MASTER_VARIETA`
+
+### Regole
+
+- `MASTER_VARIETA` e la fonte ufficiale dei cicli produttivi.
+- Il ciclo totale e dato da:
+  `IDRATAZIONE_H + GERMINAZIONE_GG + LUCE_GG`.
+- Il Planning Agent deve calcolare:
+  `DATA_CONSEGNA_PREVISTA`
+  -> `DATA_SEMINA`
+  -> `DATA_IDRATAZIONE`.
+- La raccolta/consegna avviene il giorno della consegna.
+- `DATA_SEMINA = DATA_CONSEGNA_PREVISTA - TOTALE_GG` da `MASTER_VARIETA`.
+- Se `IDRATAZIONE_H` e `12`, `DATA_IDRATAZIONE` = mattina dello stesso giorno della `DATA_SEMINA`.
+- Se `IDRATAZIONE_H` e `0`, `DATA_IDRATAZIONE` = non necessaria.
+- Non deve inventare dati.
+- Se una data non puo essere calcolata, usare `DA CONFERMARE`.
+- Per valutare se serve seminare, usare `VENDIBILE` dello `STOCK`, non `DISPONIBILE` totale.
+- Se lo stock vendibile copre il fabbisogno, non generare una nuova semina.
+- Se lo stock vendibile non copre il fabbisogno, generare una riga nel `PIANO_SEMINE`.
+- Priorita:
+  `ALTA` = consegna entro 7 giorni
+  `MEDIA` = consegna entro 14 giorni
+  `BASSA` = oltre 14 giorni
+
+### Output
+
+Formato:
+
+```text
+SHEET: PIANO_SEMINE
+AZIONE: aggiungi
+
+RIGA:
+DATA_IDRATAZIONE:
+DATA_SEMINA:
+VARIETA:
+SET:
+CLIENTE_DESTINAZIONE:
+DATA_CONSEGNA_PREVISTA:
+PRIORITA:
+STATO:
+NOTE:
+```
+
+### Stati Ammessi
+
+```text
+DA_IDRATARE
+IN_IDRATAZIONE
+SEMINATO
+IN_GERMINAZIONE
+IN_LUCE
+PRONTO
+CONSEGNATO
+```
+
+### Esempio
+
+Input:
+
+```text
+Cliente: Margot
+Consegna: 17/07/2026
+Varietà: Cilantro
+Set: 0.5
+Ciclo Cilantro: 14 giorni
+```
+
+Il Planning Agent deve usare il ciclo di `MASTER_VARIETA` per calcolare automaticamente `DATA_SEMINA` e `DATA_IDRATAZIONE`.
+
+Output:
+
+```text
+SHEET: PIANO_SEMINE
+AZIONE: aggiungi
+
+RIGA:
+DATA_IDRATAZIONE: 03/07/2026 mattina
+DATA_SEMINA: 03/07/2026 sera
+VARIETA: Cilantro
+SET: 0.5
+CLIENTE_DESTINAZIONE: Margot
+DATA_CONSEGNA_PREVISTA: 17/07/2026
+PRIORITA: MEDIA
+STATO: DA_IDRATARE
+NOTE: ciclo Cilantro 14 giorni da MASTER_VARIETA; raccolta/consegna il 17/07/2026; DATA_SEMINA calcolata al 03/07/2026 sera; DATA_IDRATAZIONE calcolata al 03/07/2026 mattina
+```
+
+---
+
 ## Sales & Clients Manager
 
 ### Ruolo

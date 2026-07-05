@@ -1404,6 +1404,11 @@ BRIEFING_GIORNALIERO
 19. Per ogni problema aperto mostrare: `Problema`, `Area`, `Stato`, `Azione richiesta`.
 20. Al 05/07/2026 i problemi aperti noti sono: Mostaza con collasso degli steli e marciume radicale (`APERTO`); Hinojo con germinazione scarsa (`APERTO`); stress fisiologico rábano giorno 1 luce (`IN OSSERVAZIONE`).
 21. La sezione `Priorità del Giorno` deve privilegiare attivita operative della farm rispetto a verifiche amministrative quando sono presenti problemi aperti o colture da monitorare.
+22. `CONSEGNE PROGRAMMATE` deve leggere il foglio `CONSEGNE`.
+23. `CONSEGNE PROGRAMMATE` deve mostrare solo consegne presenti nel foglio `CONSEGNE`.
+24. Le consegne programmate devono essere ordinate sempre per data in ordine cronologico crescente.
+25. Se due consegne hanno la stessa data, mantenerle entrambe.
+26. Se una data manca o non e certa, usare `DA CONFERMARE`; non inventare consegne, clienti o date.
 
 ### Protocollo Di Generazione
 

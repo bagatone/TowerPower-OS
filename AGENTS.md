@@ -341,6 +341,31 @@ raccolto
 scartato
 ```
 
+### Regola Ufficiale STOCK
+
+```text
+DISPONIBILE = prodotto pronto oggi
+PRENOTATO = somma delle consegne attive future presenti nel foglio CONSEGNE
+VENDIBILE = DISPONIBILE - PRENOTATO
+```
+
+- `STOCK` e la fonte ufficiale della disponibilita commerciale.
+- `CONSEGNE` e la fonte ufficiale dei prodotti prenotati.
+- `LOTTI` e la fonte ufficiale delle colture in crescita.
+- Se `VENDIBILE` e minore di 0, indicare deficit.
+- Se `VENDIBILE` e 0, non proporre vendite extra.
+- Se `VENDIBILE` e maggiore di 0, il prodotto puo essere proposto a nuovi clienti.
+- Il Farm Manager Agent deve distinguere colture in crescita da prodotto pronto oggi.
+
+Esempio:
+
+```text
+Cilantro:
+DISPONIBILE: 8.5
+PRENOTATO: 6.5
+VENDIBILE: 2
+```
+
 ### Calcolo Grammi Seme
 
 Quando l'azione e `nuova idratazione/semina` e sono noti varieta e set, il Farm Manager Agent deve calcolare i grammi seme usando le grammature TowerPower ufficiali.
@@ -551,6 +576,31 @@ Generare automaticamente le righe del foglio `PIANO_SEMINE` partendo da:
   `ALTA` = consegna entro 7 giorni
   `MEDIA` = consegna entro 14 giorni
   `BASSA` = oltre 14 giorni
+
+### Regola Ufficiale STOCK
+
+```text
+DISPONIBILE = prodotto pronto oggi
+PRENOTATO = somma delle consegne attive future presenti nel foglio CONSEGNE
+VENDIBILE = DISPONIBILE - PRENOTATO
+```
+
+- `STOCK` e la fonte ufficiale della disponibilita commerciale.
+- `CONSEGNE` e la fonte ufficiale dei prodotti prenotati.
+- `LOTTI` e la fonte ufficiale delle colture in crescita.
+- `PIANO_SEMINE` deve usare `VENDIBILE`, non `DISPONIBILE`, per decidere se generare nuove semine.
+- Se `VENDIBILE` e minore di 0, indicare deficit.
+- Se `VENDIBILE` e 0, non proporre vendite extra.
+- Se `VENDIBILE` e maggiore di 0, il prodotto puo essere proposto a nuovi clienti.
+
+Esempio:
+
+```text
+Cilantro:
+DISPONIBILE: 8.5
+PRENOTATO: 6.5
+VENDIBILE: 2
+```
 
 ### Output
 
@@ -1409,6 +1459,32 @@ BRIEFING_GIORNALIERO
 24. Le consegne programmate devono essere ordinate sempre per data in ordine cronologico crescente.
 25. Se due consegne hanno la stessa data, mantenerle entrambe.
 26. Se una data manca o non e certa, usare `DA CONFERMARE`; non inventare consegne, clienti o date.
+
+### Regola Ufficiale STOCK
+
+```text
+DISPONIBILE = prodotto pronto oggi
+PRENOTATO = somma delle consegne attive future presenti nel foglio CONSEGNE
+VENDIBILE = DISPONIBILE - PRENOTATO
+```
+
+- `STOCK` e la fonte ufficiale della disponibilita commerciale.
+- `CONSEGNE` e la fonte ufficiale dei prodotti prenotati.
+- `LOTTI` e la fonte ufficiale delle colture in crescita.
+- `PIANO_SEMINE` deve usare `VENDIBILE`, non `DISPONIBILE`, per decidere se generare nuove semine.
+- Se `VENDIBILE` e minore di 0, indicare deficit.
+- Se `VENDIBILE` e 0, non proporre vendite extra.
+- Se `VENDIBILE` e maggiore di 0, il prodotto puo essere proposto a nuovi clienti.
+- Il Daily Briefing Agent deve distinguere sempre tra `DISPONIBILE`, `PRENOTATO` e `VENDIBILE`.
+
+Esempio:
+
+```text
+Cilantro:
+DISPONIBILE: 8.5
+PRENOTATO: 6.5
+VENDIBILE: 2
+```
 
 ### Protocollo Di Generazione
 

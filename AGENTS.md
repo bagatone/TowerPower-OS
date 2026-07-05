@@ -1398,6 +1398,12 @@ BRIEFING_GIORNALIERO
 13. Se le date delle consegne ricorrenti non sono disponibili, usare `DA CONFERMARE` ma mantenere comunque il cliente nell'elenco delle prossime consegne.
 14. La sezione `PROSSIME CONSEGNE` deve mostrare massimo 5 consegne ordinate per priorita temporale.
 15. Margot 17/07/2026 non deve essere presentata come prossima consegna se esistono consegne attive precedenti di Salvaje, Sal y Mar, El Callao, Jaira o Lo Nuestro.
+16. Se il foglio `PROBLEMI` contiene record con `STATO = APERTO` o `STATO = IN OSSERVAZIONE`, la sezione `Problemi Aperti` deve essere generata utilizzando quei record.
+17. Non usare `Problemi agronomici aperti: DA CONFERMARE` se esistono problemi aperti nel foglio `PROBLEMI`.
+18. I problemi devono essere mostrati ordinati per gravita: `ALTA`, `MEDIA`, `BASSA`.
+19. Per ogni problema aperto mostrare: `Problema`, `Area`, `Stato`, `Azione richiesta`.
+20. Al 05/07/2026 i problemi aperti noti sono: Mostaza con collasso degli steli e marciume radicale (`APERTO`); Hinojo con germinazione scarsa (`APERTO`); stress fisiologico rábano giorno 1 luce (`IN OSSERVAZIONE`).
+21. La sezione `Priorità del Giorno` deve privilegiare attivita operative della farm rispetto a verifiche amministrative quando sono presenti problemi aperti o colture da monitorare.
 
 ### Protocollo Di Generazione
 

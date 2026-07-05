@@ -618,6 +618,76 @@ NOTE: ciclo Cilantro 14 giorni da MASTER_VARIETA; raccolta/consegna il 17/07/202
 
 ---
 
+## Calendar Agent
+
+### Scopo
+
+Definire il protocollo ufficiale per generare il foglio `CALENDARIO_PRODUZIONE` come vista cronologica operativa.
+
+Il Calendar Agent deve generare `CALENDARIO_PRODUZIONE` partendo da:
+
+- `PIANO_SEMINE`
+- `CONSEGNE`
+- `LOTTI`
+- `PROBLEMI`
+
+### Regole
+
+- `CALENDARIO_PRODUZIONE` non e la fonte primaria dei dati.
+- `CALENDARIO_PRODUZIONE` e una vista operativa cronologica.
+- Non inventare dati.
+- Usare `DA CONFERMARE` per dati mancanti.
+- Ogni riga deve rappresentare una sola azione in una sola data.
+- Il calendario deve ordinare gli eventi per `DATA`.
+- Le consegne arrivano dal foglio `CONSEGNE`.
+- Le idratazioni e semine arrivano dal foglio `PIANO_SEMINE`.
+- I passaggi a luce e raccolte arrivano da `LOTTI`.
+- I controlli/problemi arrivano da `PROBLEMI`.
+- Il calendario alimenta il Daily Briefing Agent.
+
+### Eventi Ammessi
+
+```text
+IDRATAZIONE
+SEMINA
+PASSAGGIO_LUCE
+RACCOLTA
+CONSEGNA
+CONTROLLO
+PROBLEMA
+```
+
+### Stati Ammessi
+
+```text
+PIANIFICATO
+DA_FARE
+FATTO
+RIMANDATO
+ANNULLATO
+```
+
+### Formato Output
+
+```text
+SHEET: CALENDARIO_PRODUZIONE
+AZIONE: aggiungi / aggiorna
+
+RIGA:
+DATA:
+EVENTO:
+VARIETÀ:
+SET:
+ID_LOTTO:
+CLIENTE_COLLEGATO:
+FASE:
+STATO:
+PRIORITÀ:
+NOTE:
+```
+
+---
+
 ## Sales & Clients Manager
 
 ### Ruolo

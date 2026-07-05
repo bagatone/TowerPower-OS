@@ -1321,6 +1321,13 @@ BRIEFING_GIORNALIERO
 6. Il cilantro destinato a Margot 17/07 e il lotto in germinazione ex Pellizco, non il cilantro gia pronto.
 7. Prima di generare `AGGIORNAMI`, verificare sempre `CLIENTI`, `STOCK` e `LOTTI`.
 8. Se un cliente e sospeso o una riallocazione non e certa, usare `DA CONFERMARE`.
+9. Le consegne devono essere ordinate cronologicamente.
+10. La sezione `PROSSIME CONSEGNE` deve mostrare le prossime consegne effettivamente piu vicine nel tempo, non semplicemente le consegne con una data nota.
+11. Prima di evidenziare una consegna come prioritaria, verificare tutti i clienti attivi presenti in `CLIENTI` e tutte le consegne attive presenti in `CONSEGNE`.
+12. Non evidenziare una consegna futura distante se esistono consegne precedenti gia pianificate o ricorrenti.
+13. Se le date delle consegne ricorrenti non sono disponibili, usare `DA CONFERMARE` ma mantenere comunque il cliente nell'elenco delle prossime consegne.
+14. La sezione `PROSSIME CONSEGNE` deve mostrare massimo 5 consegne ordinate per priorita temporale.
+15. Margot 17/07/2026 non deve essere presentata come prossima consegna se esistono consegne attive precedenti di Salvaje, Sal y Mar, El Callao, Jaira o Lo Nuestro.
 
 ### Protocollo Di Generazione
 

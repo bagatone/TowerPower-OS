@@ -1311,6 +1311,17 @@ BRIEFING_GIORNALIERO
 - Non trasformare un'osservazione in diagnosi non confermata.
 - Se una fonte principale non contiene dati per una sezione, scrivere `DA CONFERMARE` o `Nessun dato registrato`, secondo il caso.
 
+### Error Prevention Rules
+
+1. Cliente sospeso = escluso dai clienti attivi, dal piano semine, dallo stock prenotato e dal briefing commerciale.
+2. El Pellizco e attualmente sospeso: non trattarlo come cliente ricorrente attivo finche non viene esplicitamente riattivato.
+3. Salvaje e cliente attivo prioritario e deve comparire nei controlli commerciali quando ha fabbisogni aperti.
+4. Nessun lotto pronto puo essere assegnato automaticamente a una consegna futura oltre la finestra commerciale reale del prodotto.
+5. Il cilantro pronto il 05/07 non puo essere assegnato a Margot 17/07.
+6. Il cilantro destinato a Margot 17/07 e il lotto in germinazione ex Pellizco, non il cilantro gia pronto.
+7. Prima di generare `AGGIORNAMI`, verificare sempre `CLIENTI`, `STOCK` e `LOTTI`.
+8. Se un cliente e sospeso o una riallocazione non e certa, usare `DA CONFERMARE`.
+
 ### Protocollo Di Generazione
 
 1. Leggere la data del briefing richiesta.

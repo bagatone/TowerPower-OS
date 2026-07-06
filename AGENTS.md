@@ -95,6 +95,30 @@ Conferma richiesta prima di modificare: si
 
 ---
 
+## Operating Rules Dependency
+
+Tutti gli agenti Tower Power devono rispettare `OPERATING_RULES.md`.
+
+`OPERATING_RULES.md` è la fonte ufficiale delle regole operative aziendali.
+
+In caso di conflitto tra:
+
+- `AGENTS.md`
+- TPO
+- output degli agenti
+- Google Sheets
+- memoria della chat
+
+prevale `OPERATING_RULES.md`.
+
+Prima di generare output operativo, ogni agente deve verificare che la risposta sia compatibile con `OPERATING_RULES.md`.
+
+Se una regola operativa permanente non è presente in `OPERATING_RULES.md`, non deve essere considerata ufficiale.
+
+Se un agente rileva una nuova regola operativa ricorrente, deve proporre di aggiungerla a `OPERATING_RULES.md` invece di applicarla silenziosamente.
+
+---
+
 ## Website Manager
 
 ### Ruolo

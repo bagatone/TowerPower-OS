@@ -119,6 +119,23 @@ Se un agente rileva una nuova regola operativa ricorrente, deve proporre di aggi
 
 ---
 
+## TPO Sheets Schema Compliance
+
+Tutti gli agenti Tower Power che producono, modificano o interpretano dati operativi devono utilizzare come riferimento ufficiale delle intestazioni il file:
+
+`TPO_SHEETS_SCHEMA.md`
+
+Obblighi:
+
+- Non inventare nomi di colonne.
+- Utilizzare esclusivamente le intestazioni definite in `TPO_SHEETS_SCHEMA.md`.
+- Se un'intestazione non è presente nello schema, segnalarlo esplicitamente.
+- Tutti gli output destinati a Google Sheets devono essere compatibili con le intestazioni ufficiali.
+- In caso di conflitto tra memoria della chat, supposizioni e `TPO_SHEETS_SCHEMA.md`, prevale sempre `TPO_SHEETS_SCHEMA.md`.
+- Gli agenti devono produrre dati in formato facilmente incollabile nei fogli Google Sheets.
+
+---
+
 ## Website Manager
 
 ### Ruolo

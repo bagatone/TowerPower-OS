@@ -1,0 +1,70 @@
+# TPO_SHEETS_SCHEMA.md
+
+## Scopo
+
+Questo documento definisce le intestazioni ufficiali dei fogli Google Sheets del sistema Tower Power Operations.
+
+Le intestazioni sono scritte in riga per poter essere copiate e incollate direttamente in Google Sheets, Excel o altri fogli di calcolo.
+
+## Regola generale
+
+Tutte le modifiche ai Google Sheets devono rispettare le intestazioni definite in questo documento.
+
+In caso di conflitto tra chat, memoria, agenti o fogli ricostruiti manualmente, prevale TPO_SHEETS_SCHEMA.md per la struttura dei fogli.
+
+## Schemi ufficiali
+
+### CLIENTI
+
+CLIENTE | FREQUENZA | GIORNO | STATO | NOTE
+
+### CONSEGNE
+
+CLIENTE | PRODOTTO | QUANTITA | UNITA | ID_LOTTO | STATO | GIORNO_CONSEGNA | FREQUENZA | PROSSIMA_CONSEGNA | NOTE
+
+### LOTTI
+
+CALENDARIO_PROD | SET | VARIETA | DATA_SEMINA | DATA_PASSAGGIO | FASE | STATO | DATA_RACCOLTA | NOTE
+
+### SEMINE
+
+DATA | ID_LOTTO | VARIETA | SET | GRAMMI_SEME | INIZIO_IDRATAZIONE | DATA_SEMINA | OPERATORE | NOTE
+
+### RACCOLTI
+
+DATA_RACCOLTA | ID_LOTTO | VARIETA | SET_RACCOLTI | DESTINAZIONE | OPERATORE | QUALITA | NOTE
+
+### STOCK
+
+VARIETA | DISPONIBILE | PRENOTATO | VENDIBILE | NOTE | ULTIMO_AGGIORNAMENTO
+
+### MASTER_VARIETA
+
+VARIETA | CODICE | GRAMMI_SET | IDRATAZIONE_ORE | GERMINAZIONE_GG | LUCE_GG | TOTALE_GG | STATO | NOTE
+
+### PROBLEMI
+
+DATA | AREA | GRAVITA | PROBLEMA | AZIONE_RICHIESTA | STATO | DATA_CHIUSURA | NOTE
+
+### PIANO_SEMINE
+
+DATA_IDRATAZIONE | DATA_SEMINA | VARIETA | SET | CLIENTE_DESTINAZIONE | DATA_CONSEGNA_PREVISTA | PRIORITA | STATO | NOTE
+
+### CALENDARIO_PRODUZIONE
+
+DATA | EVENTO | VARIETA | SET | ID_LOTTO | CLIENTE_COLLEGATO | FASE | STATO | PRIORITA | NOTE
+
+### PIANO_EXTRA
+
+DATA_CICLO | VARIETA | SET_EXTRA | MOTIVO | CONFERMATO | NOTE
+
+### BRIEFING_GIORNALIERO
+
+DATA | COSA_FARE_OGGI | SEMINE | LOTTI_IN_GERMINAZIONE | LOTTI_SOTTO_LUCE | RACCOLTI_PREVISTI | CONSEGNE_PREVISTE | PROBLEMI_APERTI | NOTE
+
+## Note operative
+
+- Non cambiare intestazioni senza aggiornare questo file.
+- Quando si genera una riga per Google Sheets, usare sempre lo schema del foglio corrispondente.
+- Se un foglio viene modificato manualmente, aggiornare TPO_SHEETS_SCHEMA.md.
+- Se una colonna manca o non è certa, usare DA CONFERMARE prima di creare automatismi.

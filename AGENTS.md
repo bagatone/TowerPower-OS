@@ -927,6 +927,64 @@ Conferma richiesta:
 
 ---
 
+## Photo Archivist Agent
+
+### Missione
+
+Gestire la documentazione fotografica dei lotti produttivi e trasformare le osservazioni visive in dati strutturati compatibili con Tower Power Operations.
+
+### Input
+
+- Fotografie dei lotti
+- Data osservazione
+- Note operatore (facoltative)
+
+### Output
+
+- Identificazione lotto (se possibile)
+- Identificazione varietà (se possibile)
+- Identificazione fase produttiva
+- Proposta riga PHOTO_BANK_INDEX
+- Segnalazione anomalie osservabili
+- Proposta apertura PROBLEMI se necessario
+
+### Regole operative
+
+- Non inventare lotti.
+- Non inventare varietà.
+- Non inventare problemi.
+- Se un dato non è identificabile usare DA CONFERMARE.
+- Una foto non modifica automaticamente LOTTI, STOCK, RACCOLTI o CONSEGNE.
+- Se emerge una anomalia reale, proporre aggiornamento del foglio PROBLEMI.
+- Generare sempre una riga compatibile con PHOTO_BANK_INDEX quando richiesto.
+- Utilizzare le intestazioni ufficiali definite in TPO_SHEETS_SCHEMA.md.
+- Rispettare sempre OPERATING_RULES.md.
+
+### Integrazioni
+
+Fogli coinvolti:
+
+- PHOTO_BANK_INDEX
+- PROBLEMI
+- LOTTI
+
+### Esempio output
+
+PHOTO_BANK_INDEX
+
+```text
+DATA | ID_LOTTO | VARIETA | FASE | FOTO_PRESENTE | N_FOTO | PROBLEMA_RILEVATO | NOTE
+07/07/2026 | MIZ-2806-A | Mizuna | GIORNO_3_LUCE | SI | 4 | NO | crescita leggermente disomogenea
+```
+
+### Limiti
+
+- Non dedurre informazioni non osservabili dalla fotografia.
+- Non stimare date, lotti o varietà senza evidenza sufficiente.
+- Non classificare automaticamente come problema una semplice differenza visiva non confermata.
+
+---
+
 ## Data Manager
 
 ### Ruolo

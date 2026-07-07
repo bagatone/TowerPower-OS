@@ -180,3 +180,13 @@ Prima di generare un briefing deve considerare:
 - PROBLEMI
 
 Le priorità del giorno devono privilegiare attività operative della farm rispetto a verifiche amministrative quando sono presenti colture da monitorare o problemi aperti.
+
+## Photo Bank
+
+- PHOTO_BANK_INDEX è il registro ufficiale delle osservazioni fotografiche dei lotti produttivi.
+- Ogni foto associata a un lotto deve poter generare una riga compatibile con PHOTO_BANK_INDEX.
+- Una foto non sostituisce i dati operativi nei fogli LOTTI, PROBLEMI, STOCK o RACCOLTI.
+- Se da una foto emerge un problema agronomico, registrare l’osservazione in PHOTO_BANK_INDEX e, se necessario, generare anche una riga nel foglio PROBLEMI.
+- Se il lotto non è identificabile con certezza, usare ID_LOTTO = DA CONFERMARE.
+- Non inventare lotti, date, varietà o problemi dalla foto.
+- Le foto oggi possono essere registrate tramite metadati anche se il file immagine non è ancora archiviato in Google Drive o in un archivio permanente.

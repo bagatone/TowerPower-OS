@@ -62,6 +62,18 @@ DATA_CICLO | VARIETA | SET_EXTRA | MOTIVO | CONFERMATO | NOTE
 
 DATA | COSA_FARE_OGGI | SEMINE | LOTTI_IN_GERMINAZIONE | LOTTI_SOTTO_LUCE | RACCOLTI_PREVISTI | CONSEGNE_PREVISTE | PROBLEMI_APERTI | NOTE
 
+### PHOTO_BANK_INDEX
+
+DATA | ID_LOTTO | VARIETA | FASE | FOTO_PRESENTE | N_FOTO | PROBLEMA_RILEVATO | NOTE
+
+Registro ufficiale delle fotografie associate ai lotti produttivi.
+
+Ogni riga rappresenta una osservazione fotografica effettuata su un lotto in una determinata data.
+
+N_FOTO indica il numero di fotografie associate a quella osservazione.
+
+Se il numero non è noto usare DA CONFERMARE.
+
 ## Note operative
 
 - Non cambiare intestazioni senza aggiornare questo file.

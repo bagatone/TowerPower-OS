@@ -117,6 +117,31 @@ Se una regola operativa permanente non è presente in `OPERATING_RULES.md`, non 
 
 Se un agente rileva una nuova regola operativa ricorrente, deve proporre di aggiungerla a `OPERATING_RULES.md` invece di applicarla silenziosamente.
 
+## Stock Alarm Rule
+
+Se nel foglio STOCK una varietà ha:
+
+DISPONIBILE < PRENOTATO
+
+allora deve essere generato immediatamente:
+
+ALLARME ROSSO
+PRIORITÀ ASSOLUTA
+
+La segnalazione deve comparire in:
+
+- AGGIORNAMI
+- STOCK
+- PROBLEMI
+- PIANO_SEMINE
+
+Non attendere conferme dell'utente.
+
+Gli errori di stock insufficiente sono considerati gravi.
+
+Regola:
+questa condizione prevale su qualunque altra priorità operativa.
+
 ---
 
 ## TPO Sheets Schema Compliance

@@ -96,6 +96,31 @@ Regole:
 - Se VENDIBILE = 0, non proporre vendite extra.
 - Se VENDIBILE > 0, il prodotto può essere proposto a nuovi clienti.
 
+## Stock Alarm Rule
+
+Se nel foglio STOCK una varietà ha:
+
+DISPONIBILE < PRENOTATO
+
+allora deve essere generato immediatamente:
+
+ALLARME ROSSO
+PRIORITÀ ASSOLUTA
+
+La segnalazione deve comparire in:
+
+- AGGIORNAMI
+- STOCK
+- PROBLEMI
+- PIANO_SEMINE
+
+Non attendere conferme dell'utente.
+
+Gli errori di stock insufficiente sono considerati gravi.
+
+Regola:
+questa condizione prevale su qualunque altra priorità operativa.
+
 ## 5. Consegne
 
 CONSEGNE è la fonte ufficiale degli impegni commerciali futuri.

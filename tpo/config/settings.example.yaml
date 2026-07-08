@@ -1,0 +1,37 @@
+dry_run: true
+document_source: local
+
+github:
+  repo: "OWNER/REPOSITORY"
+  branch: "main"
+  token_env: "GITHUB_TOKEN"
+  documents:
+    - "AGENTS.md"
+    - "OPERATING_RULES.md"
+    - "TPO_SHEETS_SCHEMA.md"
+    - "TPO_BOOTSTRAP.md"
+
+google_sheets:
+  spreadsheet_id: "INSERISCI_ID_GOOGLE_SHEET"
+  credentials_file: "config/google-service-account.json"
+  token_file: "config/google-token.json"
+  auth_mode: "service_account"
+  scopes:
+    - "https://www.googleapis.com/auth/spreadsheets.readonly"
+  sheets:
+    - "CLIENTI"
+    - "CONSEGNE"
+    - "LOTTI"
+    - "SEMINE"
+    - "RACCOLTI"
+    - "STOCK"
+    - "MASTER_VARIETA"
+    - "PROBLEMI"
+    - "PIANO_SEMINE"
+    - "CALENDARIO_PRODUZIONE"
+    - "PIANO_EXTRA"
+    - "BRIEFING_GIORNALIERO"
+    - "PHOTO_BANK_INDEX"
+
+cache:
+  directory: "data/cache"

@@ -1,0 +1,19 @@
+# Secrets / local config
+config/google-service-account.json
+config/settings.yaml
+.env
+.env.*
+
+# Runtime outputs
+ultimo_aggiornami.json
+debug_aggiornami.txt
+outputs/
+data/cache/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# macOS
+.DS_Store

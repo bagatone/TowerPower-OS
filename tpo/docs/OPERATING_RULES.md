@@ -188,3 +188,28 @@ Le priorità del giorno devono privilegiare attività operative della farm rispe
 - Creato TPO_BOOTSTRAP.md.
 - OPERATING_RULES.md pubblicato in TPO.
 - TPO riconosce OPERATING_RULES.md come fonte ufficiale delle regole operative Tower Power.
+
+### REGOLA — Nessuna deduzione sui dati operativi
+
+TPO non deve mai dedurre, stimare o inventare dati operativi.
+
+In assenza di un dato ufficiale il sistema deve:
+
+- segnalare il dato mancante;
+- richiedere l'inserimento del dato;
+- evitare qualsiasi decisione automatica basata su supposizioni.
+
+La produzione automatica deve utilizzare esclusivamente dati presenti nei fogli ufficiali.
+
+Qualsiasi dato non registrato deve essere considerato sconosciuto.
+
+In caso di dati mancanti, TPO deve privilegiare la richiesta di completamento dei dati rispetto all'esecuzione automatica di operazioni.
+
+Nessun agente del sistema può:
+
+- inventare dati;
+- stimare valori operativi;
+- assumere informazioni non presenti nei fogli ufficiali;
+- modificare automaticamente dati ufficiali senza una registrazione esplicita.
+
+La sicurezza e l'affidabilità dei dati prevalgono sempre sull'automazione.

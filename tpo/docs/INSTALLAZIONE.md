@@ -35,10 +35,38 @@ Sistema Python in sola lettura per caricare documenti operativi, leggere Google 
 
 ## Installazione
 
+Prima installazione ufficiale:
+
+```bash
+cd tpo
+./bootstrap.sh
+```
+
+Uso quotidiano:
+
+```bash
+cd tpo
+source .venv/bin/activate
+```
+
+Uscita dal venv:
+
+```bash
+deactivate
+```
+
+Esecuzione test:
+
+```bash
+python -m pytest
+```
+
+Installazione manuale:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp config/settings.example.yaml config/settings.yaml
 cp .env.example .env
 ```

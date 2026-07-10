@@ -1,0 +1,17 @@
+{
+  "event_id": "EVT-20260710-001",
+  "event_type": "SEMINA",
+  "timestamp": "2026-07-10T16:00:00",
+  "timezone": "Atlantic/Canary",
+  "operatore": "Matteo",
+  "source": "cli",
+  "status": "CONFERMATO",
+  "payload": {
+    "varieta": "Cilantro",
+    "set": 6,
+    "unita": "set",
+    "data_semina": "2026-07-10",
+    "id_lotto": "CIL-1007-TEST",
+    "note": "Evento di test MVP"
+  }
+}

@@ -164,3 +164,48 @@ genera:
 ALLARME ROSSO
 PRIORITÀ ASSOLUTA
 ```
+
+## Google Sheets Writer
+
+Il Writer applica righe già preparate ai fogli Google Sheets dopo un preflight completo. Non interpreta conversazioni, non inventa dati, non modifica righe esistenti e non cancella righe.
+
+Il service account deve avere permesso Editor sul Google Sheet. Lo scope richiesto per la scrittura è:
+
+```text
+https://www.googleapis.com/auth/spreadsheets
+```
+
+Formato del piano:
+
+```json
+{
+  "operations": [
+    {
+      "sheet_name": "FORNITORI",
+      "mode": "append",
+      "rows": [
+        {
+          "ID_FORNITORE": "ESEMPIO-FORNITORE-001",
+          "RAGIONE_SOCIALE": "Fornitore Demo Non Reale"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Dry-run:
+
+```bash
+python3 -m src.write_sheets --input work/write_plan.example.json --dry-run
+```
+
+Apply:
+
+```bash
+python3 -m src.write_sheets --input work/write_plan.json --apply
+```
+
+Il preflight verifica schema ufficiale, presenza fogli, intestazioni, righe vuote, colonne sconosciute e duplicati. Se una sola operazione non è valida, l'intero piano viene bloccato e non viene scritta nessuna riga. Google Sheets non offre rollback transazionale completo: TowerPower OS riduce il rischio eseguendo tutte le verifiche prima dell'unica richiesta di scrittura.
+
+I duplicati vengono rilevati con chiavi specifiche per foglio. Un duplicato viene segnalato e non scritto.

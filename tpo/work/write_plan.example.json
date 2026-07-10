@@ -1,0 +1,21 @@
+{
+  "operations": [
+    {
+      "sheet_name": "FORNITORI",
+      "mode": "append",
+      "rows": [
+        {
+          "ID_FORNITORE": "ESEMPIO-FORNITORE-001",
+          "RAGIONE_SOCIALE": "Fornitore Demo Non Reale",
+          "CONTATTO": "Persona Demo",
+          "EMAIL": "demo@example.invalid",
+          "TELEFONO": "",
+          "SITO_WEB": "https://example.invalid",
+          "TEMPO_CONSEGNA_GG": "0",
+          "STATO": "ESEMPIO",
+          "NOTE": "Riga fittizia per dry-run; non applicare in produzione."
+        }
+      ]
+    }
+  ]
+}

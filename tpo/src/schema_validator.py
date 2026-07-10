@@ -93,6 +93,10 @@ class SchemaValidator:
 
         return issues
 
+    def headers_for(self, schemas: dict[str, SheetSchema], sheet_name: str) -> list[str]:
+        schema = schemas.get(sheet_name)
+        return schema.headers if schema else []
+
     def _extract_sheet_name(self, line: str) -> str | None:
         normalized = line.strip().strip("#").strip()
         known_prefixes = ("Foglio:", "Sheet:", "Tabella:", "TABLE:")

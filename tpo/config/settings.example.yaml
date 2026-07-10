@@ -17,7 +17,7 @@ google_sheets:
   token_file: "config/google-token.json"
   auth_mode: "service_account"
   scopes:
-    - "https://www.googleapis.com/auth/spreadsheets.readonly"
+    - "https://www.googleapis.com/auth/spreadsheets"
   sheets:
     - "CLIENTI"
     - "CONSEGNE"
@@ -32,6 +32,11 @@ google_sheets:
     - "PIANO_EXTRA"
     - "BRIEFING_GIORNALIERO"
     - "PHOTO_BANK_INDEX"
+    - "ANAGRAFICA_ARTICOLI"
+    - "INVENTARIO"
+    - "MOVIMENTI_MAGAZZINO"
+    - "RICETTE_PRODUZIONE"
+    - "FORNITORI"
 
 cache:
   directory: "data/cache"

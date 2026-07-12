@@ -159,7 +159,7 @@ class EventEngineTest(unittest.TestCase):
         self.assertIn("ID_LOTTO già presente", "\n".join(result.errors))
 
     def test_unknown_variety_is_blocked(self) -> None:
-        result = self.engine.process(valid_event(payload={"varieta": "Basilico"}))
+        result = self.engine.process(valid_event(payload={"varieta": "Basilico Genovese"}))
 
         self.assertFalse(result.success)
         self.assertIn("Varietà non presente", "\n".join(result.errors))

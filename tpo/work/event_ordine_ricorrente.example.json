@@ -1,0 +1,39 @@
+{
+  "event_id": "EVT-ORDER-20260915-001",
+  "event_type": "NUOVO_ORDINE_RICORRENTE",
+  "timestamp": "2026-09-01T10:00:00",
+  "timezone": "Atlantic/Canary",
+  "operatore": "Matteo",
+  "source": "cli",
+  "status": "CONFERMATO",
+  "payload": {
+    "cliente": "Ristorante Buenaonda",
+    "stato_cliente": "ATTIVO",
+    "frequenza_giorni": 14,
+    "giorno_consegna": "VENERDI",
+    "prima_consegna": "2026-09-18",
+    "prodotti": [
+      {
+        "varieta": "Basilico",
+        "quantita": 1,
+        "unita": "set"
+      },
+      {
+        "varieta": "Amaranto",
+        "quantita": 1,
+        "unita": "set"
+      },
+      {
+        "varieta": "Cilantro",
+        "quantita": 1,
+        "unita": "set"
+      },
+      {
+        "varieta": "Finocchietto",
+        "quantita": 1,
+        "unita": "set"
+      }
+    ],
+    "note": "Ordine ricorrente di test"
+  }
+}

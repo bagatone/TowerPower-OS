@@ -60,6 +60,16 @@ REQUEST_REQUIREMENTS: dict[str, tuple[str, ...]] = {
         "RICETTE_PRODUZIONE",
         "MOVIMENTI_MAGAZZINO",
     ),
+    "event_ordine_ricorrente": (
+        "CLIENTI",
+        "CONSEGNE",
+        "MASTER_VARIETA",
+        "PIANO_SEMINE",
+        "CALENDARIO_PRODUZIONE",
+        "STOCK",
+        "INVENTARIO",
+        "RICETTE_PRODUZIONE",
+    ),
 }
 
 

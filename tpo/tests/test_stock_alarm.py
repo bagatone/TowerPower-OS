@@ -4,6 +4,7 @@ import unittest
 from decimal import Decimal
 
 from src.sheets_loader import SheetData
+from src.source_gate import build_google_sheets_provenance
 from src.stock_alarm import StockAlarmEngine
 
 
@@ -30,6 +31,7 @@ class StockAlarmTest(unittest.TestCase):
                 {"VARIETÀ": "hinojo", "DISPONIBILE": "1", "PRENOTATO": "0,5"},
                 {"VARIETÀ": "col roja", "DISPONIBILE": "1", "PRENOTATO": "0.5"},
             ],
+            provenance=build_google_sheets_provenance("STOCK", "test", [["VARIETÀ"]]),
         )
 
         alarms = StockAlarmEngine().evaluate(sheet)

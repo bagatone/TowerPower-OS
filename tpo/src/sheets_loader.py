@@ -8,6 +8,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from .source_gate import SourceProvenance, build_google_sheets_provenance
+
 
 class SheetsLoaderError(RuntimeError):
     pass
@@ -41,6 +43,7 @@ class SheetData:
     headers: list[str]
     rows: list[dict[str, str]]
     raw_values: list[list[str]]
+    provenance: SourceProvenance | None = None
 
 
 class SheetsLoader:
@@ -78,6 +81,11 @@ class SheetsLoader:
                 name,
                 values,
                 expected_headers=(expected_headers or {}).get(name),
+                provenance=build_google_sheets_provenance(
+                    sheet_name=name,
+                    spreadsheet_id=self.spreadsheet_id,
+                    values=values,
+                ),
             )
 
         return result
@@ -104,7 +112,7 @@ class SheetsLoader:
             )
         except HttpError as exc:
             if exc.resp.status == 400 and "Unable to parse range" in str(exc):
-                return []
+                raise SheetsLoaderError(f"Google Sheets non disponibile: {range_name}") from exc
             raise SheetsLoaderError(f"Google Sheets non disponibile: {exc}") from exc
         except Exception as exc:
             raise SheetsLoaderError(f"Google Sheets non disponibile: {exc}") from exc
@@ -115,13 +123,14 @@ class SheetsLoader:
         name: str,
         values: list[list[str]],
         expected_headers: list[str] | None = None,
+        provenance: SourceProvenance | None = None,
     ) -> SheetData:
         if not values:
-            return SheetData(name=name, headers=[], rows=[], raw_values=[])
+            return SheetData(name=name, headers=[], rows=[], raw_values=[], provenance=provenance)
 
         cleaned_values = self._drop_leading_empty_rows(values)
         if not cleaned_values:
-            return SheetData(name=name, headers=[], rows=[], raw_values=values)
+            return SheetData(name=name, headers=[], rows=[], raw_values=values, provenance=provenance)
 
         header_index = self._find_header_index(cleaned_values, expected_headers)
         if header_index is None and expected_headers:
@@ -137,7 +146,13 @@ class SheetsLoader:
             normalized = raw_row + [""] * max(0, len(headers) - len(raw_row))
             rows.append(dict(zip(headers, normalized[: len(headers)])))
 
-        return SheetData(name=name, headers=headers, rows=rows, raw_values=values)
+        return SheetData(
+            name=name,
+            headers=headers,
+            rows=rows,
+            raw_values=values,
+            provenance=provenance,
+        )
 
     def _drop_leading_empty_rows(self, values: list[list[str]]) -> list[list[str]]:
         for index, row in enumerate(values):

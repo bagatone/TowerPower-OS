@@ -139,6 +139,8 @@ UTENTE
 ↓
 EVENT ENGINE
 ↓
+SOURCE GATE
+↓
 RULES ENGINE
 ↓
 CALENDAR ENGINE
@@ -157,6 +159,18 @@ AGGIORNAMI
 ```
 
 Nessun modulo, tranne il Google Sheets Writer, può scrivere direttamente nei fogli ufficiali.
+
+### Source Gate
+
+Il Source Gate è il controllo obbligatorio tra input operativo e motori decisionali.
+
+Responsabilità:
+
+- determinare quali fonti ufficiali sono obbligatorie per il tipo di richiesta;
+- verificare che i fogli richiesti siano stati caricati e letti;
+- bloccare il flusso con `SOURCE_NOT_AVAILABLE` se manca anche una sola fonte;
+- registrare la provenance usata dal risultato operativo;
+- impedire l'uso di memoria chat, narrativa o ricostruzioni come sostituti dei fogli ufficiali.
 
 ## 4. Tempo e calendario
 

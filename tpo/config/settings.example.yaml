@@ -1,6 +1,15 @@
 dry_run: true
 document_source: local
 
+source_gate:
+  enabled: true
+  allowed_document_sources:
+    - "github"
+    - "local"
+  allowed_sheet_sources:
+    - "google_sheets"
+  require_checksum: true
+
 github:
   repo: "OWNER/REPOSITORY"
   branch: "main"

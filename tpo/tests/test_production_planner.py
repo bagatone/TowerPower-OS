@@ -4,10 +4,11 @@ import unittest
 from decimal import Decimal
 
 from src.production_planner import build_production_plan
+from src.source_gate import build_google_sheets_provenance
 
 
 def report_for_planner() -> dict:
-    return {
+    report = {
         "stock": {
             "rows": [
                 {
@@ -86,6 +87,23 @@ def report_for_planner() -> dict:
             ]
         },
     }
+    report["provenance"] = {
+        "sheets": {
+            sheet_name: build_google_sheets_provenance(
+                sheet_name,
+                "test",
+                [[sheet_name]],
+            ).to_dict()
+            for sheet_name in [
+                "PIANO_SEMINE",
+                "CALENDARIO_PRODUZIONE",
+                "MASTER_VARIETA",
+                "CONSEGNE",
+                "STOCK",
+            ]
+        }
+    }
+    return report
 
 
 class ProductionPlannerTest(unittest.TestCase):

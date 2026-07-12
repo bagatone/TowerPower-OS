@@ -13,6 +13,7 @@ from .config_loader import load_config
 from .init_resource_engine import INITIAL_ROWS, RESOURCE_HEADERS
 from .schema_validator import SchemaValidator
 from .sheets_loader import SheetData, SheetsLoader
+from .source_gate import SourceGate, SourceProvenance, build_google_sheets_provenance
 from .sheets_writer import WritePlan
 
 
@@ -84,6 +85,7 @@ class EventResult:
     errors: list[str] = field(default_factory=list)
     consumi: list[dict[str, str]] = field(default_factory=list)
     write_plan: WritePlan | None = None
+    provenance: list[SourceProvenance] = field(default_factory=list)
 
     @property
     def success(self) -> bool:
@@ -137,6 +139,14 @@ class EventEngine:
         if result.errors:
             return result
         if event.event_type == "SEMINA":
+            source_gate_result = SourceGate().check_request("event_semina", self.context.sheets)
+            result.provenance = source_gate_result.provenance
+            if not source_gate_result.allowed:
+                result.errors.append(
+                    "SOURCE_NOT_AVAILABLE: fonti mancanti o non lette: "
+                    + ", ".join(source_gate_result.missing_sources)
+                )
+                return result
             return self._process_semina(event, result)
         result.errors.append(f"Evento non supportato nell'MVP: {event.event_type}")
         return result
@@ -400,7 +410,13 @@ def build_demo_sheets(schemas: dict[str, list[str]]) -> dict[str, SheetData]:
     sheets: dict[str, SheetData] = {}
     for sheet_name in ["SEMINE", "LOTTI"]:
         headers = schemas[sheet_name]
-        sheets[sheet_name] = SheetData(sheet_name, headers, [], [headers])
+        sheets[sheet_name] = SheetData(
+            sheet_name,
+            headers,
+            [],
+            [headers],
+            provenance=build_google_sheets_provenance(sheet_name, "demo", [headers]),
+        )
 
     movement_headers = schemas["MOVIMENTI_MAGAZZINO"]
     sheets["MOVIMENTI_MAGAZZINO"] = SheetData(
@@ -408,6 +424,11 @@ def build_demo_sheets(schemas: dict[str, list[str]]) -> dict[str, SheetData]:
         movement_headers,
         [],
         [movement_headers],
+        provenance=build_google_sheets_provenance(
+            "MOVIMENTI_MAGAZZINO",
+            "demo",
+            [movement_headers],
+        ),
     )
 
     master_headers = schemas["MASTER_VARIETA"]
@@ -433,13 +454,24 @@ def build_demo_sheets(schemas: dict[str, list[str]]) -> dict[str, SheetData]:
             headers,
             [dict(zip(headers, row)) for row in INITIAL_ROWS[sheet_name]],
             [headers, *INITIAL_ROWS[sheet_name]],
+            provenance=build_google_sheets_provenance(
+                sheet_name,
+                "demo",
+                [headers, *INITIAL_ROWS[sheet_name]],
+            ),
         )
     return sheets
 
 
 def _sheet_from_dicts(sheet_name: str, headers: list[str], rows: list[dict[str, str]]) -> SheetData:
     raw_rows = [[row.get(header, "") for header in headers] for row in rows]
-    return SheetData(sheet_name, headers, rows, [headers, *raw_rows])
+    return SheetData(
+        sheet_name,
+        headers,
+        rows,
+        [headers, *raw_rows],
+        provenance=build_google_sheets_provenance(sheet_name, "demo", [headers, *raw_rows]),
+    )
 
 
 def _canonical(value: str) -> str:

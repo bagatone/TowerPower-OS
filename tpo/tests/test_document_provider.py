@@ -36,6 +36,8 @@ class DocumentProviderTest(unittest.TestCase):
 
             self.assertEqual(list(documents), DOCUMENT_PRECEDENCE)
             self.assertEqual(documents["AGENTS.md"].content, "# AGENTS.md")
+            self.assertEqual(documents["AGENTS.md"].provenance.source, "local")
+            self.assertTrue(documents["AGENTS.md"].provenance.checksum)
 
     def test_local_provider_stops_when_document_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -66,6 +68,7 @@ class DocumentProviderTest(unittest.TestCase):
 
             self.assertEqual(list(documents), DOCUMENT_PRECEDENCE)
             self.assertEqual(documents["TPO_SHEETS_SCHEMA.md"].content, "# TPO_SHEETS_SCHEMA.md")
+            self.assertEqual(documents["TPO_SHEETS_SCHEMA.md"].provenance.source, "local")
 
     def test_github_provider_reports_repository_not_found_without_fallback(self) -> None:
         loader = Mock()

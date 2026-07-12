@@ -15,6 +15,7 @@ from src.event_engine import (
     _load_schemas,
 )
 from src.sheets_loader import SheetData
+from src.source_gate import build_google_sheets_provenance
 
 
 def valid_event(**overrides):
@@ -171,6 +172,11 @@ class EventEngineTest(unittest.TestCase):
             headers,
             [],
             [headers],
+            provenance=build_google_sheets_provenance(
+                "RICETTE_PRODUZIONE",
+                "test",
+                [headers],
+            ),
         )
         engine = EventEngine.from_context(EventDataContext(sheets, self.schemas))
 
@@ -208,7 +214,17 @@ class EventEngineTest(unittest.TestCase):
 
     def test_invalid_sheet_structure_is_blocked(self) -> None:
         sheets = deepcopy(self.sheets)
-        sheets["SEMINE"] = SheetData("SEMINE", ["ID_LOTTO"], [], [["ID_LOTTO"]])
+        sheets["SEMINE"] = SheetData(
+            "SEMINE",
+            ["ID_LOTTO"],
+            [],
+            [["ID_LOTTO"]],
+            provenance=build_google_sheets_provenance(
+                "SEMINE",
+                "test",
+                [["ID_LOTTO"]],
+            ),
+        )
         engine = EventEngine.from_context(EventDataContext(sheets, self.schemas))
 
         result = engine.process(valid_event())

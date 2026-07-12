@@ -4,13 +4,17 @@ import re
 import unicodedata
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from types import SimpleNamespace
 from typing import Any
+
+from .source_gate import SourceGate, SourceProvenance
 
 
 CLOSED_STATUSES = {"CHIUSO", "FALLITO", "RACCOLTO", "RISOLTO", "CLOSED", "DONE"}
 
 
 def build_production_plan(report: dict) -> dict:
+    _enforce_planning_sources(report)
     today = date.today()
     master_index = _build_master_index(report.get("master_varieta", {}).get("rows", []))
     plan = {
@@ -25,6 +29,32 @@ def build_production_plan(report: dict) -> dict:
     _add_deficit_actions(report, master_index, plan)
     _add_lot_actions(report, master_index, plan, today)
     return plan
+
+
+def _enforce_planning_sources(report: dict) -> None:
+    sheet_provenance = report.get("provenance", {}).get("sheets", {})
+    loaded_sources = {
+        sheet_name: SimpleNamespace(
+            name=sheet_name,
+            provenance=_provenance_from_dict(provenance),
+        )
+        for sheet_name, provenance in sheet_provenance.items()
+    }
+    SourceGate().enforce_request("pianificazione", loaded_sources)
+
+
+def _provenance_from_dict(data: dict[str, Any]) -> SourceProvenance:
+    return SourceProvenance(
+        source_type=str(data.get("source_type", "")),
+        source_name=str(data.get("source_name", "")),
+        loaded_at=str(data.get("loaded_at", "")),
+        read_successfully=bool(data.get("read_successfully")),
+        freshness_timestamp=str(data.get("freshness_timestamp", "")),
+        sheet_name=str(data.get("sheet_name", "")),
+        locator=str(data.get("locator", "")),
+        reference=str(data.get("reference", "")),
+        checksum=str(data.get("checksum", "")),
+    )
 
 
 def _add_deficit_actions(

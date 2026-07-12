@@ -213,3 +213,15 @@ Nessun agente del sistema può:
 - modificare automaticamente dati ufficiali senza una registrazione esplicita.
 
 La sicurezza e l'affidabilità dei dati prevalgono sempre sull'automazione.
+
+### REGOLA — Source Gate obbligatorio
+
+Prima di ogni risposta operativa relativa a clienti, consegne, stock, lotti, semine, raccolti o pianificazione, TPO deve verificare di avere letto la fonte ufficiale aggiornata.
+
+Se la fonte ufficiale non è accessibile o non è stata letta:
+
+- restituire SOURCE_NOT_AVAILABLE;
+- non fornire dati operativi;
+- non usare memoria, narrativa o ricostruzioni.
+
+Ogni risposta operativa deve conservare internamente la provenance delle fonti utilizzate.

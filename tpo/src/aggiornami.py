@@ -21,6 +21,7 @@ from .production_planner import build_production_plan
 from .row_generator import RowGenerator
 from .schema_validator import SchemaValidator
 from .sheets_loader import SheetsLoader, SheetsLoaderError
+from .source_gate import SourceGate, SourceGateError, SourceNotAvailableError, provenance_report
 from .stock_alarm import StockAlarmEngine
 
 
@@ -46,6 +47,8 @@ def build_report(config_path: str | Path = "config/settings.yaml") -> dict[str, 
 
     document_provider = build_document_provider(config)
     documents = document_provider.load_documents()
+    source_gate = SourceGate.from_config(config)
+    source_gate.assert_documents(documents)
 
     schema_markdown = documents["TPO_SHEETS_SCHEMA.md"].content
     validator = SchemaValidator()
@@ -60,6 +63,8 @@ def build_report(config_path: str | Path = "config/settings.yaml") -> dict[str, 
         required_sheets,
         expected_headers=expected_headers,
     )
+    source_gate.assert_sheets(sheets)
+    source_gate_result = source_gate.enforce_request("aggiornami", sheets)
     validation_issues = validator.validate(sheets, schemas)
 
     stock_sheet = sheets.get("STOCK")
@@ -74,10 +79,16 @@ def build_report(config_path: str | Path = "config/settings.yaml") -> dict[str, 
         "document_source": str(config.get("document_source", "github")).lower(),
         "google_sheets": "OK",
         "document_order": list(documents.keys()),
+        "status": "OK",
+        "source_gate": source_gate_result.to_dict(),
+        "provenance": {
+            "documents": provenance_report(documents),
+            "sheets": provenance_report(sheets),
+        },
         "schema_validation": [asdict(issue) for issue in validation_issues],
         "allarmi": [asdict(alarm) for alarm in alarms],
         "stock": _sheet_preview(sheets.get("STOCK")),
-        "consegne": _sheet_preview(sheets.get("CONSEGNE")),
+        "consegne": _sheet_preview(sheets.get("CONSEGNE"), sort_key=_delivery_sort_key),
         "lotti": _sheet_preview(sheets.get("LOTTI")),
         "semine": _sheet_preview(sheets.get("SEMINE")),
         "master_varieta": _sheet_preview(sheets.get("MASTER_VARIETA")),
@@ -89,10 +100,22 @@ def build_report(config_path: str | Path = "config/settings.yaml") -> dict[str, 
     return report
 
 
-def _sheet_preview(sheet, limit: int = 20) -> dict[str, Any]:
+def _sheet_preview(sheet, limit: int = 20, sort_key=None) -> dict[str, Any]:
     if not sheet:
         return {"headers": [], "rows": []}
-    return {"headers": sheet.headers, "rows": sheet.rows[:limit], "total_rows": len(sheet.rows)}
+    rows = sorted(sheet.rows, key=sort_key) if sort_key else sheet.rows
+    return {"headers": sheet.headers, "rows": rows[:limit], "total_rows": len(sheet.rows)}
+
+
+def _delivery_sort_key(row: dict[str, Any]) -> tuple[str, str]:
+    raw_date = str(row.get("PROSSIMA_CONSEGNA", "")).strip()
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            normalized = datetime.strptime(raw_date[:10], fmt).strftime("%Y-%m-%d")
+            break
+        except ValueError:
+            normalized = raw_date or "9999-99-99"
+    return (normalized, str(row.get("CLIENTE", "")))
 
 
 def format_human_brief(report: dict[str, Any]) -> str:
@@ -390,6 +413,8 @@ def main() -> None:
         MissingDocumentError,
         RepositoryNotFoundError,
         SheetsLoaderError,
+        SourceNotAvailableError,
+        SourceGateError,
         RuntimeError,
         ValueError,
     ) as exc:

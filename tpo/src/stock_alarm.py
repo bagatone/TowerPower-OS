@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
 from .sheets_loader import SheetData
+from .source_gate import SourceGate
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ class StockAlarm:
 
 class StockAlarmEngine:
     def evaluate(self, stock_sheet: SheetData) -> list[StockAlarm]:
+        SourceGate().enforce_request("stock", {"STOCK": stock_sheet})
         alarms: list[StockAlarm] = []
 
         for index, row in enumerate(stock_sheet.rows, start=2):

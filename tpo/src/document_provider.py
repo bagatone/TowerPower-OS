@@ -7,6 +7,7 @@ from pathlib import Path
 from github import GithubException
 
 from .github_loader import DOCUMENT_PRECEDENCE, GitHubDocument, GitHubLoader
+from .source_gate import SourceProvenance, build_content_checksum, current_timestamp
 
 
 REQUIRED_DOCUMENTS = [
@@ -63,10 +64,19 @@ class LocalDocumentProvider(DocumentProvider):
             path = self.docs_dir / document_name
             if not path.exists():
                 raise MissingDocumentError(document_name)
+            content = path.read_text(encoding="utf-8")
             documents[document_name] = GitHubDocument(
                 name=document_name,
                 path=str(path),
-                content=path.read_text(encoding="utf-8"),
+                content=content,
+                provenance=SourceProvenance(
+                    source_type="LOCAL",
+                    source_name=document_name,
+                    loaded_at=current_timestamp(),
+                    read_successfully=True,
+                    locator=str(path),
+                    checksum=build_content_checksum(content),
+                ),
             )
         return self._validate_documents(documents)
 

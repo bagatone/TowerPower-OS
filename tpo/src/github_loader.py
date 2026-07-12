@@ -6,6 +6,8 @@ from pathlib import Path
 
 from github import Github
 
+from .source_gate import SourceProvenance, build_content_checksum, current_timestamp
+
 
 DOCUMENT_PRECEDENCE = [
     "OPERATING_RULES.md",
@@ -20,6 +22,7 @@ class GitHubDocument:
     name: str
     path: str
     content: str
+    provenance: SourceProvenance | None = None
 
 
 class GitHubLoader:
@@ -57,7 +60,20 @@ class GitHubLoader:
             if isinstance(content_file, list):
                 raise ValueError(f"{path} è una directory, atteso un file Markdown.")
             content = content_file.decoded_content.decode("utf-8")
-            document = GitHubDocument(name=Path(path).name, path=path, content=content)
+            document = GitHubDocument(
+                name=Path(path).name,
+                path=path,
+                content=content,
+                provenance=SourceProvenance(
+                    source_type="GITHUB",
+                    source_name=Path(path).name,
+                    loaded_at=current_timestamp(),
+                    read_successfully=True,
+                    locator=f"{self.repo_name}:{path}",
+                    reference=f"{self.branch}@{getattr(content_file, 'sha', '')}".rstrip("@"),
+                    checksum=build_content_checksum(content),
+                ),
+            )
             documents[document.name] = document
             self._write_cache(document)
 

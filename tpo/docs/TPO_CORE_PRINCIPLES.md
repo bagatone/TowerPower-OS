@@ -113,7 +113,6 @@ Ogni nuova componente del sistema dovrà rispettare questo principio ed evitare 
 
 ## Le modifiche al sistema devono essere generate dagli eventi operativi.
 
-Le modifiche al sistema devono essere generate dagli eventi operativi.
 
 Ogni modifica allo stato operativo del TPO deve essere generata dalla registrazione di un evento.
 
@@ -288,6 +287,18 @@ Il sistema deve poter supportare, nel tempo:
 L'evoluzione del TPO deve avvenire attraverso l'aggiunta di nuove componenti, evitando modifiche che compromettano il funzionamento delle funzionalità già esistenti.
 
 Ogni scelta progettuale deve privilegiare la scalabilità, la manutenibilità e la compatibilità futura.
+
+-----
+
+# PRINCIPIO 10
+
+## L'evoluzione del sistema deve preservare la compatibilità.
+
+Ogni modifica al TPO deve essere progettata in modo da non compromettere il funzionamento delle funzionalità esistenti, salvo nei casi in cui una modifica incompatibile sia stata pianificata, documentata e approvata.
+
+Le evoluzioni del sistema devono privilegiare l'estensione rispetto alla sostituzione.
+
+La compatibilità con i dati storici deve essere sempre preservata.
 ---
 
 # PRINCIPIO 11
@@ -360,15 +371,6 @@ Ogni evoluzione futura del progetto dovrà essere valutata chiedendosi se rende 
 
 Se una nuova funzionalità aumenta inutilmente la complessità operativa senza apportare un beneficio concreto, non è coerente con la filosofia del TPO.
 
-# PRINCIPIO 10
-
-## L'evoluzione del sistema deve preservare la compatibilità.
-
-Ogni modifica al TPO deve essere progettata in modo da non compromettere il funzionamento delle funzionalità esistenti, salvo nei casi in cui una modifica incompatibile sia stata pianificata, documentata e approvata.
-
-Le evoluzioni del sistema devono privilegiare l'estensione rispetto alla sostituzione.
-
-La compatibilità con i dati storici deve essere sempre preservata.
 
 ---
 

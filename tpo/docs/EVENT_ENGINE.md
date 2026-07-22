@@ -1,194 +1,249 @@
-# EVENT_ENGINE.md
+# TPO EVENT ENGINE
 
-## Event Engine v1
+## 1. Scopo e responsabilità
 
-L'Event Engine è il cuore di TowerPower OS.
-
-Questo documento non descrive il codice. Descrive esclusivamente il comportamento operativo del motore.
-
-L'Event Engine riceve un evento TPOL validato e coordina tutti gli altri motori per produrre un unico WritePlan coerente.
-
-## 1. Scopo
+Questo documento descrive il funzionamento logico dell'Event Engine di Tower Power Operations (TPO).
 
 L'Event Engine ha una sola responsabilità:
 
-trasformare un evento operativo in un unico WritePlan coerente.
+> trasformare un evento operativo in un unico WritePlan coerente.
 
-L'Event Engine non scrive mai direttamente nei Google Sheets.
+Per svolgere questa responsabilità, l'Event Engine:
 
-Ogni modifica ai fogli ufficiali deve passare attraverso un WritePlan, un dry-run, una conferma esplicita e il Google Sheets Writer.
+- riceve un evento TPOL sintatticamente valido;
+- seleziona il percorso applicabile;
+- coordina Source Gate e motori specialistici;
+- aggrega i risultati in un unico WritePlan;
+- coordina dry-run, conferma, consegna al Writer e registrazione dell'esito;
+- propaga blocchi ed errori senza nasconderli.
 
-## 2. Input
+L'Event Engine non interpreta testo libero, non applica direttamente modifiche allo State, non sostituisce i motori specialistici e non scrive nei fogli ufficiali.
 
-L'input dell'Event Engine è sempre un evento TPOL validato.
+## 2. Evento TPOL
 
-Formato logico:
+Un evento TPOL è una rappresentazione normalizzata, identificabile e tracciabile di un Fact operativo comunicato al TPO.
+
+Le informazioni logiche minime sono:
+
+- `event_id`;
+- `event_type`;
+- `payload`;
+- `timestamp`;
+- `operator`;
+- `source`.
+
+Questo elenco descrive il contenuto logico minimo, non tipi fisici, colonne o formati di persistenza.
+
+L'evento entra nell'Event Engine già sintatticamente valido. La validazione sintattica verifica struttura e presenza delle informazioni logiche richieste; la validazione semantica avviene successivamente rispetto alle fonti e alle regole applicabili.
+
+Il canale indicato da `source` documenta l'origine dell'input, ma non diventa automaticamente fonte autorevole dei dati operativi. L'autorevolezza viene verificata attraverso le fonti ufficiali del TPO.
+
+`event_id` identifica stabilmente il Fact, non deve essere riutilizzato e permette di collegare evento, elaborazione, WritePlan ed esito.
+
+Nel modello TPO:
+
+- l'evento TPOL rappresenta un **Fact**;
+- lo **State** è la proiezione operativa modificabile;
+- la **Configuration** guida selezione e validazione;
+- il **WritePlan** è la proposta controllata di modifica dello State.
+
+## 3. Confini
+
+### Input Boundary
+
+Normalizza l'input, interpreta l'eventuale testo libero, costruisce TPOL ed esegue la validazione sintattica prima dell'ingresso nell'Event Engine. Non applica logica di dominio e non modifica lo State.
+
+### Source Gate
+
+Verifica la disponibilità delle fonti richieste dalla pipeline selezionata e fornisce dati ufficiali con provenance. Se una fonte obbligatoria non è disponibile, il flusso viene bloccato prima della produzione del WritePlan.
+
+### Motori specialistici
+
+Applicano la propria logica di dominio usando evento, Configuration e fonti ufficiali. Restituiscono risultati, proposte o errori all'Event Engine; non scrivono direttamente e non si sostituiscono all'orchestratore.
+
+### Writer
+
+Riceve il WritePlan verificato e confermato e lo applica senza reinterpretarlo, modificarlo o introdurre decisioni di dominio. La responsabilità dell'Event Engine termina con il coordinamento del processo e la registrazione dell'esito ricevuto.
+
+## 4. Event Lifecycle
+
+```text
+EVENTO NORMALIZZATO
+↓
+VALIDAZIONE SINTATTICA
+↓
+EVENT ENGINE
+↓
+SELEZIONE DELLA PIPELINE
+↓
+SOURCE GATE
+↓
+VALIDAZIONE SEMANTICA
+↓
+MOTORI APPLICABILI
+↓
+WritePlan
+↓
+DRY-RUN
+↓
+CONFERMA
+↓
+WRITER
+↓
+PERSISTENZA
+↓
+ESITO E TRACCIABILITÀ
+```
+
+1. **Evento normalizzato:** l'Input Boundary rappresenta il Fact in TPOL senza completare dati mancanti.
+2. **Validazione sintattica:** verifica che TPOL sia formalmente accettabile; un evento non valido non entra nell'Event Engine.
+3. **Event Engine:** riceve l'evento e avvia l'orchestrazione senza modificare lo State.
+4. **Selezione della pipeline:** determina fonti, controlli e motori applicabili.
+5. **Source Gate:** rende disponibili le fonti obbligatorie o blocca il percorso.
+6. **Validazione semantica:** confronta l'evento con State, Configuration e regole ufficiali.
+7. **Motori applicabili:** producono risultati di dominio senza scrivere.
+8. **WritePlan:** aggrega in una proposta unica tutte le modifiche necessarie.
+9. **dry-run:** verifica il piano completo senza applicarlo.
+10. **Conferma:** autorizza esclusivamente il WritePlan verificato.
+11. **Writer:** riceve il piano autorizzato e tenta di applicarlo senza reinterpretazione.
+12. **Persistenza:** rappresenta la modifica effettiva dei dati ufficiali, distinta dall'intenzione descritta dal WritePlan.
+13. **Esito e tracciabilità:** registrano il risultato dell'applicazione e lo collegano all'evento e al piano.
+
+Ogni passaggio può bloccare il ciclo senza trasformare il blocco in un successo apparente.
+
+## 5. Selezione delle pipeline
+
+Non esiste una pipeline universale che obblighi ogni evento ad attraversare tutti i motori.
+
+L'Event Engine seleziona il percorso in base a:
+
+- `event_type`;
+- Configuration ufficiale;
+- domini coinvolti;
+- fonti richieste.
+
+A seconda dell'evento possono non essere applicabili Calendar Engine, Production Planner, Resource Engine o Photo Archivist.
+
+L'Event Engine conosce quali componenti coinvolgere, ma non incorpora la loro logica interna. I motori non si richiamano circolarmente, non scrivono nello State e restituiscono i propri risultati all'orchestratore.
+
+La selezione deve essere deterministica: lo stesso evento, lo stesso State e la stessa Configuration producono lo stesso percorso applicabile.
+
+## 6. WritePlan
+
+Il WritePlan è l'unica proposta coerente di modifica prodotta dall'elaborazione di un singolo evento.
+
+L'Event Engine produce il WritePlan aggregando i risultati dei motori applicabili. Il piano:
+
+- è collegato all'evento di origine;
+- contiene tutte le modifiche proposte per quella elaborazione;
+- è unico per quella elaborazione;
+- non costituisce un esito;
+- non modifica direttamente lo State;
+- può non essere prodotto quando il flusso è bloccato.
+
+Il percorso di autorizzazione è:
+
+```text
+WritePlan PROPOSTO
+↓
+DRY-RUN
+↓
+WritePlan VERIFICATO
+↓
+CONFERMA
+↓
+APPLY
+↓
+ESITO DELL'APPLICAZIONE
+```
+
+La conferma vale esclusivamente per il WritePlan verificato. Se il piano cambia, il dry-run deve essere ripetuto e la conferma precedente non è più valida.
+
+Il WritePlan proposto descrive un'intenzione, il WritePlan verificato descrive l'intenzione sottoposta ai controlli e l'esito applicato descrive ciò che il Writer ha effettivamente persistito.
+
+## 7. Validazioni, errori ed esiti
+
+Il ciclo deve distinguere almeno queste categorie concettuali:
+
+- evento sintatticamente non valido;
+- fonte non disponibile;
+- errore semantico;
+- regola operativa violata;
+- conflitto con lo State;
+- conferma assente, scaduta o non valida;
+- errore di scrittura;
+- duplicato o doppio apply.
+
+Il documento non assegna codici specifici a queste categorie e non ridefinisce le regole dei singoli domini.
+
+Gli esiti minimi dell'applicazione sono:
+
+- **riuscito:** tutte le modifiche previste sono state applicate;
+- **fallito senza modifiche:** nessuna modifica prevista è stata applicata;
+- **parziale:** soltanto una parte delle modifiche previste è stata applicata.
+
+L'obiettivo è l'atomicità logica: tutte le modifiche necessarie vengono preparate e verificate nello stesso WritePlan. Il datastore può non garantire atomicità fisica completa; un esito parziale deve quindi essere rilevato, registrato e mai presentato come riuscito.
+
+Ogni errore deve indicare il punto del ciclo in cui si è verificato e impedire che un'elaborazione incompleta venga rappresentata come completata.
+
+## 8. Idempotenza e duplicati
+
+Uno stesso Fact non deve produrre due applicazioni involontarie.
+
+`event_id` permette di riconoscere un evento già ricevuto o elaborato. Un retry dello stesso evento non costituisce automaticamente un nuovo Fact e deve rimanere collegato alla stessa identità.
+
+Un WritePlan già applicato non deve essere applicato nuovamente. Prima dell'apply deve essere possibile riconoscere almeno:
+
+- evento già elaborato;
+- elaborazione già in corso;
+- WritePlan già applicato;
+- tentativo precedente fallito o parziale.
+
+Ogni tentativo, incluso un retry, deve essere riconoscibile e tracciato. Questo requisito è logico e non impone un meccanismo fisico specifico.
+
+## 9. Registro autorevole e tracciabilità
+
+Il registro autorevole degli eventi è un requisito logico del TPO. Questo documento non prescrive che sia realizzato come foglio, database, file, tabella, event bus o datastore aggiuntivo.
+
+Il registro deve consentire di ricostruire:
 
 ```text
 EVENTO
 ↓
-event_id
-event_type
-payload
-timestamp
-operatore
-source
-```
-
-L'Event Engine non interpreta testo libero.
-
-La conversione da linguaggio naturale a evento TPOL avviene prima.
-
-Un evento privo dei campi obbligatori non può entrare nel flusso operativo.
-
-## 3. Output
-
-L'output dell'Event Engine è sempre uno e uno solo:
-
-```text
-WritePlan
-```
-
-Il WritePlan rappresenta tutte le modifiche necessarie ai fogli ufficiali.
-
-Il WritePlan non modifica direttamente alcun dato.
-
-Il WritePlan deve essere leggibile, verificabile e applicabile solo dopo dry-run valido e conferma esplicita dell'operatore.
-
-## 4. Flusso
-
-Per ogni evento il motore esegue sempre questo ordine:
-
-1. ricezione evento
-2. validazione struttura
-3. Rules Engine
-4. Calendar Engine
-5. Production Planner
-6. Resource Engine
-7. costruzione WritePlan
-8. dry-run
-9. richiesta conferma
-10. Google Sheets Writer
-11. apply
-
-L'ordine non può essere modificato.
-
-Ogni passaggio riceve dati dal passaggio precedente e può bloccare il flusso se rileva errori o incoerenze.
-
-## 5. Responsabilità
-
-L'Event Engine deve:
-
-- coordinare i motori
-- impedire flussi incompleti
-- bloccare eventi non validi
-- propagare gli errori
-- produrre un solo WritePlan
-
-L'Event Engine non deve:
-
-- scrivere nei fogli
-- inventare dati
-- ignorare errori
-- modificare direttamente lo stato operativo
-
-L'Event Engine non sostituisce i motori specializzati. Coordina il loro lavoro e garantisce che il risultato finale sia unico, coerente e controllabile.
-
-## 6. Eventi supportati v1
-
-Implementazione iniziale:
-
-- SEMINA
-- RACCOLTA
-- CONSEGNA
-- NUOVO_CLIENTE
-- NUOVO_ORDINE
-- CLIENTE_SOSPESO
-- CLIENTE_RIATTIVATO
-- ACQUISTO_MATERIALE
-- RETTIFICA_INVENTARIO
-- CAMBIO_SOLUZIONE
-
-Gli altri eventi potranno essere aggiunti senza modificare l'architettura.
-
-L'elenco v1 rappresenta il perimetro minimo per dimostrare il funzionamento della pipeline operativa.
-
-## 7. Errori
-
-Qualsiasi motore può bloccare il flusso.
-
-Esempi:
-
-- varietà inesistente
-- lotto inesistente
-- cliente sconosciuto
-- dati obbligatori mancanti
-- stock insufficiente
-- ricetta mancante
-- calendario impossibile
-
-In caso di errore:
-
-- nessuna scrittura
-- nessun WritePlan applicato
-- errore leggibile
-
-L'errore deve indicare cosa blocca il flusso e quale dato deve essere corretto o completato.
-
-## 8. Atomicità
-
-L'Event Engine considera ogni evento una singola operazione logica.
-
-Tutti gli aggiornamenti vengono preparati insieme.
-
-Se un controllo fallisce:
-
-nessun aggiornamento viene applicato.
-
-L'atomicità impedisce aggiornamenti parziali tra fogli ufficiali diversi.
-
-Un evento operativo è considerato completato solo quando tutte le modifiche previste dal WritePlan sono state applicate correttamente dal Writer.
-
-## 9. Esempio
-
-Input:
-
-> Ho seminato 6 set di cilantro.
-
-Flusso:
-
-```text
-TPOL
+IDENTITÀ E ORIGINE
 ↓
-Evento SEMINA
+FONTI CONSULTATE
 ↓
-Rules Engine
+VALIDAZIONI
 ↓
-Calendar Engine
+PIPELINE SELEZIONATA
 ↓
-Production Planner
-↓
-Resource Engine
+MOTORI ESEGUITI
 ↓
 WritePlan
 ↓
-Dry-run
+DRY-RUN
 ↓
-Conferma operatore
+CONFERMA
 ↓
-Writer
+TENTATIVI DI APPLY
 ↓
-Google Sheets
+ESITO
+↓
+EVENTUALI RETTIFICHE
 ```
 
-L'Event Engine coordina il flusso, ma non scrive direttamente sui fogli.
+Il Fact originario è immutabile e non viene corretto mediante sovrascrittura. Una rettifica deve essere rappresentata da un nuovo Fact collegato all'evento precedente. Una nuova elaborazione autorizzata deve conservare il collegamento all'identità e alla cronologia originarie.
 
-## 10. Versione 1
+Evento, fonti, WritePlan, conferma, tentativi ed esito devono rimanere correlabili per audit e ricostruzione dello State.
 
-L'obiettivo della prima implementazione non è supportare tutti gli eventi.
+## 10. Autorità documentale
 
-L'obiettivo è dimostrare il funzionamento completo del flusso con il minor numero possibile di eventi.
+- `TPO_CORE_PRINCIPLES.md` governa i principi sovraordinati.
+- `SYSTEM_ARCHITECTURE.md` governa il modello architetturale generale, i componenti, il Write Path e il Read Path.
+- `OPERATING_RULES.md` governa le regole operative.
+- `TPO_DATA_DICTIONARY.md` governa la struttura logica dei dati.
+- `TPO_SHEETS_SCHEMA.md` governa il mapping fisico sui fogli.
+- `PROJECT_SNAPSHOT_v1.0.md` governa lo stato e il perimetro della baseline.
 
-La prima milestone è considerata completata quando un evento reale attraversa con successo l'intera pipeline fino alla generazione di un WritePlan valido.
-
-La versione 1 deve privilegiare chiarezza, sicurezza dei dati e verificabilità rispetto all'automazione completa.
+Questo documento governa il comportamento logico dell'Event Engine. Non governa schema fisico, regole di dominio, implementazione o stato del progetto.

@@ -1,5 +1,6 @@
 """Entità del Core Domain."""
 
+from .consegna import Consegna, RigaConsegna
 from .movimento_magazzino import MovimentoMagazzino
 from .ordine import Ordine, PrenotazioneOrdine, RigaOrdine
 from .programma_fornitura import (
@@ -15,11 +16,13 @@ from .varieta import Varieta
 
 __all__ = [
     "ConfigurazioneTemporale",
+    "Consegna",
     "MovimentoMagazzino",
     "Ordine",
     "PrenotazioneOrdine",
     "ProgrammaFornitura",
     "Raccolta",
+    "RigaConsegna",
     "RigaProgrammaFornitura",
     "RigaOrdine",
     "Semina",

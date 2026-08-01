@@ -45,6 +45,11 @@ class MovimentoType(str, Enum):
     RETTIFICA = "RETTIFICA"
 
 
+class MovimentoDirection(str, Enum):
+    POSITIVO = "POSITIVO"
+    NEGATIVO = "NEGATIVO"
+
+
 class RunState(str, Enum):
     SUCCESS = "SUCCESS"
     SUCCESS_WITH_WARNINGS = "SUCCESS_WITH_WARNINGS"

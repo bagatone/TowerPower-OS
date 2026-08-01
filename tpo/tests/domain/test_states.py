@@ -1,5 +1,6 @@
 from src.tpo_core.domain.states import (
     ConsegnaState,
+    MovimentoDirection,
     MovimentoType,
     OrdineState,
     ProgrammaFornituraState,
@@ -47,6 +48,10 @@ def test_consegna_states_are_exact() -> None:
 
 def test_movimento_types_are_exact() -> None:
     assert values(MovimentoType) == ["CARICO", "SCARICO", "RETTIFICA"]
+
+
+def test_movimento_directions_are_exact() -> None:
+    assert values(MovimentoDirection) == ["POSITIVO", "NEGATIVO"]
 
 
 def test_run_states_are_exact() -> None:

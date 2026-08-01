@@ -1,6 +1,6 @@
 # CONSEGNE
 
-**Stato:** EDITING v1.2
+**Stato:** ARCHITECTURE FREEZE v1.0
 
 ## Scopo
 

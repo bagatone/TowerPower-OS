@@ -10,7 +10,12 @@ from typing import Any
 from ...domain.identifiers import RunId
 from ...domain.time_reference import CurrentSystemDate
 from ..scheduling.models import ScheduledOrderRecord
-from .errors import DuplicateIdempotencyKeyError, InvalidWritePlanError
+from .errors import (
+    DuplicateIdempotencyKeyError,
+    InvalidWritePlanError,
+    InvalidWriteTargetSnapshotError,
+    WritePlanValidationError,
+)
 
 
 def _decimal_text(value: Decimal) -> str:
@@ -119,6 +124,161 @@ class WritePlan:
 
     def to_json(self) -> str:
         """Serializza deterministicamente il piano senza I/O."""
+        return json.dumps(
+            self.to_dict(),
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+
+def _non_empty_text(name: str, value: str, error_type: type[ValueError]) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise error_type(f"{name} deve essere una stringa non vuota.")
+
+
+def _non_negative_count(name: str, value: int, error_type: type[ValueError]) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise error_type(f"{name} deve essere un intero non negativo.")
+
+
+@dataclass(frozen=True)
+class WriteTargetSnapshot:
+    """Vista applicativa minima del target disponibile alla validazione."""
+
+    target_name: str
+    schema_name: str
+    schema_version: str
+    existing_idempotency_keys: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        error = InvalidWriteTargetSnapshotError
+        _non_empty_text("target_name", self.target_name, error)
+        _non_empty_text("schema_name", self.schema_name, error)
+        _non_empty_text("schema_version", self.schema_version, error)
+        if not isinstance(self.existing_idempotency_keys, tuple):
+            raise error("existing_idempotency_keys deve essere una tuple.")
+        if any(
+            not isinstance(key, str) or not key.strip()
+            for key in self.existing_idempotency_keys
+        ):
+            raise error("Le chiavi esistenti devono essere stringhe non vuote.")
+        if len(set(self.existing_idempotency_keys)) != len(
+            self.existing_idempotency_keys
+        ):
+            raise error("Lo snapshot contiene chiavi esistenti duplicate.")
+
+
+@dataclass(frozen=True)
+class WritePlanValidationSnapshot:
+    """Prove strutturate prodotte dalla validazione applicativa."""
+
+    run_id: RunId
+    expected_record_count: int
+    expected_logical_row_count: int
+    checked_existing_key_count: int
+    schema_name: str
+    schema_version: str
+    target_name: str
+
+    def __post_init__(self) -> None:
+        error = WritePlanValidationError
+        if not isinstance(self.run_id, RunId):
+            raise error("run_id dello snapshot deve essere un RunId.")
+        for name in ("expected_record_count", "expected_logical_row_count"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise error(f"{name} deve essere un intero positivo.")
+        _non_negative_count(
+            "checked_existing_key_count", self.checked_existing_key_count, error
+        )
+        _non_empty_text("schema_name", self.schema_name, error)
+        _non_empty_text("schema_version", self.schema_version, error)
+        _non_empty_text("target_name", self.target_name, error)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "checked_existing_key_count": self.checked_existing_key_count,
+            "expected_logical_row_count": self.expected_logical_row_count,
+            "expected_record_count": self.expected_record_count,
+            "run_id": self.run_id.value,
+            "schema_name": self.schema_name,
+            "schema_version": self.schema_version,
+            "target_name": self.target_name,
+        }
+
+
+@dataclass(frozen=True)
+class ValidatedWritePlan:
+    """Write Plan che ha superato una validazione pre-commit completa."""
+
+    plan: WritePlan
+    validated_at: CurrentSystemDate
+    existing_idempotency_keys_checked: tuple[str, ...]
+    target_name: str
+    expected_schema_name: str
+    expected_schema_version: str
+    validation_snapshot: WritePlanValidationSnapshot
+    warnings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        error = WritePlanValidationError
+        if not isinstance(self.plan, WritePlan):
+            raise error("plan deve essere un WritePlan.")
+        if not isinstance(self.validated_at, CurrentSystemDate):
+            raise error("validated_at deve essere CURRENT_SYSTEM_DATE.")
+        _non_empty_text("target_name", self.target_name, error)
+        _non_empty_text("expected_schema_name", self.expected_schema_name, error)
+        _non_empty_text("expected_schema_version", self.expected_schema_version, error)
+        if not isinstance(self.existing_idempotency_keys_checked, tuple):
+            raise error("existing_idempotency_keys_checked deve essere una tuple.")
+        if any(
+            not isinstance(key, str) or not key.strip()
+            for key in self.existing_idempotency_keys_checked
+        ):
+            raise error("Le chiavi verificate devono essere stringhe non vuote.")
+        if len(set(self.existing_idempotency_keys_checked)) != len(
+            self.existing_idempotency_keys_checked
+        ):
+            raise error("Le chiavi verificate non possono essere duplicate.")
+        if not isinstance(self.validation_snapshot, WritePlanValidationSnapshot):
+            raise error("validation_snapshot non valido.")
+        snapshot = self.validation_snapshot
+        if (
+            snapshot.run_id != self.plan.run_id
+            or snapshot.expected_record_count != self.plan.expected_record_count
+            or snapshot.expected_logical_row_count
+            != self.plan.expected_logical_row_count
+            or snapshot.checked_existing_key_count
+            != len(self.existing_idempotency_keys_checked)
+            or snapshot.target_name != self.target_name
+            or snapshot.schema_name != self.expected_schema_name
+            or snapshot.schema_version != self.expected_schema_version
+        ):
+            raise error("Le prove di validazione non coincidono con il piano.")
+        _messages("warnings", self.warnings)
+        if self.warnings != self.plan.warnings:
+            raise error("I warning validati non coincidono con il piano.")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "existing_key_count_checked": len(
+                self.existing_idempotency_keys_checked
+            ),
+            "idempotency_keys": list(self.plan.idempotency_keys),
+            "logical_row_count": self.plan.expected_logical_row_count,
+            "plan": self.plan.to_dict(),
+            "record_count": self.plan.expected_record_count,
+            "run_id": self.plan.run_id.value,
+            "schema_name": self.expected_schema_name,
+            "schema_version": self.expected_schema_version,
+            "target_name": self.target_name,
+            "validated_at": self.validated_at.datetime.isoformat(),
+            "validation_snapshot": self.validation_snapshot.to_dict(),
+            "warnings": list(self.warnings),
+        }
+
+    def to_json(self) -> str:
         return json.dumps(
             self.to_dict(),
             ensure_ascii=True,

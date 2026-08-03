@@ -7,6 +7,7 @@ from .models import (
     SchedulingRequest,
     SchedulingResult,
 )
+from .use_case import RunScheduling
 
 __all__ = [
     "GeneratedOrderDraft",
@@ -14,4 +15,5 @@ __all__ = [
     "SchedulingEngine",
     "SchedulingRequest",
     "SchedulingResult",
+    "RunScheduling",
 ]

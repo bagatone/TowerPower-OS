@@ -1,5 +1,7 @@
 # Secrets / local config
 config/google-service-account.json
+*service-account*.json
+config/*credentials*.json
 config/settings.yaml
 .env
 .env.*

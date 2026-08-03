@@ -62,6 +62,20 @@ class FakeGoogleService:
         return FakeRequest({}, self.append_error)
 
 
+class FakeMetadataService:
+    def __init__(self, response=None, error=None):
+        self.response = response or {"sheets": []}
+        self.error = error
+        self.calls = []
+
+    def spreadsheets(self):
+        return self
+
+    def get(self, **kwargs):
+        self.calls.append(kwargs)
+        return FakeRequest(self.response, self.error)
+
+
 def gateway(values=None, **kwargs):
     service = FakeGoogleService(values, **kwargs)
     return GoogleApiSheetsGateway(service), service
@@ -106,6 +120,40 @@ def test_non_normalizza_intestazioni_o_valori() -> None:
 def test_foglio_vuoto_restituisce_tuple_vuota() -> None:
     target, _ = gateway([])
     assert target.read_rows(spreadsheet_id="id", sheet_name="S") == ()
+
+
+def test_legge_intestazioni_fisiche() -> None:
+    target, _ = gateway([["A", "B"], ["1", "2"]])
+    assert target.read_headers(spreadsheet_id="id", sheet_name="S") == ("A", "B")
+
+
+def test_intestazioni_mancanti_rifiutate_da_read_headers() -> None:
+    target, _ = gateway([])
+    with pytest.raises(InvalidSheetSchemaError, match="mancante"):
+        target.read_headers(spreadsheet_id="id", sheet_name="S")
+
+
+def test_lista_nomi_fogli_da_metadata() -> None:
+    service = FakeMetadataService(
+        {"sheets": [{"properties": {"title": "PROGRAMMI_FORNITURA"}}, {"properties": {"title": "ORDINI"}}]}
+    )
+    target = GoogleApiSheetsGateway(service)
+    assert target.list_sheet_names(spreadsheet_id="spreadsheet") == (
+        "PROGRAMMI_FORNITURA", "ORDINI"
+    )
+    assert service.calls == [{
+        "spreadsheetId": "spreadsheet",
+        "fields": "sheets.properties.title",
+    }]
+
+
+def test_errore_metadata_maschera_spreadsheet_id() -> None:
+    service = FakeMetadataService(error=http_error())
+    target = GoogleApiSheetsGateway(service)
+    with pytest.raises(GoogleSheetsRepositoryError) as raised:
+        target.list_sheet_names(spreadsheet_id="secret-spreadsheet-id")
+    assert "secret-spreadsheet-id" not in str(raised.value)
+    assert "se***id" in str(raised.value)
 
 
 @pytest.mark.parametrize("values", [[[]], [["", "B"]], [["A", "A"]]])

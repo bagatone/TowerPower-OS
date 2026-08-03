@@ -6,6 +6,7 @@ import argparse
 import sys
 
 from .scheduling import run_scheduling_command
+from .preflight import run_preflight_command
 
 
 class _UsageError(ValueError):
@@ -28,6 +29,13 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--current-system-date", required=True)
     run.add_argument("--run-id", required=True)
     run.add_argument("--json", action="store_true", dest="json_output")
+    preflight = schedule_commands.add_parser(
+        "preflight", help="Verifica read-only della pipeline Google Sheets."
+    )
+    preflight.add_argument("--settings", required=True)
+    preflight.add_argument("--current-system-date", required=True)
+    preflight.add_argument("--run-id", required=True)
+    preflight.add_argument("--json", action="store_true", dest="json_output")
     return parser
 
 
@@ -39,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Errore di utilizzo: {exc}", file=sys.stderr)
         return 2
 
+    if args.schedule_command == "preflight":
+        return run_preflight_command(args, stdout=sys.stdout, stderr=sys.stderr)
     return run_scheduling_command(args, stdout=sys.stdout, stderr=sys.stderr)
 
 

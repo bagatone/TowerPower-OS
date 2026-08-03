@@ -44,6 +44,57 @@ class GoogleApiSheetsGateway:
     def __init__(self, service: Any) -> None:
         self._service = service
 
+    def list_sheet_names(self, *, spreadsheet_id: str) -> tuple[str, ...]:
+        """Legge esclusivamente i titoli dei fogli dallo spreadsheet metadata."""
+
+        try:
+            response = (
+                self._service.spreadsheets()
+                .get(
+                    spreadsheetId=spreadsheet_id,
+                    fields="sheets.properties.title",
+                )
+                .execute()
+            )
+        except HttpError as exc:
+            raise GoogleSheetsRepositoryError(
+                self._error_message("lettura metadata", spreadsheet_id, "<metadata>")
+            ) from exc
+        sheets = response.get("sheets", [])
+        if not isinstance(sheets, list):
+            raise GoogleSheetsRepositoryError(
+                self._error_message("validazione metadata", spreadsheet_id, "<metadata>")
+            )
+        titles: list[str] = []
+        for sheet in sheets:
+            if not isinstance(sheet, dict):
+                raise GoogleSheetsRepositoryError("Metadata dei fogli Google non validi.")
+            properties = sheet.get("properties")
+            title = properties.get("title") if isinstance(properties, dict) else None
+            if not isinstance(title, str) or not title:
+                raise GoogleSheetsRepositoryError("Titolo di un foglio Google non valido.")
+            titles.append(title)
+        return tuple(titles)
+
+    def read_headers(
+        self,
+        *,
+        spreadsheet_id: str,
+        sheet_name: str,
+    ) -> tuple[str, ...]:
+        """Legge e valida esclusivamente la riga fisica delle intestazioni."""
+
+        values = self._read_values(
+            spreadsheet_id=spreadsheet_id,
+            sheet_name=sheet_name,
+            operation="lettura intestazioni",
+        )
+        if not values:
+            raise InvalidSheetSchemaError(
+                f"{sheet_name}: riga delle intestazioni mancante."
+            )
+        return self._headers(values, sheet_name)
+
     def read_rows(
         self,
         *,

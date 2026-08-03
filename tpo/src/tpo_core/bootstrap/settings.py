@@ -18,6 +18,8 @@ class ApplicationSettings:
     """Configurazione minima necessaria alla composizione dell'applicazione."""
 
     spreadsheet_id: str
+    credentials_file: str
+    scopes: tuple[str, ...]
     programmi_fornitura_sheet: str
     ordini_sheet: str
 
@@ -41,6 +43,8 @@ def load_settings(path: str | Path) -> ApplicationSettings:
         raise InvalidSettingsError("La sezione google_sheets è obbligatoria.")
 
     spreadsheet_id = _required_string(google_sheets, "spreadsheet_id")
+    credentials_file = _required_string(google_sheets, "credentials_file")
+    scopes = _non_empty_strings(google_sheets.get("scopes"), "google_sheets.scopes")
     sheet_names = _sheet_names(google_sheets.get("sheets"))
     for required in ("PROGRAMMI_FORNITURA", "ORDINI"):
         if required not in sheet_names:
@@ -50,6 +54,8 @@ def load_settings(path: str | Path) -> ApplicationSettings:
 
     return ApplicationSettings(
         spreadsheet_id=spreadsheet_id,
+        credentials_file=credentials_file,
+        scopes=scopes,
         programmi_fornitura_sheet="PROGRAMMI_FORNITURA",
         ordini_sheet="ORDINI",
     )
@@ -63,12 +69,15 @@ def _required_string(section: Mapping[str, Any], key: str) -> str:
 
 
 def _sheet_names(value: Any) -> tuple[str, ...]:
-    if not isinstance(value, list) or any(
+    names = _non_empty_strings(value, "google_sheets.sheets")
+    if len(set(names)) != len(names):
+        raise InvalidSettingsError("google_sheets.sheets contiene nomi duplicati.")
+    return names
+
+
+def _non_empty_strings(value: Any, key: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or not value or any(
         not isinstance(item, str) or not item for item in value
     ):
-        raise InvalidSettingsError(
-            "google_sheets.sheets deve essere una lista di nomi non vuoti."
-        )
-    if len(set(value)) != len(value):
-        raise InvalidSettingsError("google_sheets.sheets contiene nomi duplicati.")
+        raise InvalidSettingsError(f"{key} deve essere una lista non vuota di stringhe.")
     return tuple(value)

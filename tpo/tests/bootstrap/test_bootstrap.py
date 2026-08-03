@@ -41,6 +41,9 @@ def settings_file(tmp_path: Path) -> Path:
     path.write_text(
         """google_sheets:
   spreadsheet_id: spreadsheet-test
+  credentials_file: credentials.json
+  scopes:
+    - https://www.googleapis.com/auth/spreadsheets
   sheets:
     - PROGRAMMI_FORNITURA
     - ORDINI
@@ -71,6 +74,10 @@ def test_costruzione_completa(settings_file: Path) -> None:
     assert isinstance(container.ordini_repository, GoogleSheetsOrdineRepository)
     assert isinstance(container.scheduling_engine, SchedulingEngine)
     assert isinstance(container.run_scheduling, RunScheduling)
+    assert container.settings.credentials_file == "credentials.json"
+    assert container.settings.scopes == (
+        "https://www.googleapis.com/auth/spreadsheets",
+    )
 
 
 def test_dipendenze_collegate_alle_stesse_istanze(settings_file: Path) -> None:
@@ -106,10 +113,12 @@ def test_build_ripetibile_senza_singleton(settings_file: Path) -> None:
         "",
         "[]",
         "google_sheets: {}",
-        "google_sheets:\n  spreadsheet_id: ''\n  sheets: [PROGRAMMI_FORNITURA, ORDINI]",
-        "google_sheets:\n  spreadsheet_id: id\n  sheets: [ORDINI]",
-        "google_sheets:\n  spreadsheet_id: id\n  sheets: [PROGRAMMI_FORNITURA]",
-        "google_sheets:\n  spreadsheet_id: id\n  sheets: [PROGRAMMI_FORNITURA, ORDINI, ORDINI]",
+        "google_sheets:\n  spreadsheet_id: ''\n  credentials_file: c\n  scopes: [s]\n  sheets: [PROGRAMMI_FORNITURA, ORDINI]",
+        "google_sheets:\n  spreadsheet_id: id\n  credentials_file: c\n  scopes: [s]\n  sheets: [ORDINI]",
+        "google_sheets:\n  spreadsheet_id: id\n  credentials_file: c\n  scopes: [s]\n  sheets: [PROGRAMMI_FORNITURA]",
+        "google_sheets:\n  spreadsheet_id: id\n  credentials_file: c\n  scopes: [s]\n  sheets: [PROGRAMMI_FORNITURA, ORDINI, ORDINI]",
+        "google_sheets:\n  spreadsheet_id: id\n  scopes: [s]\n  sheets: [PROGRAMMI_FORNITURA, ORDINI]",
+        "google_sheets:\n  spreadsheet_id: id\n  credentials_file: c\n  scopes: []\n  sheets: [PROGRAMMI_FORNITURA, ORDINI]",
     ],
 )
 def test_configurazione_non_valida(content: str, tmp_path: Path) -> None:

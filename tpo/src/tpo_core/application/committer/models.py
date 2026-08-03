@@ -12,9 +12,11 @@ from .errors import InvalidCommitRequestError
 
 
 class CommitStatus(str, Enum):
-    """Stati disponibili prima di qualsiasi effetto persistente."""
+    """Stati del protocollo applicativo di commit."""
 
     PREPARED = "PREPARED"
+    COMMITTED = "COMMITTED"
+    RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
 
 
 @dataclass(frozen=True)
@@ -44,13 +46,16 @@ class CommitRequest:
 
 @dataclass(frozen=True)
 class CommitResult:
-    """Esito della preparazione; le operazioni attese sono righe logiche."""
+    """Esito applicativo della preparazione o esecuzione del commit."""
 
     run_id: RunId
     commit_started_at: CurrentSystemDate
     target_name: str
     expected_operations: int
     status: CommitStatus
+    committed_operations: int | None = None
+    reconciled_idempotency_keys: tuple[str, ...] = ()
+    commit_completed_at: CurrentSystemDate | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, RunId):
@@ -71,7 +76,99 @@ class CommitResult:
             raise InvalidCommitRequestError(
                 "expected_operations deve essere un intero positivo."
             )
-        if self.status is not CommitStatus.PREPARED:
+        if not isinstance(self.status, CommitStatus):
             raise InvalidCommitRequestError(
-                "L'unico stato disponibile è PREPARED."
+                "status deve essere un CommitStatus."
+            )
+        if not isinstance(self.reconciled_idempotency_keys, tuple) or any(
+            not isinstance(key, str) or not key.strip()
+            for key in self.reconciled_idempotency_keys
+        ):
+            raise InvalidCommitRequestError(
+                "reconciled_idempotency_keys deve essere una tuple di stringhe non vuote."
+            )
+        if len(set(self.reconciled_idempotency_keys)) != len(
+            self.reconciled_idempotency_keys
+        ):
+            raise InvalidCommitRequestError(
+                "reconciled_idempotency_keys contiene duplicati."
+            )
+        if self.status is CommitStatus.PREPARED:
+            if (
+                self.committed_operations is not None
+                or self.reconciled_idempotency_keys
+                or self.commit_completed_at is not None
+            ):
+                raise InvalidCommitRequestError(
+                    "PREPARED non può contenere dati di commit completato."
+                )
+            return
+        if (
+            isinstance(self.committed_operations, bool)
+            or not isinstance(self.committed_operations, int)
+            or self.committed_operations < 0
+        ):
+            raise InvalidCommitRequestError(
+                "committed_operations deve essere un intero non negativo."
+            )
+        if not isinstance(self.commit_completed_at, CurrentSystemDate):
+            raise InvalidCommitRequestError(
+                "commit_completed_at deve essere CURRENT_SYSTEM_DATE."
+            )
+        if self.commit_completed_at.datetime < self.commit_started_at.datetime:
+            raise InvalidCommitRequestError(
+                "commit_completed_at non può precedere commit_started_at."
+            )
+
+
+@dataclass(frozen=True)
+class CommitExecutionReceipt:
+    """Prova immutabile dell'append e della successiva riconciliazione."""
+
+    run_id: RunId
+    target_name: str
+    expected_record_count: int
+    expected_logical_row_count: int
+    appended_physical_row_count: int
+    reconciled_idempotency_keys: tuple[str, ...]
+    commit_completed_at: CurrentSystemDate
+    reconciliation_complete: bool
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.run_id, RunId):
+            raise InvalidCommitRequestError("run_id deve essere un RunId.")
+        if not isinstance(self.target_name, str) or not self.target_name.strip():
+            raise InvalidCommitRequestError(
+                "target_name deve essere una stringa non vuota."
+            )
+        for name in (
+            "expected_record_count",
+            "expected_logical_row_count",
+            "appended_physical_row_count",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise InvalidCommitRequestError(
+                    f"{name} deve essere un intero non negativo."
+                )
+        if not isinstance(self.reconciled_idempotency_keys, tuple) or any(
+            not isinstance(key, str) or not key.strip()
+            for key in self.reconciled_idempotency_keys
+        ):
+            raise InvalidCommitRequestError(
+                "reconciled_idempotency_keys deve essere una tuple di stringhe non vuote."
+            )
+        if len(set(self.reconciled_idempotency_keys)) != len(
+            self.reconciled_idempotency_keys
+        ):
+            raise InvalidCommitRequestError(
+                "reconciled_idempotency_keys contiene duplicati."
+            )
+        if not isinstance(self.commit_completed_at, CurrentSystemDate):
+            raise InvalidCommitRequestError(
+                "commit_completed_at deve essere CURRENT_SYSTEM_DATE."
+            )
+        if not isinstance(self.reconciliation_complete, bool):
+            raise InvalidCommitRequestError(
+                "reconciliation_complete deve essere booleano."
             )

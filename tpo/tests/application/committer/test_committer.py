@@ -7,6 +7,8 @@ import pytest
 
 from src.tpo_core.application.committer import (
     ApplicationCommitter,
+    CommitExecutionReceipt,
+    CommitReceiptMismatchError,
     CommitRequest,
     CommitStatus,
     InvalidCommitRequestError,
@@ -94,14 +96,40 @@ def validated_plan(*, two_lines=False):
 
 
 class FakeCommitRepository:
-    def __init__(self, error=None):
+    def __init__(self, error=None, receipt=None):
         self.error = error
+        self.receipt = receipt
         self.calls = []
+        self.execute_calls = []
 
     def prepare_commit(self, request):
         self.calls.append(request)
         if self.error is not None:
             raise self.error
+
+    def execute_commit(self, request, completed_at):
+        self.execute_calls.append((request, completed_at))
+        if self.error is not None:
+            raise self.error
+        return self.receipt
+
+
+def execution_receipt(plan, completed_at, *, complete=True, **overrides):
+    write_plan = plan.plan
+    values = {
+        "run_id": write_plan.run_id,
+        "target_name": plan.target_name,
+        "expected_record_count": write_plan.expected_record_count,
+        "expected_logical_row_count": write_plan.expected_logical_row_count,
+        "appended_physical_row_count": write_plan.expected_logical_row_count,
+        "reconciled_idempotency_keys": (
+            write_plan.idempotency_keys if complete else ()
+        ),
+        "commit_completed_at": completed_at,
+        "reconciliation_complete": complete,
+    }
+    values.update(overrides)
+    return CommitExecutionReceipt(**values)
 
 
 def test_prepare_valido_e_risultato_corretto() -> None:
@@ -182,6 +210,92 @@ def test_richiesta_e_risultato_immutabili() -> None:
         result.status = CommitStatus.PREPARED
 
 
+def test_commit_valido_restituisce_committed_e_chiama_repository_una_volta() -> None:
+    plan = validated_plan(two_lines=True)
+    request = CommitRequest(plan, instant(8))
+    completed_at = instant(9)
+    receipt = execution_receipt(plan, completed_at)
+    repository = FakeCommitRepository(receipt=receipt)
+    result = ApplicationCommitter(repository).commit(request, completed_at)
+    assert repository.execute_calls == [(request, completed_at)]
+    assert result.status is CommitStatus.COMMITTED
+    assert result.run_id == plan.plan.run_id
+    assert result.target_name == "ORDINI"
+    assert result.expected_operations == 2
+    assert result.committed_operations == 2
+    assert result.reconciled_idempotency_keys == ("key-001",)
+    assert result.commit_completed_at == completed_at
+
+
+def test_commit_non_riconciliato_richiede_riconciliazione() -> None:
+    plan = validated_plan()
+    request = CommitRequest(plan, instant(8))
+    completed_at = instant(9)
+    repository = FakeCommitRepository(
+        receipt=execution_receipt(plan, completed_at, complete=False)
+    )
+    result = ApplicationCommitter(repository).commit(request, completed_at)
+    assert result.status is CommitStatus.RECONCILIATION_REQUIRED
+    assert result.reconciled_idempotency_keys == ()
+
+
+def test_commit_rifiuta_completed_at_precedente_senza_chiamare_repository() -> None:
+    plan = validated_plan()
+    request = CommitRequest(plan, instant(8))
+    repository = FakeCommitRepository()
+    with pytest.raises(InvalidCommitRequestError, match="completed_at"):
+        ApplicationCommitter(repository).commit(request, instant(7))
+    assert repository.execute_calls == []
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"run_id": RunId("RUN-999999")},
+        {"target_name": "ALTRO"},
+        {"expected_record_count": 2},
+        {"expected_logical_row_count": 2},
+    ],
+)
+def test_commit_rifiuta_ricevuta_incoerente(override) -> None:
+    plan = validated_plan()
+    request = CommitRequest(plan, instant(8))
+    completed_at = instant(9)
+    repository = FakeCommitRepository(
+        receipt=execution_receipt(plan, completed_at, **override)
+    )
+    with pytest.raises(CommitReceiptMismatchError):
+        ApplicationCommitter(repository).commit(request, completed_at)
+    assert len(repository.execute_calls) == 1
+
+
+def test_commit_non_assume_corrispondenza_tra_righe_logiche_e_fisiche() -> None:
+    plan = validated_plan()
+    request = CommitRequest(plan, instant(8))
+    completed_at = instant(9)
+    repository = FakeCommitRepository(
+        receipt=execution_receipt(
+            plan,
+            completed_at,
+            appended_physical_row_count=2,
+        )
+    )
+    result = ApplicationCommitter(repository).commit(request, completed_at)
+    assert result.status is CommitStatus.COMMITTED
+    assert result.expected_operations == 1
+    assert result.committed_operations == 2
+
+
+def test_commit_propaga_errore_repository_senza_retry() -> None:
+    expected = RuntimeError("commit repository")
+    plan = validated_plan()
+    request = CommitRequest(plan, instant(8))
+    repository = FakeCommitRepository(error=expected)
+    with pytest.raises(RuntimeError, match="commit repository"):
+        ApplicationCommitter(repository).commit(request, instant(9))
+    assert len(repository.execute_calls) == 1
+
+
 @pytest.mark.parametrize(
     "candidate",
     [None, object(), "request"],
@@ -202,7 +316,6 @@ def test_nessun_clock_infrastruttura_google_o_metodo_di_scrittura() -> None:
         "GoogleApi",
         "append_rows",
         "batchUpdate",
-        "COMMITTED",
         "SUCCESS",
     )
     assert all(value not in source for value in forbidden)

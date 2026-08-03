@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from .models import CommitRequest
+from ...domain.time_reference import CurrentSystemDate
+from .models import CommitExecutionReceipt, CommitRequest
 
 
 class CommitRepository(Protocol):
@@ -12,4 +13,12 @@ class CommitRepository(Protocol):
 
     def prepare_commit(self, request: CommitRequest) -> None:
         """Prepara il commit senza applicare effetti persistenti al target."""
+        ...
+
+    def execute_commit(
+        self,
+        request: CommitRequest,
+        completed_at: CurrentSystemDate,
+    ) -> CommitExecutionReceipt:
+        """Esegue un singolo commit e ne restituisce la ricevuta."""
         ...

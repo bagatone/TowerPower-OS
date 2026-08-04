@@ -19,6 +19,8 @@ from src.tpo_core.infrastructure.google_sheets.ordini_repository import (
 from src.tpo_core.infrastructure.google_sheets.programmi_repository import (
     GoogleSheetsProgrammaFornituraRepository,
 )
+from src.tpo_core.infrastructure.postgresql.connection import PostgreSQLConnectionFactory
+from src.tpo_core.infrastructure.postgresql.health import PostgreSQLHealthCheck
 
 
 class NoNetworkGoogleService:
@@ -94,6 +96,51 @@ def test_dipendenze_collegate_alle_stesse_istanze(settings_file: Path) -> None:
 def test_build_non_accede_alla_rete(settings_file: Path) -> None:
     _, service, _ = build(settings_file)
     assert service.calls == 0
+
+
+def test_build_postgresql_pigro_da_environment_esplicito(settings_file: Path) -> None:
+    environment = {
+        "TPO_DATABASE_HOST": "db.example.invalid",
+        "TPO_DATABASE_PORT": "5432",
+        "TPO_DATABASE_NAME": "towerpower",
+        "TPO_DATABASE_USER": "app",
+        "TPO_DATABASE_PASSWORD": "secret",
+        "TPO_DATABASE_SSLMODE": "require",
+        "TPO_DATABASE_CONNECT_TIMEOUT": "3",
+    }
+    service = NoNetworkGoogleService()
+    container = build_application(
+        settings_file,
+        google_service=service,
+        id_generator=FakeIdGenerator(),
+        postgresql_environment=environment,
+    )
+    assert container.postgresql_settings.database == "towerpower"
+    assert isinstance(container.postgresql_connection_factory, PostgreSQLConnectionFactory)
+    assert isinstance(container.postgresql_health_check, PostgreSQLHealthCheck)
+    assert service.calls == 0
+
+
+def test_build_non_legge_env_local(settings_file: Path, monkeypatch) -> None:
+    original_read_text = Path.read_text
+    paths = []
+
+    def tracked_read_text(path, *args, **kwargs):
+        paths.append(path)
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", tracked_read_text)
+    build(settings_file)
+    assert all(path.name != ".env.local" for path in paths)
+
+
+def test_core_non_dipende_da_psycopg_o_supabase() -> None:
+    source_root = Path(__file__).parents[2] / "src" / "tpo_core"
+    for area in ("domain", "application"):
+        for path in (source_root / area).rglob("*.py"):
+            source = path.read_text(encoding="utf-8").lower()
+            assert "psycopg" not in source
+            assert "supabase" not in source
 
 
 def test_build_ripetibile_senza_singleton(settings_file: Path) -> None:

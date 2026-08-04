@@ -13,6 +13,9 @@ from ..infrastructure.google_sheets.ordini_repository import GoogleSheetsOrdineR
 from ..infrastructure.google_sheets.programmi_repository import (
     GoogleSheetsProgrammaFornituraRepository,
 )
+from ..infrastructure.postgresql.connection import PostgreSQLConnectionFactory
+from ..infrastructure.postgresql.health import PostgreSQLHealthCheck
+from ..infrastructure.postgresql.settings import PostgreSQLSettings
 from .settings import ApplicationSettings
 
 
@@ -26,6 +29,9 @@ class ApplicationContainer:
     ordini_repository: GoogleSheetsOrdineRepository
     scheduling_engine: SchedulingEngine
     run_scheduling: RunScheduling
+    postgresql_settings: PostgreSQLSettings | None = None
+    postgresql_connection_factory: PostgreSQLConnectionFactory | None = None
+    postgresql_health_check: PostgreSQLHealthCheck | None = None
 
 
 def _build_container(
@@ -33,6 +39,7 @@ def _build_container(
     settings: ApplicationSettings,
     google_service: Any,
     id_generator: IdGenerator,
+    postgresql_settings: PostgreSQLSettings | None = None,
 ) -> ApplicationContainer:
     google_gateway = GoogleApiSheetsGateway(google_service)
     programmi_repository = GoogleSheetsProgrammaFornituraRepository(
@@ -52,6 +59,16 @@ def _build_container(
         id_generator,
         scheduling_engine,
     )
+    postgresql_connection_factory = (
+        PostgreSQLConnectionFactory(postgresql_settings)
+        if postgresql_settings is not None
+        else None
+    )
+    postgresql_health_check = (
+        PostgreSQLHealthCheck(postgresql_connection_factory)
+        if postgresql_connection_factory is not None
+        else None
+    )
     return ApplicationContainer(
         settings=settings,
         google_gateway=google_gateway,
@@ -59,4 +76,7 @@ def _build_container(
         ordini_repository=ordini_repository,
         scheduling_engine=scheduling_engine,
         run_scheduling=run_scheduling,
+        postgresql_settings=postgresql_settings,
+        postgresql_connection_factory=postgresql_connection_factory,
+        postgresql_health_check=postgresql_health_check,
     )

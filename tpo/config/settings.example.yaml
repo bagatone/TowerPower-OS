@@ -1,6 +1,15 @@
 dry_run: true
 document_source: local
 
+postgresql:
+  host_env: TPO_DATABASE_HOST
+  port_env: TPO_DATABASE_PORT
+  database_env: TPO_DATABASE_NAME
+  user_env: TPO_DATABASE_USER
+  password_env: TPO_DATABASE_PASSWORD
+  sslmode_env: TPO_DATABASE_SSLMODE
+  connect_timeout_env: TPO_DATABASE_CONNECT_TIMEOUT
+
 source_gate:
   enabled: true
   allowed_document_sources:

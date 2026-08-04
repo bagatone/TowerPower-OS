@@ -1,0 +1,22 @@
+"""Primitive infrastrutturali PostgreSQL, indipendenti dal provider."""
+
+from .connection import PostgreSQLConnectionFactory
+from .errors import (
+    InvalidPostgreSQLSettingsError,
+    PostgreSQLConnectionError,
+    PostgreSQLError,
+    PostgreSQLHealthCheckError,
+)
+from .health import PostgreSQLHealthCheck, PostgreSQLHealthResult
+from .settings import PostgreSQLSettings
+
+__all__ = [
+    "InvalidPostgreSQLSettingsError",
+    "PostgreSQLConnectionError",
+    "PostgreSQLConnectionFactory",
+    "PostgreSQLError",
+    "PostgreSQLHealthCheck",
+    "PostgreSQLHealthCheckError",
+    "PostgreSQLHealthResult",
+    "PostgreSQLSettings",
+]

@@ -8,6 +8,7 @@ from ...domain.entities.programma_fornitura import ProgrammaFornitura
 
 if TYPE_CHECKING:
     from ..scheduling.models import ScheduledOrderRecord
+    from ..scheduling.provenance import VersionedProgrammaFornitura
 
 
 class ProgrammaFornituraRepository(Protocol):
@@ -18,16 +19,22 @@ class ProgrammaFornituraRepository(Protocol):
         ...
 
 
-class OrdineRepository(Protocol):
-    """Accesso ai record applicativi degli ORDINI generati dallo Scheduling."""
+class VersionedProgrammaFornituraRepository(Protocol):
+    """Sorgente autorevole di snapshot PROGRAMMA versionati e localizzati."""
+
+    def list_versioned_for_scheduling(self) -> tuple[VersionedProgrammaFornitura, ...]: ...
+
+
+class ScheduledOrderReadRepository(Protocol):
+    """Accesso read-only agli ORDINI necessario allo Scheduling autorevole."""
 
     def list_scheduled_orders(self) -> tuple[ScheduledOrderRecord, ...]:
         """Restituisce i record necessari alla verifica di idempotenza."""
         ...
 
-    def add_scheduled_orders(
-        self,
-        records: tuple[ScheduledOrderRecord, ...],
-    ) -> None:
-        """Aggiunge i nuovi record conservandone ordine e metadati."""
-        ...
+
+
+class OrdineRepository(ScheduledOrderReadRepository, Protocol):
+    """Porta legacy; i nuovi runtime usano ``ScheduledOrderReadRepository``."""
+
+    def add_scheduled_orders(self, records: tuple[ScheduledOrderRecord, ...]) -> None: ...

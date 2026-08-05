@@ -9,6 +9,10 @@ from src.tpo_core.application.ports.repositories import (
 )
 from src.tpo_core.application.scheduling.engine import SchedulingEngine
 from src.tpo_core.application.scheduling.models import SchedulingRequest
+from src.tpo_core.application.scheduling.provenance import (
+    VersionedProgramLine,
+    VersionedProgrammaFornitura,
+)
 from src.tpo_core.application.scheduling.use_case import RunScheduling
 from src.tpo_core.domain.entities.programma_fornitura import (
     ConfigurazioneTemporale,
@@ -41,11 +45,11 @@ class FakeProgrammaFornituraRepository:
         self.error = error
         self.reads = 0
 
-    def list_for_scheduling(self):
+    def list_versioned_for_scheduling(self):
         self.reads += 1
         if self.error is not None:
             raise self.error
-        return self.programmi
+        return tuple(versioned(item) for item in self.programmi)
 
 
 class FakeOrdineRepository:
@@ -110,6 +114,17 @@ def build_programma(identifier="PF-000001", varieta="VAR-000001"):
     )
 
 
+def versioned(item, version=3):
+    return VersionedProgrammaFornitura(
+        programma=item,
+        version=version,
+        lines=tuple(
+            VersionedProgramLine(position, line)
+            for position, line in enumerate(item.righe, start=1)
+        ),
+    )
+
+
 def current_system_date():
     return CurrentSystemDate(datetime(2026, 8, 3, 5, tzinfo=TZ))
 
@@ -141,28 +156,28 @@ def test_nessun_programma_legge_una_volta_e_non_scrive() -> None:
     assert generator.calls == 0
 
 
-def test_programma_attivo_genera_e_salva_una_volta() -> None:
+def test_programma_attivo_genera_senza_scrittura_diretta() -> None:
     use_case, programmi_repo, ordini_repo, generator, engine = build_use_case(
         (build_programma(),)
     )
     result = run(use_case)
     assert result is engine.results[0]
-    assert ordini_repo.received == [result.ordini_generati]
-    assert ordini_repo.writes == 1
+    assert result.ordini_generati
+    assert ordini_repo.received == []
+    assert ordini_repo.writes == 0
     assert programmi_repo.reads == ordini_repo.reads == 1
     assert generator.calls == 1
 
 
-def test_ordine_dei_record_salvati_e_preservato() -> None:
+def test_ordine_dei_record_generati_e_preservato() -> None:
     programmi = (
         build_programma("PF-000001", "VAR-000001"),
         build_programma("PF-000002", "VAR-000002"),
     )
     use_case, _, ordini_repo, _, _ = build_use_case(programmi)
     result = run(use_case)
-    assert ordini_repo.received[0] is result.ordini_generati
     assert tuple(
-        record.ordine.programma_fornitura_id for record in ordini_repo.received[0]
+        record.ordine.programma_fornitura_id for record in result.ordini_generati
     ) == (ProgrammaFornituraId("PF-000001"), ProgrammaFornituraId("PF-000002"))
 
 
@@ -245,21 +260,27 @@ def test_errore_lettura_ordini_propagato() -> None:
     assert ordini_repo.writes == 0
 
 
-def test_errore_salvataggio_propagato_senza_success_falso() -> None:
-    error = RepositoryError("salvataggio")
+def test_writer_legacy_non_invocato_dal_nuovo_flusso() -> None:
+    error = RepositoryError("writer legacy")
     use_case, _, ordini_repo, _, _ = build_use_case(
         (build_programma(),), write_error=error
     )
-    with pytest.raises(RepositoryError) as raised:
-        run(use_case)
-    assert raised.value is error
-    assert ordini_repo.writes == 1
+    result = run(use_case)
+    assert result.ordini_generati
+    assert ordini_repo.writes == 0
 
 
 def test_porte_sono_protocol_e_fake_conformi() -> None:
+    from src.tpo_core.application.ports.repositories import (
+        ScheduledOrderReadRepository,
+        VersionedProgrammaFornituraRepository,
+    )
+
     assert getattr(ProgrammaFornituraRepository, "_is_protocol", False)
     assert getattr(OrdineRepository, "_is_protocol", False)
-    assert hasattr(FakeProgrammaFornituraRepository(), "list_for_scheduling")
+    assert getattr(ScheduledOrderReadRepository, "_is_protocol", False)
+    assert getattr(VersionedProgrammaFornituraRepository, "_is_protocol", False)
+    assert hasattr(FakeProgrammaFornituraRepository(), "list_versioned_for_scheduling")
     assert hasattr(FakeOrdineRepository(), "list_scheduled_orders")
     assert hasattr(FakeOrdineRepository(), "add_scheduled_orders")
 

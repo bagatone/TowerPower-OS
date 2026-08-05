@@ -112,6 +112,15 @@ class WritePlan:
                 if ordine.programma_fornitura_id is not None
                 else None
             ),
+            "provenance": [
+                {
+                    "order_line_position": item.order_line_position,
+                    "programma_fornitura_id": item.programma_fornitura_id.value,
+                    "programma_line_position": item.programma_line_position,
+                    "programma_version": item.programma_version,
+                }
+                for item in record.provenance
+            ],
             "righe": [
                 {
                     "quantita": _decimal_text(riga.quantita.value),

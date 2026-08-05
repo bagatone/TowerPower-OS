@@ -29,6 +29,7 @@ class WritePlanBuilder:
             raise InvalidWritePlanError(
                 "Il risultato non contiene record da includere nel Write Plan."
             )
+        _validate_provenance(records)
         keys = tuple(record.chiave_idempotenza for record in records)
         if any(not isinstance(key, str) or not key.strip() for key in keys):
             raise InvalidWritePlanError(
@@ -98,3 +99,34 @@ class WritePlanBuilder:
             raise WritePlanConsistencyError(
                 "Il numero di record non coincide con le occorrenze generate."
             )
+
+
+def _validate_provenance(records) -> None:
+    """Richiede provenance autorevole e completa per ogni riga automatica."""
+    for record in records:
+        expected_positions = set(range(1, len(record.ordine.righe) + 1))
+        actual_positions = {item.order_line_position for item in record.provenance}
+        if actual_positions != expected_positions:
+            raise InvalidWritePlanError(
+                "Ogni riga ORDINE automatica deve possedere almeno una provenance."
+            )
+        if any(
+            item.programma_fornitura_id != record.ordine.programma_fornitura_id
+            for item in record.provenance
+        ):
+            raise InvalidWritePlanError(
+                "La provenance appartiene a un PROGRAMMA_FORNITURA diverso."
+            )
+        identities = tuple(
+            (
+                item.programma_fornitura_id,
+                item.programma_version,
+                item.programma_line_position,
+                item.order_line_position,
+            )
+            for item in record.provenance
+        )
+        if len(set(identities)) != len(identities):
+            raise InvalidWritePlanError("La provenance contiene origini duplicate.")
+        if identities != tuple(sorted(identities, key=lambda item: (item[3], item[2]))):
+            raise InvalidWritePlanError("La provenance non possiede un ordine stabile.")

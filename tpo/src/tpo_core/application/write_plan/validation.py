@@ -125,6 +125,7 @@ class WritePlanValidator:
         records = plan.records
         if not isinstance(records, tuple) or not records:
             raise InvalidWritePlanError("Il Write Plan non può essere vuoto.")
+        _validate_provenance(records)
         if plan.expected_record_count != len(records):
             raise WritePlanCountMismatchError(
                 "expected_record_count non coincide con i record."
@@ -152,3 +153,24 @@ class WritePlanValidator:
             raise DuplicateWritePlanRecordError(
                 "Il piano contiene più record per lo stesso ordine logico."
             )
+
+
+def _validate_provenance(records) -> None:
+    for record in records:
+        positions = tuple(item.order_line_position for item in record.provenance)
+        expected = set(range(1, len(record.ordine.righe) + 1))
+        if set(positions) != expected:
+            raise InvalidWritePlanError("Il piano contiene provenance orfana o incompleta.")
+        if any(position > len(record.ordine.righe) for position in positions):
+            raise InvalidWritePlanError("La provenance punta a una riga ORDINE inesistente.")
+        if any(
+            item.programma_fornitura_id != record.ordine.programma_fornitura_id
+            for item in record.provenance
+        ):
+            raise InvalidWritePlanError("La provenance non coincide con il PROGRAMMA dell'ORDINE.")
+        keys = tuple(
+            (item.programma_version, item.programma_line_position, item.order_line_position)
+            for item in record.provenance
+        )
+        if len(set(keys)) != len(keys):
+            raise InvalidWritePlanError("La provenance contiene associazioni duplicate.")

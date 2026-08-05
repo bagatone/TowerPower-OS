@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from ...domain.identifiers import IdGenerator, RunId
 from ...domain.time_reference import CurrentSystemDate
-from ..ports.repositories import OrdineRepository, ProgrammaFornituraRepository
+from ..ports.repositories import (
+    ScheduledOrderReadRepository,
+    VersionedProgrammaFornituraRepository,
+)
 from .engine import SchedulingEngine
 from .models import SchedulingRequest, SchedulingResult
 
@@ -14,8 +17,8 @@ class RunScheduling:
 
     def __init__(
         self,
-        programmi_repository: ProgrammaFornituraRepository,
-        ordini_repository: OrdineRepository,
+        programmi_repository: VersionedProgrammaFornituraRepository,
+        ordini_repository: ScheduledOrderReadRepository,
         id_generator: IdGenerator,
         scheduling_engine: SchedulingEngine,
     ) -> None:
@@ -31,7 +34,14 @@ class RunScheduling:
         current_system_date: CurrentSystemDate,
         simulation: bool = False,
     ) -> SchedulingResult:
-        programmi = self._programmi_repository.list_for_scheduling()
+        if hasattr(self._programmi_repository, "list_versioned_for_scheduling"):
+            programmi = self._programmi_repository.list_versioned_for_scheduling()
+        elif simulation:
+            programmi = self._programmi_repository.list_for_scheduling()
+        else:
+            raise TypeError(
+                "Il runtime operativo richiede un repository PROGRAMMI versionato."
+            )
         ordini_esistenti = self._ordini_repository.list_scheduled_orders()
         request = SchedulingRequest(
             run_id=run_id,
@@ -42,6 +52,4 @@ class RunScheduling:
             simulation=simulation,
         )
         result = self._scheduling_engine.execute(request)
-        if not simulation and result.ordini_generati:
-            self._ordini_repository.add_scheduled_orders(result.ordini_generati)
         return result

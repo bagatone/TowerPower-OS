@@ -9,7 +9,12 @@ from src.tpo_core.application.scheduling.models import (
     ScheduledOrderRecord,
     SchedulingRequest,
 )
+from src.tpo_core.application.scheduling.provenance import (
+    VersionedProgramLine,
+    VersionedProgrammaFornitura,
+)
 from src.tpo_core.domain.entities.ordine import RigaOrdine
+from src.tpo_core.domain.errors import InvariantViolationError
 from src.tpo_core.domain.entities.programma_fornitura import (
     ConfigurazioneTemporale,
     ProgrammaFornitura,
@@ -71,16 +76,32 @@ def programma(**overrides):
     return ProgrammaFornitura(**values)
 
 
+def versioned(item, version=3, positions=None):
+    positions = positions or tuple(range(1, len(item.righe) + 1))
+    return VersionedProgrammaFornitura(
+        programma=item,
+        version=version,
+        lines=tuple(
+            VersionedProgramLine(position, line)
+            for position, line in zip(positions, item.righe, strict=True)
+        ),
+    )
+
+
 def request(giorno=date(2026, 7, 6), ora=time(5), **overrides):
     values = {
         "run_id": RunId("RUN-000001"),
         "current_system_date": CurrentSystemDate(
             datetime.combine(giorno, ora, tzinfo=TZ)
         ),
-        "programmi": (programma(),),
+        "programmi": (versioned(programma()),),
         "id_generator": FakeIdGenerator(),
     }
     values.update(overrides)
+    values["programmi"] = tuple(
+        versioned(item) if isinstance(item, ProgrammaFornitura) else item
+        for item in values["programmi"]
+    )
     return SchedulingRequest(**values)
 
 
@@ -105,6 +126,48 @@ def test_programma_attivo_genera_ordine_corretto() -> None:
     assert record.ordine.stato is OrdineState.APERTO
     assert record.data_consegna_prevista == date(2026, 7, 6)
     assert record.ordine.prenotazioni[0].quantita == Quantity(10, UnitOfMeasure.SET)
+    assert record.provenance[0].programma_fornitura_id == ProgrammaFornituraId("PF-000001")
+    assert record.provenance[0].programma_version == 3
+    assert record.provenance[0].programma_line_position == 1
+    assert record.provenance[0].order_line_position == 1
+    assert not hasattr(record, "run_id")
+
+
+def test_versione_e_posizione_provengono_dallo_snapshot_versionato() -> None:
+    wrapped = versioned(programma(), version=3, positions=(7,))
+    record = execute(programmi=(wrapped,)).ordini_generati[0]
+    assert (
+        record.provenance[0].programma_version,
+        record.provenance[0].programma_line_position,
+    ) == (3, 7)
+
+
+def test_stesso_programma_due_versioni_restano_distinguibili() -> None:
+    item = programma()
+    first = execute(programmi=(versioned(item, version=3),)).ordini_generati[0]
+    second = execute(programmi=(versioned(item, version=4),)).ordini_generati[0]
+    assert first.provenance[0].programma_version == 3
+    assert second.provenance[0].programma_version == 4
+
+
+def test_input_non_versionato_rifiutato_prima_dello_scheduling() -> None:
+    with pytest.raises(InvariantViolationError, match="versionati"):
+        SchedulingRequest(
+            run_id=RunId("RUN-000001"),
+            current_system_date=CurrentSystemDate(
+                datetime(2026, 8, 3, 5, tzinfo=TZ)
+            ),
+            programmi=(programma(),),
+            id_generator=FakeIdGenerator(),
+        )
+
+
+def test_engine_non_contiene_default_o_fallback_di_versione() -> None:
+    from pathlib import Path
+
+    source = Path("src/tpo_core/application/scheduling/engine.py").read_text()
+    assert "programma_version=1" not in source
+    assert "programma_version = 1" not in source
 
 
 @pytest.mark.parametrize(

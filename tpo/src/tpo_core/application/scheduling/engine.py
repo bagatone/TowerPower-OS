@@ -22,6 +22,7 @@ from .models import (
     SchedulingRequest,
     SchedulingResult,
 )
+from .provenance import OrderLineProvenance, VersionedProgramLine, VersionedProgrammaFornitura
 
 
 class SchedulingEngine:
@@ -35,15 +36,24 @@ class SchedulingEngine:
         drafts: list[GeneratedOrderDraft] = []
         righe_valutate = 0
 
-        for programma in request.programmi:
+        for versioned_programma in request.programmi:
+            authoritative = isinstance(versioned_programma, VersionedProgrammaFornitura)
+            programma = (
+                versioned_programma.programma if authoritative else versioned_programma
+            )
             if not self._elaborabile(programma, now.date):
                 continue
             righe_valutate += len(programma.righe)
-            gruppi = self._occorrenze_dovute(programma, now.date, now.time)
+            gruppi = self._occorrenze_dovute(
+                versioned_programma, now.date, now.time
+            )
             for data_consegna, righe_programma in gruppi:
                 righe_ordine = tuple(
-                    RigaOrdine(riga.varieta_id, riga.quantita)
-                    for riga in righe_programma
+                    RigaOrdine(
+                        (locator.line if authoritative else locator).varieta_id,
+                        (locator.line if authoritative else locator).quantita,
+                    )
+                    for locator in righe_programma
                 )
                 key = self._chiave_idempotenza(
                     programma, data_consegna, righe_ordine
@@ -56,6 +66,17 @@ class SchedulingEngine:
                         data_consegna_prevista=data_consegna,
                         righe=righe_ordine,
                         chiave_idempotenza=key,
+                        provenance=tuple(
+                            OrderLineProvenance(
+                                programma_fornitura_id=programma.id,
+                                programma_version=versioned_programma.version,
+                                programma_line_position=locator.position,
+                                order_line_position=order_position,
+                            )
+                            for order_position, locator in enumerate(
+                                righe_programma, start=1
+                            )
+                        ) if authoritative else (),
                     )
                 )
 
@@ -99,11 +120,13 @@ class SchedulingEngine:
 
     def _occorrenze_dovute(
         self,
-        programma: ProgrammaFornitura,
+        versioned_programma: VersionedProgrammaFornitura | ProgrammaFornitura,
         current_date: date,
         current_time,
-    ) -> tuple[tuple[date, tuple[RigaProgrammaFornitura, ...]], ...]:
-        gruppi: dict[date, list[RigaProgrammaFornitura]] = defaultdict(list)
+    ) -> tuple[tuple[date, tuple[VersionedProgramLine | RigaProgrammaFornitura, ...]], ...]:
+        authoritative = isinstance(versioned_programma, VersionedProgrammaFornitura)
+        programma = versioned_programma.programma if authoritative else versioned_programma
+        gruppi: dict[date, list[VersionedProgramLine | RigaProgrammaFornitura]] = defaultdict(list)
         ultimo_giorno = current_date + timedelta(
             days=programma.finestra_operativa_giorni
         )
@@ -120,9 +143,11 @@ class SchedulingEngine:
                     or current_time.replace(tzinfo=None) >= programma.orario_generazione
                 )
                 if data_generazione <= current_date and orario_raggiunto:
-                    for riga in programma.righe:
-                        if self._ricorre(riga, programma.data_inizio, data_consegna):
-                            gruppi[data_consegna].append(riga)
+                    sources = versioned_programma.lines if authoritative else programma.righe
+                    for locator in sources:
+                        line = locator.line if authoritative else locator
+                        if self._ricorre(line, programma.data_inizio, data_consegna):
+                            gruppi[data_consegna].append(locator)
             data_consegna += timedelta(days=1)
         return tuple((giorno, tuple(righe)) for giorno, righe in sorted(gruppi.items()))
 
@@ -196,4 +221,5 @@ class SchedulingEngine:
             ordine=ordine,
             data_consegna_prevista=draft.data_consegna_prevista,
             chiave_idempotenza=draft.chiave_idempotenza,
+            provenance=draft.provenance,
         )

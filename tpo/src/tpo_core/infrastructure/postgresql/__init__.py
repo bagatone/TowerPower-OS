@@ -9,6 +9,7 @@ from .errors import (
 )
 from .health import PostgreSQLHealthCheck, PostgreSQLHealthResult
 from .identity_repository import PostgreSQLPersistentIdRepository
+from .orders_repository import PostgreSQLOrdineRepository
 from .run_tracking_repository import PostgreSQLSchedulingRunRepository
 from .settings import PostgreSQLSettings
 
@@ -21,6 +22,7 @@ __all__ = [
     "PostgreSQLHealthCheckError",
     "PostgreSQLHealthResult",
     "PostgreSQLPersistentIdRepository",
+    "PostgreSQLOrdineRepository",
     "PostgreSQLSchedulingRunRepository",
     "PostgreSQLSettings",
 ]

@@ -7,6 +7,7 @@ import pytest
 
 from src.tpo_core.application.run_tracking.models import CompletedSchedulingRun
 from src.tpo_core.application.scheduling.models import ScheduledOrderRecord, SchedulingResult
+from src.tpo_core.application.scheduling.provenance import OrderLineProvenance
 from src.tpo_core.application.write_plan import (
     DuplicateIdempotencyKeyError,
     InvalidWritePlanError,
@@ -39,17 +40,22 @@ def line(varieta="VAR-000001", quantity=2, unit=UnitOfMeasure.SET):
 
 
 def record(identifier="ORD-000001", *, key=None, lines=None):
+    order_lines = lines or (line(),)
     return ScheduledOrderRecord(
         ordine=Ordine(
             id=OrdineId(identifier),
             cliente_id=ClienteId("CLI-000001"),
             data_ordine=date(2026, 8, 3),
-            righe=lines or (line(),),
+            righe=order_lines,
             stato=OrdineState.APERTO,
             programma_fornitura_id=ProgrammaFornituraId("PF-000001"),
         ),
         data_consegna_prevista=date(2026, 8, 6),
         chiave_idempotenza=key if key is not None else f"key-{identifier}",
+        provenance=tuple(
+            OrderLineProvenance(ProgrammaFornituraId("PF-000001"), 3, position, position)
+            for position in range(1, len(order_lines) + 1)
+        ),
     )
 
 
@@ -253,6 +259,12 @@ def test_json_deterministico_e_semantico() -> None:
         "data_ordine": "2026-08-03",
         "ordine_id": "ORD-000001",
         "programma_fornitura_id": "PF-000001",
+        "provenance": [{
+            "order_line_position": 1,
+            "programma_fornitura_id": "PF-000001",
+            "programma_line_position": 1,
+            "programma_version": 3,
+        }],
         "righe": [
             {"quantita": "2", "unita": "SET", "varieta_id": "VAR-000001"}
         ],

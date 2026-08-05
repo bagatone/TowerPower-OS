@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from src.tpo_core.application.scheduling.models import ScheduledOrderRecord
+from src.tpo_core.application.scheduling.provenance import OrderLineProvenance
 from src.tpo_core.application.write_plan import (
     DuplicateWritePlanKeyError,
     DuplicateWritePlanRecordError,
@@ -49,17 +50,22 @@ def line(varieta="VAR-000001"):
 
 
 def record(identifier="ORD-000001", key=None, lines=None):
+    order_lines = lines or (line(),)
     return ScheduledOrderRecord(
         Ordine(
             OrdineId(identifier),
             ClienteId("CLI-000001"),
             date(2026, 8, 3),
-            lines or (line(),),
+            order_lines,
             OrdineState.APERTO,
             ProgrammaFornituraId("PF-000001"),
         ),
         date(2026, 8, 6),
         key if key is not None else f"key-{identifier}",
+        tuple(
+            OrderLineProvenance(ProgrammaFornituraId("PF-000001"), 3, position, position)
+            for position in range(1, len(order_lines) + 1)
+        ),
     )
 
 

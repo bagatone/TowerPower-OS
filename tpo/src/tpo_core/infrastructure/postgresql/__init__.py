@@ -1,6 +1,7 @@
 """Primitive infrastrutturali PostgreSQL, indipendenti dal provider."""
 
 from .connection import PostgreSQLConnectionFactory
+from .commit_repository import PostgreSQLCommitRepository
 from .errors import (
     InvalidPostgreSQLSettingsError,
     PostgreSQLConnectionError,
@@ -17,6 +18,7 @@ __all__ = [
     "InvalidPostgreSQLSettingsError",
     "PostgreSQLConnectionError",
     "PostgreSQLConnectionFactory",
+    "PostgreSQLCommitRepository",
     "PostgreSQLError",
     "PostgreSQLHealthCheck",
     "PostgreSQLHealthCheckError",

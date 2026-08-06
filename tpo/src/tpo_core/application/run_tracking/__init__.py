@@ -7,7 +7,7 @@ from .errors import (
     SchedulingRunConflictError,
     SchedulingRunNotFoundError,
 )
-from .models import CompletedSchedulingRun, OpenSchedulingRun
+from .models import CompletedSchedulingRun, OpenSchedulingRun, SchedulingRunCompletion
 from .ports import SchedulingRunRepository
 from .service import SchedulingRunService
 
@@ -18,6 +18,7 @@ __all__ = (
     "RunTrackingError",
     "SchedulingRunAlreadyExistsError",
     "SchedulingRunConflictError",
+    "SchedulingRunCompletion",
     "SchedulingRunNotFoundError",
     "SchedulingRunRepository",
     "SchedulingRunService",

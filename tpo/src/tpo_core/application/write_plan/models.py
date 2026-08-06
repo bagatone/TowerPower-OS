@@ -9,6 +9,7 @@ from typing import Any
 
 from ...domain.identifiers import RunId
 from ...domain.time_reference import CurrentSystemDate
+from ..run_tracking.models import SchedulingRunCompletion
 from ..scheduling.models import ScheduledOrderRecord
 from .errors import (
     DuplicateIdempotencyKeyError,
@@ -42,6 +43,7 @@ class WritePlan:
     expected_logical_row_count: int
     idempotency_keys: tuple[str, ...]
     warnings: tuple[str, ...] = ()
+    completion: SchedulingRunCompletion | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, RunId):
@@ -80,6 +82,15 @@ class WritePlan:
                 "idempotency_keys non coincide con le chiavi dei record."
             )
         _messages("warnings", self.warnings)
+        if self.completion is not None:
+            if not isinstance(self.completion, SchedulingRunCompletion):
+                raise InvalidWritePlanError("completion non valida.")
+            if self.completion.run_id != self.run_id:
+                raise InvalidWritePlanError("completion appartiene a una RUN diversa.")
+            if self.completion.completed_at != self.created_at:
+                raise InvalidWritePlanError("created_at non coincide con completed_at.")
+            if self.completion.warnings != self.warnings:
+                raise InvalidWritePlanError("I warning non coincidono con completion.")
 
     @staticmethod
     def _validate_count(name: str, value: int) -> None:
@@ -88,7 +99,7 @@ class WritePlan:
 
     def to_dict(self) -> dict[str, Any]:
         """Crea un'anteprima semantica stabile composta da soli tipi JSON."""
-        return {
+        payload = {
             "created_at": self.created_at.datetime.isoformat(),
             "expected_logical_row_count": self.expected_logical_row_count,
             "expected_record_count": self.expected_record_count,
@@ -97,6 +108,23 @@ class WritePlan:
             "run_id": self.run_id.value,
             "warnings": list(self.warnings),
         }
+        if self.completion is not None:
+            payload["completion"] = {
+                "completed_at": self.completion.completed_at.datetime.isoformat(),
+                "elementi_saltati": self.completion.elementi_saltati,
+                "errors": list(self.completion.errors),
+                "expected_version": self.completion.expected_version,
+                "final_state": self.completion.final_state.value,
+                "occorrenze_valutate": self.completion.occorrenze_valutate,
+                "ordini_generati": self.completion.ordini_generati,
+                "programmi_letti": self.completion.programmi_letti,
+                "righe_valutate": self.completion.righe_valutate,
+                "run_id": self.completion.run_id.value,
+                "simulation": self.completion.simulation,
+                "started_at": self.completion.started_at.datetime.isoformat(),
+                "warnings": list(self.completion.warnings),
+            }
+        return payload
 
     @staticmethod
     def _record_dict(record: ScheduledOrderRecord) -> dict[str, Any]:

@@ -1,4 +1,4 @@
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -14,6 +14,7 @@ from src.tpo_core.application.committer import (
     InvalidCommitRequestError,
 )
 from src.tpo_core.application.scheduling.models import ScheduledOrderRecord
+from src.tpo_core.application.run_tracking import SchedulingRunCompletion
 from src.tpo_core.application.write_plan import (
     ValidatedWritePlan,
     WritePlan,
@@ -28,7 +29,7 @@ from src.tpo_core.domain.identifiers import (
     VarietaId,
 )
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState
+from src.tpo_core.domain.states import OrdineState, RunState
 from src.tpo_core.domain.time_reference import CurrentSystemDate
 
 
@@ -319,3 +320,29 @@ def test_nessun_clock_infrastruttura_google_o_metodo_di_scrittura() -> None:
         "SUCCESS",
     )
     assert all(value not in source for value in forbidden)
+
+
+def test_commit_request_espone_contesto_atomico_completo() -> None:
+    validated = validated_plan()
+    completion = SchedulingRunCompletion(
+        run_id=validated.plan.run_id,
+        started_at=instant(5),
+        completed_at=validated.plan.created_at,
+        simulation=False,
+        expected_version=3,
+        final_state=RunState.SUCCESS_WITH_WARNINGS,
+        programmi_letti=1,
+        righe_valutate=1,
+        occorrenze_valutate=1,
+        ordini_generati=1,
+        elementi_saltati=0,
+        warnings=validated.plan.warnings,
+        errors=(),
+    )
+    authoritative_plan = replace(validated.plan, completion=completion)
+    authoritative = replace(validated, plan=authoritative_plan)
+    request = CommitRequest(authoritative, instant(8))
+    assert request.completion is completion
+    assert request.expected_version == 3
+    assert request.completion.completed_at == validated.plan.created_at
+    assert request.completion.final_state is RunState.SUCCESS_WITH_WARNINGS

@@ -11,6 +11,7 @@ from src.tpo_core.application.run_tracking import (
     OpenSchedulingRun,
     SchedulingRunAlreadyExistsError,
     SchedulingRunConflictError,
+    SchedulingRunCompletion,
     SchedulingRunNotFoundError,
     SchedulingRunService,
 )
@@ -129,6 +130,98 @@ def test_completamento_success_with_warnings() -> None:
     )
     assert completed.state is RunState.SUCCESS_WITH_WARNINGS
     assert completed.warnings == ("riga saltata",)
+
+
+def test_proposta_success_non_persiste_e_lascia_run_aperta() -> None:
+    target, repository = service()
+    open_run = target.open_run(started_at=instant(), simulation=False)
+    proposal = target.propose_completion(
+        open_run=open_run,
+        completed_at=instant(6),
+        scheduling_result=result(open_run),
+    )
+    assert proposal == SchedulingRunCompletion(
+        run_id=open_run.run_id,
+        started_at=open_run.started_at,
+        completed_at=instant(6),
+        simulation=False,
+        expected_version=0,
+        final_state=RunState.SUCCESS,
+        programmi_letti=3,
+        righe_valutate=4,
+        occorrenze_valutate=5,
+        ordini_generati=2,
+        elementi_saltati=1,
+        warnings=(),
+        errors=(),
+    )
+    assert repository.complete_calls == 0
+    assert repository.get(open_run.run_id) is open_run
+
+
+def test_proposte_warning_e_failed_valide_senza_persistenza() -> None:
+    target, repository = service()
+    open_run = target.open_run(started_at=instant(), simulation=False)
+    warned = target.propose_completion(
+        open_run=open_run,
+        completed_at=instant(6),
+        scheduling_result=result(
+            open_run,
+            warnings=("warning",),
+            state=RunState.SUCCESS_WITH_WARNINGS,
+        ),
+    )
+    failed = target.propose_failure(
+        open_run=open_run,
+        completed_at=instant(6),
+        warnings=("warning",),
+        errors=("errore",),
+    )
+    assert warned.final_state is RunState.SUCCESS_WITH_WARNINGS
+    assert failed.final_state is RunState.FAILED
+    assert repository.complete_calls == 0
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        {"simulation": 1},
+        {"expected_version": -1},
+        {"expected_version": True},
+        {"programmi_letti": -1},
+        {"programmi_letti": True},
+        {"warnings": ("warning",)},
+    ),
+)
+def test_modello_proposta_invalido(changes) -> None:
+    values = dict(
+        run_id=RunId("RUN-000001"),
+        started_at=instant(),
+        completed_at=instant(6),
+        simulation=False,
+        expected_version=0,
+        final_state=RunState.SUCCESS,
+        programmi_letti=0,
+        righe_valutate=0,
+        occorrenze_valutate=0,
+        ordini_generati=0,
+        elementi_saltati=0,
+        warnings=(),
+        errors=(),
+    )
+    values.update(changes)
+    with pytest.raises(InvalidSchedulingRunError):
+        SchedulingRunCompletion(**values)
+
+
+def test_proposta_immutabile_e_materializza_versione_successiva() -> None:
+    proposal = SchedulingRunCompletion(
+        RunId("RUN-000001"), instant(), instant(6), False, 2,
+        RunState.SUCCESS, 0, 0, 0, 0, 0, (), (),
+    )
+    assert proposal.to_completed_run().version == 3
+    with pytest.raises(FrozenInstanceError):
+        proposal.expected_version = 4
 
 
 def test_fallimento_failed_preserva_errori_e_warning() -> None:

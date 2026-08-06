@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from ...domain.states import RunState
-from ..run_tracking.models import CompletedSchedulingRun
+from ..run_tracking.models import (
+    CompletedSchedulingRun,
+    OpenSchedulingRun,
+    SchedulingRunCompletion,
+)
 from ..scheduling.models import SchedulingResult
 from .errors import (
     DuplicateIdempotencyKeyError,
@@ -21,9 +25,19 @@ class WritePlanBuilder:
         self,
         *,
         scheduling_result: SchedulingResult,
-        completed_run: CompletedSchedulingRun,
+        completed_run: CompletedSchedulingRun | None = None,
+        open_run: OpenSchedulingRun | None = None,
+        completion: SchedulingRunCompletion | None = None,
     ) -> WritePlan:
-        self._validate_result(scheduling_result, completed_run)
+        if completion is None:
+            if not isinstance(completed_run, CompletedSchedulingRun):
+                raise InvalidWritePlanError(
+                    "È richiesta una SchedulingRunCompletion autorevole."
+                )
+            completion = _legacy_completion(completed_run)
+        if open_run is not None:
+            _validate_open_run(open_run, completion)
+        self._validate_result(scheduling_result, completion)
         records = scheduling_result.ordini_generati
         if not records:
             raise InvalidWritePlanError(
@@ -41,29 +55,30 @@ class WritePlanBuilder:
             )
         logical_rows = sum(len(record.ordine.righe) for record in records)
         return WritePlan(
-            run_id=completed_run.run_id,
-            created_at=completed_run.completed_at,
+            run_id=completion.run_id,
+            created_at=completion.completed_at,
             records=records,
             expected_record_count=len(records),
             expected_logical_row_count=logical_rows,
             idempotency_keys=keys,
-            warnings=completed_run.warnings,
+            warnings=completion.warnings,
+            completion=completion,
         )
 
     @staticmethod
     def _validate_result(
         result: SchedulingResult,
-        completed_run: CompletedSchedulingRun,
+        completion: SchedulingRunCompletion,
     ) -> None:
-        if result.run_id != completed_run.run_id:
+        if result.run_id != completion.run_id:
             raise WritePlanRunMismatchError(
                 "SchedulingResult e CompletedSchedulingRun appartengono a RUN diverse."
             )
-        if result.simulation != completed_run.simulation:
+        if result.simulation != completion.simulation:
             raise WritePlanRunMismatchError(
                 "La modalità dello SchedulingResult non coincide con la RUN."
             )
-        if completed_run.state is RunState.FAILED:
+        if completion.final_state is RunState.FAILED:
             raise InvalidWritePlanError("Una RUN FAILED non può produrre un Write Plan.")
         if result.esito is RunState.FAILED:
             raise InvalidWritePlanError(
@@ -73,21 +88,21 @@ class WritePlanBuilder:
             raise InvalidWritePlanError(
                 "Una RUN in simulazione non può produrre un Write Plan per il commit."
             )
-        if result.esito is not completed_run.state:
+        if result.esito is not completion.final_state:
             raise WritePlanConsistencyError(
                 "L'esito della RUN non coincide con lo SchedulingResult."
             )
-        if result.avvisi != completed_run.warnings:
+        if result.avvisi != completion.warnings:
             raise WritePlanConsistencyError(
                 "I warning della RUN non coincidono con lo SchedulingResult."
             )
         counters = (
-            (completed_run.programmi_letti, result.programmi_letti),
-            (completed_run.righe_valutate, result.righe_valutate),
-            (completed_run.occorrenze_valutate, result.occorrenze_valutate),
-            (completed_run.ordini_generati, result.occorrenze_generate),
+            (completion.programmi_letti, result.programmi_letti),
+            (completion.righe_valutate, result.righe_valutate),
+            (completion.occorrenze_valutate, result.occorrenze_valutate),
+            (completion.ordini_generati, result.occorrenze_generate),
             (
-                completed_run.elementi_saltati,
+                completion.elementi_saltati,
                 result.occorrenze_saltate_per_idempotenza,
             ),
         )
@@ -99,6 +114,43 @@ class WritePlanBuilder:
             raise WritePlanConsistencyError(
                 "Il numero di record non coincide con le occorrenze generate."
             )
+
+
+def _legacy_completion(run: CompletedSchedulingRun) -> SchedulingRunCompletion:
+    if run.version <= 0:
+        raise InvalidWritePlanError("La RUN conclusa legacy non possiede una versione valida.")
+    return SchedulingRunCompletion(
+        run_id=run.run_id,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        simulation=run.simulation,
+        expected_version=run.version - 1,
+        final_state=run.state,
+        programmi_letti=run.programmi_letti,
+        righe_valutate=run.righe_valutate,
+        occorrenze_valutate=run.occorrenze_valutate,
+        ordini_generati=run.ordini_generati,
+        elementi_saltati=run.elementi_saltati,
+        warnings=run.warnings,
+        errors=run.errors,
+    )
+
+
+def _validate_open_run(
+    open_run: OpenSchedulingRun,
+    completion: SchedulingRunCompletion,
+) -> None:
+    if not isinstance(open_run, OpenSchedulingRun):
+        raise InvalidWritePlanError("open_run non valida.")
+    if (
+        open_run.run_id != completion.run_id
+        or open_run.started_at != completion.started_at
+        or open_run.simulation != completion.simulation
+        or open_run.version != completion.expected_version
+    ):
+        raise WritePlanConsistencyError(
+            "OpenSchedulingRun e proposta di completamento non sono coerenti."
+        )
 
 
 def _validate_provenance(records) -> None:

@@ -8,6 +8,7 @@ from enum import Enum
 from ...domain.identifiers import RunId
 from ...domain.time_reference import CurrentSystemDate
 from ..write_plan.models import ValidatedWritePlan
+from ..run_tracking.models import SchedulingRunCompletion
 from .errors import InvalidCommitRequestError
 
 
@@ -42,6 +43,15 @@ class CommitRequest:
             raise InvalidCommitRequestError(
                 "requested_at non può precedere validated_at."
             )
+
+    @property
+    def completion(self) -> SchedulingRunCompletion | None:
+        """Contesto atomico della RUN; ``None`` identifica il percorso legacy."""
+        return self.validated_plan.plan.completion
+
+    @property
+    def expected_version(self) -> int | None:
+        return self.completion.expected_version if self.completion is not None else None
 
 
 @dataclass(frozen=True)

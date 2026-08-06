@@ -126,6 +126,20 @@ class WritePlanValidator:
         if not isinstance(records, tuple) or not records:
             raise InvalidWritePlanError("Il Write Plan non può essere vuoto.")
         _validate_provenance(records)
+        completion = plan.completion
+        if completion is not None:
+            if completion.run_id != plan.run_id:
+                raise InvalidWritePlanError("La proposta appartiene a una RUN diversa.")
+            if completion.completed_at != plan.created_at:
+                raise InvalidWritePlanError("completed_at non coincide con il piano.")
+            if completion.ordini_generati != len(records):
+                raise WritePlanCountMismatchError(
+                    "ordini_generati non coincide con i record del piano."
+                )
+            if completion.simulation:
+                raise InvalidWritePlanError(
+                    "Una RUN in simulazione non può produrre un commit autorevole."
+                )
         if plan.expected_record_count != len(records):
             raise WritePlanCountMismatchError(
                 "expected_record_count non coincide con i record."

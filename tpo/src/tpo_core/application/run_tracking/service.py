@@ -8,7 +8,7 @@ from ...domain.time_reference import CurrentSystemDate
 from ..identity.service import PersistentIdAllocator
 from ..scheduling.models import SchedulingResult
 from .errors import InvalidSchedulingRunError, SchedulingRunConflictError
-from .models import CompletedSchedulingRun, OpenSchedulingRun
+from .models import CompletedSchedulingRun, OpenSchedulingRun, SchedulingRunCompletion
 from .ports import SchedulingRunRepository
 
 
@@ -36,6 +36,26 @@ class SchedulingRunService:
         completed_at: CurrentSystemDate,
         scheduling_result: SchedulingResult,
     ) -> CompletedSchedulingRun:
+        """Percorso legacy: persiste una conclusione fuori dal commit atomico."""
+        proposal = self.propose_completion(
+            open_run=open_run,
+            completed_at=completed_at,
+            scheduling_result=scheduling_result,
+        )
+        completed = proposal.to_completed_run()
+        self._persist(open_run, completed)
+        return completed
+
+    def propose_completion(
+        self,
+        *,
+        open_run: OpenSchedulingRun,
+        completed_at: CurrentSystemDate,
+        scheduling_result: SchedulingResult,
+    ) -> SchedulingRunCompletion:
+        """Costruisce la conclusione proposta senza persisterla."""
+        if not isinstance(open_run, OpenSchedulingRun):
+            raise InvalidSchedulingRunError("open_run deve essere una OpenSchedulingRun.")
         if scheduling_result.run_id != open_run.run_id:
             raise InvalidSchedulingRunError("SchedulingResult appartiene a una RUN diversa.")
         if scheduling_result.simulation != open_run.simulation:
@@ -44,12 +64,13 @@ class SchedulingRunService:
             raise InvalidSchedulingRunError("Un risultato FAILED deve essere registrato tramite fail_run.")
         warnings = scheduling_result.avvisi
         state = RunState.SUCCESS_WITH_WARNINGS if warnings else RunState.SUCCESS
-        completed = CompletedSchedulingRun(
+        return SchedulingRunCompletion(
             run_id=open_run.run_id,
             started_at=open_run.started_at,
             completed_at=completed_at,
             simulation=open_run.simulation,
-            state=state,
+            expected_version=open_run.version,
+            final_state=state,
             programmi_letti=scheduling_result.programmi_letti,
             righe_valutate=scheduling_result.righe_valutate,
             occorrenze_valutate=scheduling_result.occorrenze_valutate,
@@ -57,10 +78,7 @@ class SchedulingRunService:
             elementi_saltati=scheduling_result.occorrenze_saltate_per_idempotenza,
             warnings=warnings,
             errors=(),
-            version=open_run.version + 1,
         )
-        self._persist(open_run, completed)
-        return completed
 
     def fail_run(
         self,
@@ -70,12 +88,35 @@ class SchedulingRunService:
         errors: tuple[str, ...],
         warnings: tuple[str, ...] = (),
     ) -> CompletedSchedulingRun:
-        completed = CompletedSchedulingRun(
+        """Percorso legacy FAILED, separato dal runtime autorevole."""
+        proposal = self.propose_failure(
+            open_run=open_run,
+            completed_at=completed_at,
+            errors=errors,
+            warnings=warnings,
+        )
+        completed = proposal.to_completed_run()
+        self._persist(open_run, completed)
+        return completed
+
+    def propose_failure(
+        self,
+        *,
+        open_run: OpenSchedulingRun,
+        completed_at: CurrentSystemDate,
+        errors: tuple[str, ...],
+        warnings: tuple[str, ...] = (),
+    ) -> SchedulingRunCompletion:
+        """Costruisce una conclusione FAILED proposta senza persisterla."""
+        if not isinstance(open_run, OpenSchedulingRun):
+            raise InvalidSchedulingRunError("open_run deve essere una OpenSchedulingRun.")
+        return SchedulingRunCompletion(
             run_id=open_run.run_id,
             started_at=open_run.started_at,
             completed_at=completed_at,
             simulation=open_run.simulation,
-            state=RunState.FAILED,
+            expected_version=open_run.version,
+            final_state=RunState.FAILED,
             programmi_letti=0,
             righe_valutate=0,
             occorrenze_valutate=0,
@@ -83,10 +124,7 @@ class SchedulingRunService:
             elementi_saltati=0,
             warnings=warnings,
             errors=errors,
-            version=open_run.version + 1,
         )
-        self._persist(open_run, completed)
-        return completed
 
     def _persist(self, open_run: OpenSchedulingRun, completed: CompletedSchedulingRun) -> None:
         if not self._repository.complete(

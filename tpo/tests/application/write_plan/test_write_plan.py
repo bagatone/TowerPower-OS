@@ -5,7 +5,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.tpo_core.application.run_tracking.models import CompletedSchedulingRun
+from src.tpo_core.application.run_tracking.models import (
+    CompletedSchedulingRun,
+    OpenSchedulingRun,
+    SchedulingRunCompletion,
+)
 from src.tpo_core.application.scheduling.models import ScheduledOrderRecord, SchedulingResult
 from src.tpo_core.application.scheduling.provenance import OrderLineProvenance
 from src.tpo_core.application.write_plan import (
@@ -285,3 +289,47 @@ def test_nessuna_conoscenza_della_persistenza_fisica() -> None:
         "row_index",
     )
     assert all(value not in source for value in forbidden)
+
+
+def test_piano_autorevole_trasporta_run_aperta_e_proposta_completa() -> None:
+    result = scheduling()
+    open_run = OpenSchedulingRun(result.run_id, current(5), False, 4)
+    proposal = SchedulingRunCompletion(
+        run_id=result.run_id,
+        started_at=open_run.started_at,
+        completed_at=current(6),
+        simulation=False,
+        expected_version=4,
+        final_state=RunState.SUCCESS,
+        programmi_letti=result.programmi_letti,
+        righe_valutate=result.righe_valutate,
+        occorrenze_valutate=result.occorrenze_valutate,
+        ordini_generati=result.occorrenze_generate,
+        elementi_saltati=result.occorrenze_saltate_per_idempotenza,
+        warnings=(),
+        errors=(),
+    )
+    plan = WritePlanBuilder().build(
+        scheduling_result=result,
+        open_run=open_run,
+        completion=proposal,
+    )
+    assert plan.completion is proposal
+    assert plan.completion.expected_version == 4
+    assert plan.completion.final_state is RunState.SUCCESS
+    assert plan.to_dict()["completion"]["ordini_generati"] == 1
+
+
+def test_piano_rifiuta_run_aperta_e_proposta_incoerenti() -> None:
+    result = scheduling()
+    open_run = OpenSchedulingRun(result.run_id, current(5), False, 0)
+    proposal = SchedulingRunCompletion(
+        result.run_id, current(5), current(6), False, 1, RunState.SUCCESS,
+        1, 1, 1, 1, 0, (), (),
+    )
+    with pytest.raises(WritePlanConsistencyError):
+        WritePlanBuilder().build(
+            scheduling_result=result,
+            open_run=open_run,
+            completion=proposal,
+        )

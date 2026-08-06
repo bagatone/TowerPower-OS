@@ -32,6 +32,11 @@ class OrdineState(str, Enum):
     ANNULLATO = "ANNULLATO"
 
 
+class OrdineCreationType(str, Enum):
+    AUTOMATICO = "AUTOMATICO"
+    MANUALE = "MANUALE"
+
+
 class ConsegnaState(str, Enum):
     PROGRAMMATA = "PROGRAMMATA"
     IN_PREPARAZIONE = "IN_PREPARAZIONE"

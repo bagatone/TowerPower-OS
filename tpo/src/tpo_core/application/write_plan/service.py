@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...domain.states import RunState
+from ...domain.states import OrdineCreationType, RunState
 from ..run_tracking.models import (
     CompletedSchedulingRun,
     OpenSchedulingRun,
@@ -156,6 +156,18 @@ def _validate_open_run(
 def _validate_provenance(records) -> None:
     """Richiede provenance autorevole e completa per ogni riga automatica."""
     for record in records:
+        if record.ordine.tipo_creazione is not OrdineCreationType.AUTOMATICO:
+            raise InvalidWritePlanError(
+                "Il Write Plan accetta esclusivamente ORDINI AUTOMATICI."
+            )
+        if record.ordine.programma_fornitura_id is None:
+            raise InvalidWritePlanError(
+                "Un ORDINE AUTOMATICO richiede PROGRAMMA_FORNITURA."
+            )
+        if not isinstance(record.chiave_idempotenza, str) or not record.chiave_idempotenza.strip():
+            raise InvalidWritePlanError(
+                "Un ORDINE AUTOMATICO richiede una chiave idempotente."
+            )
         expected_positions = set(range(1, len(record.ordine.righe) + 1))
         actual_positions = {item.order_line_position for item in record.provenance}
         if actual_positions != expected_positions:

@@ -26,7 +26,7 @@ from src.tpo_core.domain.identifiers import (
     VarietaId,
 )
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState
+from src.tpo_core.domain.states import OrdineCreationType, OrdineState
 from src.tpo_core.domain.time_reference import CurrentSystemDate
 from src.tpo_core.infrastructure.google_sheets.commit_repository import (
     GoogleSheetsCommitRepository,
@@ -68,6 +68,7 @@ def record(number: int, key: str, *, two_lines: bool = False):
             date(2026, 8, 3),
             righe,
             OrdineState.APERTO,
+            OrdineCreationType.AUTOMATICO,
             ProgrammaFornituraId("PF-000001"),
         ),
         date(2026, 8, 6),

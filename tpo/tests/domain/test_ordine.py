@@ -12,7 +12,7 @@ from src.tpo_core.domain.identifiers import (
     VarietaId,
 )
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState
+from src.tpo_core.domain.states import OrdineCreationType, OrdineState
 
 
 def build_riga(**overrides) -> RigaOrdine:
@@ -31,6 +31,7 @@ def build_ordine(**overrides) -> Ordine:
         "data_ordine": date(2026, 7, 1),
         "righe": (build_riga(),),
         "stato": OrdineState.APERTO,
+        "tipo_creazione": OrdineCreationType.MANUALE,
     }
     data.update(overrides)
     return Ordine(**data)
@@ -41,12 +42,39 @@ def test_creazione_valida_manual() -> None:
     assert ordine.id == OrdineId("ORD-000001")
     assert ordine.cliente_id == ClienteId("CLI-000001")
     assert ordine.programma_fornitura_id is None
+    assert ordine.tipo_creazione is OrdineCreationType.MANUALE
 
 
 def test_creazione_valida_da_programma_fornitura() -> None:
     origine = ProgrammaFornituraId("PF-000001")
-    ordine = build_ordine(programma_fornitura_id=origine)
+    ordine = build_ordine(
+        tipo_creazione=OrdineCreationType.AUTOMATICO,
+        programma_fornitura_id=origine,
+    )
     assert ordine.programma_fornitura_id == origine
+
+
+def test_tipo_creazione_obbligatorio_e_tipizzato() -> None:
+    with pytest.raises(TypeError):
+        Ordine(
+            id=OrdineId("ORD-000001"),
+            cliente_id=ClienteId("CLI-000001"),
+            data_ordine=date(2026, 7, 1),
+            righe=(build_riga(),),
+            stato=OrdineState.APERTO,
+        )
+    with pytest.raises(InvariantViolationError, match="OrdineCreationType"):
+        build_ordine(tipo_creazione="MANUALE")
+
+
+def test_automatico_richiede_programma() -> None:
+    with pytest.raises(InvariantViolationError, match="AUTOMATICO"):
+        build_ordine(tipo_creazione=OrdineCreationType.AUTOMATICO)
+
+
+def test_manuale_vieta_programma() -> None:
+    with pytest.raises(InvariantViolationError, match="MANUALE"):
+        build_ordine(programma_fornitura_id=ProgrammaFornituraId("PF-000001"))
 
 
 @pytest.mark.parametrize("identifier", [None, "ORD-000001", ClienteId("CLI-000001")])
@@ -104,6 +132,7 @@ def test_identita_determinata_esclusivamente_da_ordine_id() -> None:
         data_ordine=date(2026, 8, 1),
         righe=(build_riga(varieta_id=VarietaId("VAR-000002")),),
         stato=OrdineState.ANNULLATO,
+        tipo_creazione=OrdineCreationType.AUTOMATICO,
         programma_fornitura_id=ProgrammaFornituraId("PF-000001"),
     )
     assert primo == secondo
@@ -116,7 +145,10 @@ def test_id_differenti_rappresentano_ordini_differenti() -> None:
 
 @pytest.mark.parametrize(
     "attribute",
-    ["id", "cliente_id", "data_ordine", "righe", "stato", "programma_fornitura_id"],
+    [
+        "id", "cliente_id", "data_ordine", "righe", "stato",
+        "tipo_creazione", "programma_fornitura_id",
+    ],
 )
 def test_ordine_immutabile(attribute) -> None:
     ordine = build_ordine()

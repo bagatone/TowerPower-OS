@@ -37,6 +37,11 @@ L'ORDINE costituisce il riferimento operativo per la pianificazione delle CONSEG
 - L'ORDINE costituisce il riferimento operativo per la pianificazione delle CONSEGNE e per la gestione delle PRENOTAZIONI.
 - La generazione automatica degli ORDINI appartiene esclusivamente al Register PROGRAMMI_FORNITURA e allo Scheduling Engine. ORDINI non gestisce direttamente la ricorrenza.
 - Ogni ORDINE generato automaticamente mantiene il riferimento permanente al PROGRAMMA_FORNITURA che lo ha originato.
+- Ogni ORDINE dichiara esplicitamente un `OrdineCreationType`: `AUTOMATICO` oppure `MANUALE`.
+- Il tipo di creazione non possiede un default, non viene dedotto da altri campi ed è immutabile dopo la registrazione.
+- Un ORDINE AUTOMATICO è generato esclusivamente dallo Scheduling Engine, appartiene a una RUN, mantiene il riferimento al PROGRAMMA_FORNITURA, possiede data prevista e chiave idempotente e richiede almeno una provenance per ogni riga.
+- Un ORDINE MANUALE è creato fuori dallo Scheduling Engine, non appartiene a una RUN, non riferisce un PROGRAMMA_FORNITURA, non usa la chiave idempotente di scheduling e non possiede provenance; la data prevista è facoltativa.
+- Importazione e correzione sono processi e non tipi di ORDINE. Non trasformano un ORDINE AUTOMATICO in MANUALE o viceversa.
 
 ## Ciclo di vita
 
@@ -112,6 +117,20 @@ Ogni ORDINE deve poter essere identificato e rappresentato attraverso almeno i s
 - riferimento ad una sola VARIETÀ per ciascuna riga;
 - data dell'ORDINE;
 - stato dell'ORDINE.
+- tipo di creazione esplicito dell'ORDINE.
+
+## Tipo di creazione
+
+La matrice ufficiale è:
+
+| Tipo | RUN | PROGRAMMA_FORNITURA | Data prevista | Chiave idempotente | Provenance |
+|---|---|---|---|---|---|
+| `AUTOMATICO` | obbligatoria | obbligatorio | obbligatoria | obbligatoria | almeno una origine per ogni riga |
+| `MANUALE` | assente | assente | facoltativa | assente | vietata |
+
+Il `PostgreSQLCommitRepository` costituisce il writer autorevole degli ORDINI AUTOMATICI prodotti dal percorso Scheduling → WritePlan. Un futuro caso d'uso manuale deve essere separato e non attraversa il WritePlan dello Scheduling.
+
+Nessun valore `IMPORTATO`, `CORRETTIVO`, `LEGACY` o `AMMINISTRATIVO` appartiene a `OrdineCreationType`. Un import deve dichiarare uno dei due tipi ufficiali e soddisfarne integralmente gli invarianti; una correzione preserva il tipo originario e viene auditata.
 
 ## Integrità Storica
 

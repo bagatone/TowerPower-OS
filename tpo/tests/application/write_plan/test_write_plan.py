@@ -28,7 +28,7 @@ from src.tpo_core.domain.identifiers import (
     VarietaId,
 )
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState, RunState
+from src.tpo_core.domain.states import OrdineCreationType, OrdineState, RunState
 from src.tpo_core.domain.time_reference import CurrentSystemDate
 
 
@@ -52,6 +52,7 @@ def record(identifier="ORD-000001", *, key=None, lines=None):
             data_ordine=date(2026, 8, 3),
             righe=order_lines,
             stato=OrdineState.APERTO,
+            tipo_creazione=OrdineCreationType.AUTOMATICO,
             programma_fornitura_id=ProgrammaFornituraId("PF-000001"),
         ),
         data_consegna_prevista=date(2026, 8, 6),
@@ -160,8 +161,10 @@ def test_chiavi_idempotenti_preservate_senza_ricalcolo() -> None:
 
 @pytest.mark.parametrize("key", ["", "   "])
 def test_chiave_vuota_rifiutata(key) -> None:
+    invalid = record()
+    object.__setattr__(invalid, "chiave_idempotenza", key)
     with pytest.raises(InvalidWritePlanError, match="chiave idempotente"):
-        build(scheduling((record(key=key),)))
+        build(scheduling((invalid,)))
 
 
 def test_chiavi_duplicate_rifiutate() -> None:
@@ -171,6 +174,21 @@ def test_chiavi_duplicate_rifiutate() -> None:
     )
     with pytest.raises(DuplicateIdempotencyKeyError):
         build(scheduling(records))
+
+
+def test_ordine_manuale_rifiutato() -> None:
+    invalid = record()
+    object.__setattr__(invalid.ordine, "tipo_creazione", OrdineCreationType.MANUALE)
+    object.__setattr__(invalid.ordine, "programma_fornitura_id", None)
+    with pytest.raises(InvalidWritePlanError, match="AUTOMATICI"):
+        build(scheduling((invalid,)))
+
+
+def test_automatico_senza_provenance_rifiutato() -> None:
+    invalid = record()
+    object.__setattr__(invalid, "provenance", ())
+    with pytest.raises(InvalidWritePlanError, match="provenance"):
+        build(scheduling((invalid,)))
 
 
 def test_mismatch_run_id_rifiutato() -> None:
@@ -263,6 +281,7 @@ def test_json_deterministico_e_semantico() -> None:
         "data_ordine": "2026-08-03",
         "ordine_id": "ORD-000001",
         "programma_fornitura_id": "PF-000001",
+        "tipo_creazione": "AUTOMATICO",
         "provenance": [{
             "order_line_position": 1,
             "programma_fornitura_id": "PF-000001",

@@ -79,6 +79,16 @@ Il `completed_at` della RUN appartiene alla proposta di conclusione. Non è gene
 
 Lo stato finale è fornito dalla proposta. È coerente con lo `SchedulingResult` e non viene dedotto, corretto o inventato dall'Infrastructure.
 
+### Tipo di creazione ORDINE
+
+`OrdineCreationType` distingue esplicitamente `AUTOMATICO` e `MANUALE`. Non possiede un default e non viene dedotto da RUN, PROGRAMMA, chiave idempotente, provenance o adapter.
+
+Il percorso autorevole Scheduling → WritePlan → Commit contiene esclusivamente ORDINI `AUTOMATICO`. Ogni record richiede PROGRAMMA_FORNITURA, data prevista, chiave idempotente non vuota e provenance completa; il `run_id` appartiene al contesto del piano e viene associato dal writer.
+
+Gli ORDINI `MANUALE` appartengono a un futuro caso d'uso separato: non attraversano `ScheduledOrderRecord`, WritePlan o CommitRepository dello Scheduling, non riferiscono PROGRAMMI, non usano la chiave idempotente dello Scheduling e non possiedono provenance. La data prevista è facoltativa.
+
+Importazione e correzione sono processi, non valori di `OrdineCreationType`, e non possono trasformare il tipo dopo la registrazione.
+
 ### Contatori
 
 I contatori derivano dallo `SchedulingResult`, sono verificati durante la costruzione e validazione del piano e vengono persistiti nel commit della RUN.
@@ -109,6 +119,8 @@ Il locator applicativo congela i campi:
 - `order_line_position`.
 
 Ogni riga di ORDINE automatico richiede almeno un'origine. Origini multiple sono conservate. La provenance non può essere ricostruita confrontando varietà e quantità; la posizione si riferisce alla versione autorevole del PROGRAMMA.
+
+Una riga di ORDINE manuale non può possedere provenance.
 
 Una provenance incompleta, orfana, appartenente a un altro PROGRAMMA, duplicata o priva di ordine stabile non può superare costruzione e validazione del piano. Non è ammessa deduplicazione silenziosa.
 
@@ -284,6 +296,7 @@ La presenza di porte, modelli, repository read-only o migrazioni foundation non 
 6. Il futuro runtime deve collegare un solo writer autorevole.
 7. Google Sheets resta fuori dalla transazione PostgreSQL e dal write path autorevole.
 8. Timeout o esiti incerti richiedono riconciliazione esplicita, non retry cieco.
+9. `OrdineCreationType` è obbligatorio e immutabile; nessun writer può trasformare AUTOMATICO e MANUALE l'uno nell'altro.
 
 Il presente documento congela l'architettura applicativa del write path PostgreSQL nello stato:
 

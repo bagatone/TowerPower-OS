@@ -140,6 +140,7 @@ class WritePlan:
                 if ordine.programma_fornitura_id is not None
                 else None
             ),
+            "tipo_creazione": ordine.tipo_creazione.value,
             "provenance": [
                 {
                     "order_line_position": item.order_line_position,

@@ -10,7 +10,7 @@ from ...application.write_plan.errors import InvalidWritePlanError
 from ...domain.entities.ordine import Ordine, RigaOrdine
 from ...domain.identifiers import ClienteId, OrdineId, ProgrammaFornituraId, VarietaId
 from ...domain.quantities import Quantity, UnitOfMeasure
-from ...domain.states import OrdineState
+from ...domain.states import OrdineCreationType, OrdineState
 from .connection import PostgreSQLConnectionFactory
 from .errors import PostgreSQLError
 
@@ -56,7 +56,8 @@ class PostgreSQLOrdineRepository:
                 cursor.execute(
                     f"""
                     SELECT o.public_id, c.public_id, o.data_ordine, o.stato,
-                           p.public_id, o.data_consegna_prevista, o.chiave_idempotenza,
+                           o.tipo_creazione, p.public_id,
+                           o.data_consegna_prevista, o.chiave_idempotenza,
                            r.posizione, v.public_id, r.quantita, r.unita_misura,
                            pv.numero_versione, rp.posizione
                     FROM tpo.ordini AS o
@@ -91,20 +92,20 @@ def _records(rows: list[tuple[object, ...]]) -> tuple[ScheduledOrderRecord, ...]
         first = rows_for_order[0]
         line_rows = {}
         for row in rows_for_order:
-            line_rows.setdefault(row[7], row)
+            line_rows.setdefault(row[8], row)
         lines = tuple(
-            RigaOrdine(VarietaId(row[8]), Quantity(row[9], UnitOfMeasure(row[10])))
+            RigaOrdine(VarietaId(row[9]), Quantity(row[10], UnitOfMeasure(row[11])))
             for row in line_rows.values()
         )
         provenance = tuple(
             OrderLineProvenance(
-                programma_fornitura_id=ProgrammaFornituraId(first[4]),
-                programma_version=row[11],
-                programma_line_position=row[12],
-                order_line_position=row[7],
+                programma_fornitura_id=ProgrammaFornituraId(first[5]),
+                programma_version=row[12],
+                programma_line_position=row[13],
+                order_line_position=row[8],
             )
             for row in rows_for_order
-            if len(row) > 12 and row[11] is not None and row[12] is not None
+            if len(row) > 13 and row[12] is not None and row[13] is not None
         )
         result.append(
             ScheduledOrderRecord(
@@ -114,10 +115,11 @@ def _records(rows: list[tuple[object, ...]]) -> tuple[ScheduledOrderRecord, ...]
                     data_ordine=first[2],
                     righe=lines,
                     stato=OrdineState(first[3]),
-                    programma_fornitura_id=ProgrammaFornituraId(first[4]),
+                    tipo_creazione=OrdineCreationType(first[4]),
+                    programma_fornitura_id=ProgrammaFornituraId(first[5]),
                 ),
-                data_consegna_prevista=first[5],
-                chiave_idempotenza=first[6],
+                data_consegna_prevista=first[6],
+                chiave_idempotenza=first[7],
                 provenance=provenance,
             )
         )

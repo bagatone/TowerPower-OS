@@ -30,6 +30,8 @@ I Register conservano la verità del dominio. Gli Engine eseguono logica utilizz
 - Un PROGRAMMA_FORNITURA nello stato SOSPESO o TERMINATO non genera nuovi ORDINI.
 - Lo Scheduling Engine determina le occorrenze utilizzando la configurazione temporale della singola riga, la finestra operativa, l'orario di generazione, la data di inizio e la data di fine, quando presente.
 - Ogni ORDINE generato automaticamente mantiene un riferimento permanente al PROGRAMMA_FORNITURA di origine e alla riga o alle righe che lo hanno originato.
+- Ogni ORDINE prodotto dallo Scheduling Engine dichiara sempre `OrdineCreationType.AUTOMATICO`; il tipo non è un parametro dell'Engine.
+- Lo Scheduling Engine non crea ORDINI `MANUALE`.
 - Lo Scheduling Engine raggruppa in un unico ORDINE le righe compatibili dello stesso PROGRAMMA_FORNITURA.
 - Date previste di CONSEGNA differenti generano ORDINI distinti.
 - Lo Scheduling Engine è idempotente.

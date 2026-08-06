@@ -9,7 +9,7 @@ from ...domain.entities.ordine import Ordine, RigaOrdine
 from ...domain.entities.programma_fornitura import ProgrammaFornitura
 from ...domain.errors import InvariantViolationError
 from ...domain.identifiers import ClienteId, IdGenerator, ProgrammaFornituraId, RunId
-from ...domain.states import RunState
+from ...domain.states import OrdineCreationType, RunState
 from ...domain.time_reference import CurrentSystemDate
 from .provenance import OrderLineProvenance, VersionedProgrammaFornitura
 
@@ -37,6 +37,24 @@ class ScheduledOrderRecord:
     provenance: tuple[OrderLineProvenance, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.ordine, Ordine):
+            raise InvariantViolationError("ScheduledOrderRecord richiede un ORDINE valido.")
+        if self.ordine.tipo_creazione is not OrdineCreationType.AUTOMATICO:
+            raise InvariantViolationError(
+                "ScheduledOrderRecord accetta esclusivamente ORDINI AUTOMATICI."
+            )
+        if self.ordine.programma_fornitura_id is None:
+            raise InvariantViolationError(
+                "Un record di Scheduling richiede PROGRAMMA_FORNITURA."
+            )
+        if not isinstance(self.data_consegna_prevista, date):
+            raise InvariantViolationError(
+                "Un record di Scheduling richiede data_consegna_prevista."
+            )
+        if not isinstance(self.chiave_idempotenza, str) or not self.chiave_idempotenza.strip():
+            raise InvariantViolationError(
+                "Un record di Scheduling richiede una chiave idempotente non vuota."
+            )
         if not isinstance(self.provenance, tuple) or any(
             not isinstance(item, OrderLineProvenance) for item in self.provenance
         ):

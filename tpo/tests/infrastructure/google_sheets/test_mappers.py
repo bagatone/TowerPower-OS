@@ -11,7 +11,7 @@ from src.tpo_core.domain.identifiers import (
     VarietaId,
 )
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState, ProgrammaFornituraState
+from src.tpo_core.domain.states import OrdineCreationType, OrdineState, ProgrammaFornituraState
 from src.tpo_core.infrastructure.google_sheets.errors import (
     InvalidSheetRowError,
     InvalidSheetSchemaError,
@@ -172,6 +172,7 @@ def test_ordine_valido_con_piu_righe_e_duplicati_preservati() -> None:
     assert record.ordine.righe[0] == record.ordine.righe[1]
     assert record.chiave_idempotenza == "key-001"
     assert record.data_consegna_prevista == date(2026, 8, 6)
+    assert record.ordine.tipo_creazione is OrdineCreationType.AUTOMATICO
 
 
 def test_ordini_differenti_preservano_ordine() -> None:
@@ -212,7 +213,8 @@ def test_serializzazione_ordine_preserva_ordine_chiave_e_formati() -> None:
             RigaOrdine(VarietaId("VAR-000002"), Quantity("12.50", UnitOfMeasure.GRAM)),
             RigaOrdine(VarietaId("VAR-000001"), Quantity("2", UnitOfMeasure.UNIT)),
         ),
-        OrdineState.APERTO, ProgrammaFornituraId("PF-000001"),
+        OrdineState.APERTO, OrdineCreationType.AUTOMATICO,
+        ProgrammaFornituraId("PF-000001"),
     )
     record = ScheduledOrderRecord(ordine, date(2026, 8, 6), "original-key")
     rows = scheduled_orders_to_rows((record,))

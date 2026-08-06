@@ -15,7 +15,12 @@ from ...domain.entities.programma_fornitura import (
     TipoRicorrenza,
 )
 from ...domain.identifiers import OrdineId
-from ...domain.states import OrdineState, ProgrammaFornituraState, RunState
+from ...domain.states import (
+    OrdineCreationType,
+    OrdineState,
+    ProgrammaFornituraState,
+    RunState,
+)
 from .models import (
     GeneratedOrderDraft,
     ScheduledOrderRecord,
@@ -215,6 +220,7 @@ class SchedulingEngine:
             data_ordine=draft.data_ordine,
             righe=draft.righe,
             stato=OrdineState.APERTO,
+            tipo_creazione=OrdineCreationType.AUTOMATICO,
             programma_fornitura_id=draft.programma_fornitura_id,
         )
         return ScheduledOrderRecord(

@@ -29,7 +29,12 @@ from src.tpo_core.domain.identifiers import (
     VarietaId,
 )
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState, ProgrammaFornituraState, RunState
+from src.tpo_core.domain.states import (
+    OrdineCreationType,
+    OrdineState,
+    ProgrammaFornituraState,
+    RunState,
+)
 from src.tpo_core.domain.time_reference import CurrentSystemDate
 
 
@@ -124,6 +129,7 @@ def test_programma_attivo_genera_ordine_corretto() -> None:
     assert record.ordine.programma_fornitura_id == ProgrammaFornituraId("PF-000001")
     assert record.ordine.data_ordine == date(2026, 7, 6)
     assert record.ordine.stato is OrdineState.APERTO
+    assert record.ordine.tipo_creazione is OrdineCreationType.AUTOMATICO
     assert record.data_consegna_prevista == date(2026, 7, 6)
     assert record.ordine.prenotazioni[0].quantita == Quantity(10, UnitOfMeasure.SET)
     assert record.provenance[0].programma_fornitura_id == ProgrammaFornituraId("PF-000001")

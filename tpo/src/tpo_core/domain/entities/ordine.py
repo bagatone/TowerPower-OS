@@ -9,7 +9,7 @@ from typing import Any
 from ..errors import InvalidQuantityError, InvariantViolationError
 from ..identifiers import ClienteId, OrdineId, ProgrammaFornituraId, VarietaId
 from ..quantities import Quantity
-from ..states import OrdineState
+from ..states import OrdineCreationType, OrdineState
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,7 @@ class Ordine:
     data_ordine: date
     righe: tuple[RigaOrdine, ...]
     stato: OrdineState
+    tipo_creazione: OrdineCreationType
     programma_fornitura_id: ProgrammaFornituraId | None = None
 
     def __post_init__(self) -> None:
@@ -68,11 +69,29 @@ class Ordine:
             raise InvariantViolationError("ORDINE accetta esclusivamente righe valide.")
         if not isinstance(self.stato, OrdineState):
             raise InvariantViolationError("ORDINE richiede uno stato ufficiale OrdineState.")
+        if not isinstance(self.tipo_creazione, OrdineCreationType):
+            raise InvariantViolationError(
+                "ORDINE richiede un tipo di creazione ufficiale OrdineCreationType."
+            )
         if self.programma_fornitura_id is not None and not isinstance(
             self.programma_fornitura_id, ProgrammaFornituraId
         ):
             raise InvariantViolationError(
                 "L'origine automatica richiede un ProgrammaFornituraId valido."
+            )
+        if (
+            self.tipo_creazione is OrdineCreationType.AUTOMATICO
+            and self.programma_fornitura_id is None
+        ):
+            raise InvariantViolationError(
+                "Un ORDINE AUTOMATICO richiede un ProgrammaFornituraId."
+            )
+        if (
+            self.tipo_creazione is OrdineCreationType.MANUALE
+            and self.programma_fornitura_id is not None
+        ):
+            raise InvariantViolationError(
+                "Un ORDINE MANUALE non può riferire un PROGRAMMA_FORNITURA."
             )
 
     @property

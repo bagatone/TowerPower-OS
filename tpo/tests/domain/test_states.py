@@ -2,6 +2,7 @@ from src.tpo_core.domain.states import (
     ConsegnaState,
     MovimentoDirection,
     MovimentoType,
+    OrdineCreationType,
     OrdineState,
     ProgrammaFornituraState,
     RunState,
@@ -35,6 +36,10 @@ def test_programma_fornitura_states_are_exact() -> None:
 
 def test_ordine_states_are_exact() -> None:
     assert values(OrdineState) == ["APERTO", "PARZIALMENTE_EVASO", "EVASO", "ANNULLATO"]
+
+
+def test_ordine_creation_types_are_exact() -> None:
+    assert values(OrdineCreationType) == ["AUTOMATICO", "MANUALE"]
 
 
 def test_consegna_states_are_exact() -> None:

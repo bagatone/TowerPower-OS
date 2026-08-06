@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...domain.states import OrdineCreationType
 from ...domain.time_reference import CurrentSystemDate
 from .errors import (
     DuplicateWritePlanKeyError,
@@ -171,6 +172,14 @@ class WritePlanValidator:
 
 def _validate_provenance(records) -> None:
     for record in records:
+        if record.ordine.tipo_creazione is not OrdineCreationType.AUTOMATICO:
+            raise InvalidWritePlanError(
+                "Il piano contiene un ORDINE non AUTOMATICO."
+            )
+        if record.ordine.programma_fornitura_id is None:
+            raise InvalidWritePlanError(
+                "Il piano contiene un ORDINE AUTOMATICO senza PROGRAMMA."
+            )
         positions = tuple(item.order_line_position for item in record.provenance)
         expected = set(range(1, len(record.ordine.righe) + 1))
         if set(positions) != expected:

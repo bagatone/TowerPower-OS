@@ -23,7 +23,7 @@ from ...domain.identifiers import (
     VarietaId,
 )
 from ...domain.quantities import Quantity, UnitOfMeasure
-from ...domain.states import OrdineState, ProgrammaFornituraState
+from ...domain.states import OrdineCreationType, OrdineState, ProgrammaFornituraState
 from .errors import InvalidSheetRowError, InvalidSheetSchemaError
 
 
@@ -251,6 +251,7 @@ def scheduled_orders_from_rows(rows: tuple[dict[str, str], ...]) -> tuple[Schedu
                 data_ordine=_parse_date(_required(first, "DATA_ORDINE", ORDINI_SHEET_NAME, first_number), ORDINI_SHEET_NAME, first_number, "DATA_ORDINE"),
                 righe=righe,
                 stato=_enum(OrdineState, _required(first, "STATO", ORDINI_SHEET_NAME, first_number), ORDINI_SHEET_NAME, first_number, "STATO"),
+                tipo_creazione=OrdineCreationType.AUTOMATICO,
                 programma_fornitura_id=_parse(ProgrammaFornituraId, programma_text, ORDINI_SHEET_NAME, first_number, "PROGRAMMA_FORNITURA_ID") if programma_text else None,
             )
         except DomainError as exc:

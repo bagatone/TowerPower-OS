@@ -4,7 +4,7 @@ from src.tpo_core.application.scheduling.models import ScheduledOrderRecord
 from src.tpo_core.domain.entities.ordine import Ordine, RigaOrdine
 from src.tpo_core.domain.identifiers import ClienteId, OrdineId, ProgrammaFornituraId, VarietaId
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState
+from src.tpo_core.domain.states import OrdineCreationType, OrdineState
 from src.tpo_core.infrastructure.google_sheets.mappers import ORDINI_HEADERS
 from src.tpo_core.infrastructure.google_sheets.ordini_repository import GoogleSheetsOrdineRepository
 
@@ -40,7 +40,8 @@ def record(identifier="ORD-000001", key="original-key", varieta="VAR-000001"):
     ordine = Ordine(
         OrdineId(identifier), ClienteId("CLI-000001"), date(2026, 8, 3),
         (RigaOrdine(VarietaId(varieta), Quantity(10, UnitOfMeasure.SET)),),
-        OrdineState.APERTO, ProgrammaFornituraId("PF-000001"),
+        OrdineState.APERTO, OrdineCreationType.AUTOMATICO,
+        ProgrammaFornituraId("PF-000001"),
     )
     return ScheduledOrderRecord(ordine, date(2026, 8, 6), key)
 

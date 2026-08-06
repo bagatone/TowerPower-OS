@@ -34,7 +34,7 @@ from src.tpo_core.domain.identifiers import (
     VarietaId,
 )
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState
+from src.tpo_core.domain.states import OrdineCreationType, OrdineState
 from src.tpo_core.domain.time_reference import CurrentSystemDate
 
 
@@ -58,6 +58,7 @@ def record(identifier="ORD-000001", key=None, lines=None):
             date(2026, 8, 3),
             order_lines,
             OrdineState.APERTO,
+            OrdineCreationType.AUTOMATICO,
             ProgrammaFornituraId("PF-000001"),
         ),
         date(2026, 8, 6),

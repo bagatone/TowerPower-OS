@@ -6,6 +6,7 @@ import pytest
 
 from src.tpo_core.application.scheduling.models import ScheduledOrderRecord
 from src.tpo_core.domain.entities.ordine import Ordine, RigaOrdine
+from src.tpo_core.domain.errors import InvariantViolationError
 from src.tpo_core.domain.identifiers import (
     ClienteId,
     OrdineId,
@@ -13,7 +14,7 @@ from src.tpo_core.domain.identifiers import (
     VarietaId,
 )
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState
+from src.tpo_core.domain.states import OrdineCreationType, OrdineState
 from src.tpo_core.infrastructure.postgresql.errors import PostgreSQLError
 from src.tpo_core.infrastructure.postgresql.orders_repository import PostgreSQLOrdineRepository
 
@@ -26,6 +27,7 @@ def record(identifier="ORD-000001", key="key-1"):
             data_ordine=date(2026, 8, 5),
             righe=(RigaOrdine(VarietaId("VAR-000001"), Quantity(Decimal("2.5"), UnitOfMeasure.GRAM)),),
             stato=OrdineState.APERTO,
+            tipo_creazione=OrdineCreationType.AUTOMATICO,
             programma_fornitura_id=ProgrammaFornituraId("PF-000001"),
         ),
         data_consegna_prevista=date(2026, 8, 6),
@@ -84,7 +86,7 @@ class Cursor:
         if factory.fail:
             raise factory.fail
         if sql.startswith("SELECT EXISTS"):
-            self.result = (any(row[6] == params[0] for row in factory.rows),)
+            self.result = (any(row[7] == params[0] for row in factory.rows),)
         elif sql.startswith("SELECT o.public_id"):
             self.results = factory.rows
             if "WHERE o.public_id" in sql:
@@ -115,7 +117,7 @@ def repository(factory):
 
 def test_lettura_una_select_read_only_mapping(repository, factory):
     item = record()
-    factory.rows = [("ORD-000001", "CLI-000001", date(2026, 8, 5), "APERTO", "PF-000001", date(2026, 8, 6), "key-1", 1, "VAR-000001", Decimal("2.5"), "GRAM")]
+    factory.rows = [("ORD-000001", "CLI-000001", date(2026, 8, 5), "APERTO", "AUTOMATICO", "PF-000001", date(2026, 8, 6), "key-1", 1, "VAR-000001", Decimal("2.5"), "GRAM")]
     assert repository.list_scheduled_orders() == (item,)
     connection = factory.connections[0]
     assert len(connection.queries) == 1
@@ -126,6 +128,18 @@ def test_lettura_una_select_read_only_mapping(repository, factory):
 
 def test_lookup_public_id_not_found(repository):
     assert repository.get_by_public_id(OrdineId("ORD-000001")) is None
+
+
+def test_tipo_creazione_sconosciuto_rifiutato(repository, factory):
+    factory.rows = [("ORD-000001", "CLI-000001", date(2026, 8, 5), "APERTO", "SCONOSCIUTO", "PF-000001", date(2026, 8, 6), "key-1", 1, "VAR-000001", Decimal("2.5"), "GRAM")]
+    with pytest.raises(ValueError):
+        repository.list_scheduled_orders()
+
+
+def test_record_scheduled_manuale_rifiutato(repository, factory):
+    factory.rows = [("ORD-000001", "CLI-000001", date(2026, 8, 5), "APERTO", "MANUALE", "PF-000001", date(2026, 8, 6), "key-1", 1, "VAR-000001", Decimal("2.5"), "GRAM")]
+    with pytest.raises(InvariantViolationError, match="MANUALE"):
+        repository.list_scheduled_orders()
 
 
 def test_verifica_chiave_idempotente_una_select(repository, factory):

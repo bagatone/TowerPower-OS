@@ -11,7 +11,20 @@ from src.tpo_core.infrastructure.postgresql import alembic as migration_runner
 from src.tpo_core.infrastructure.postgresql.alembic import METADATA, make_config, migration_url
 from src.tpo_core.infrastructure.postgresql.settings import PostgreSQLSettings
 
-EXPECTED_TABLES = {"id_sequences", "runs", "run_messaggi", "run_log"}
+FOUNDATION_TABLES = {"id_sequences", "runs", "run_messaggi", "run_log"}
+ORDER_COMMIT_TABLES = {
+    "clienti",
+    "varieta",
+    "programmi_fornitura",
+    "programmi_fornitura_versioni",
+    "righe_programma_fornitura",
+    "righe_programma_giorni",
+    "ordini",
+    "righe_ordine",
+    "origini_righe_ordine",
+    "audit_eventi",
+}
+EXPECTED_TABLES = FOUNDATION_TABLES | ORDER_COMMIT_TABLES
 
 
 def _temporary_database(tmp_path: Path):
@@ -23,7 +36,7 @@ def _temporary_database(tmp_path: Path):
     return engine, connection
 
 
-def test_upgrade_crea_solamente_le_tabelle_fondamentali(tmp_path: Path) -> None:
+def test_upgrade_crea_solamente_le_tabelle_congelate(tmp_path: Path) -> None:
     engine, connection = _temporary_database(tmp_path)
     try:
         command.upgrade(make_config(connection=connection), "head")
@@ -47,7 +60,7 @@ def test_downgrade_rimuove_tutte_le_tabelle(tmp_path: Path) -> None:
 
 
 def test_metadata_contiene_colonne_e_tipi_congelati() -> None:
-    assert {table.name for table in METADATA.tables.values()} == EXPECTED_TABLES
+    assert {table.name for table in METADATA.tables.values()} == FOUNDATION_TABLES
     assert set(METADATA.tables["tpo.id_sequences"].c.keys()) == {
         "sequence_name", "identifier_type", "prefix", "next_value", "version", "updated_at", "updated_by"
     }
@@ -68,13 +81,17 @@ def test_migration_non_contiene_tabelle_vietate() -> None:
     forbidden = {
         "clienti", "ordini", "programmi", "semine", "raccolti", "stock", "movimenti"
     }
-    assert EXPECTED_TABLES.isdisjoint(forbidden)
+    assert FOUNDATION_TABLES.isdisjoint(forbidden)
 
 
 def test_revision_chain_valida_e_lineare() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
-    assert [revision.revision for revision in revisions] == ["20260804_0001"]
-    assert revisions[0].down_revision is None
+    assert [revision.revision for revision in revisions] == [
+        "20260806_0002",
+        "20260804_0001",
+    ]
+    assert revisions[0].down_revision == "20260804_0001"
+    assert revisions[1].down_revision is None
 
 
 def test_migration_url_non_espone_password() -> None:
@@ -186,7 +203,7 @@ def test_downgrade_e_conservativo_e_ordinato() -> None:
     source = revision_path.read_text(encoding="utf-8")
     downgrade = source[source.index("def downgrade()") :]
 
-    last_table = max(downgrade.index(f'op.drop_table("{name}"') for name in EXPECTED_TABLES)
+    last_table = max(downgrade.index(f'op.drop_table("{name}"') for name in FOUNDATION_TABLES)
     first_enum = min(downgrade.index(f"{name}.drop(") for name in (
         "run_log_level", "run_message_type", "run_state"
     ))

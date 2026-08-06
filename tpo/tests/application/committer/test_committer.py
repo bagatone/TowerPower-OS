@@ -29,7 +29,7 @@ from src.tpo_core.domain.identifiers import (
     VarietaId,
 )
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
-from src.tpo_core.domain.states import OrdineState, RunState
+from src.tpo_core.domain.states import OrdineCreationType, OrdineState, RunState
 from src.tpo_core.domain.time_reference import CurrentSystemDate
 
 
@@ -61,6 +61,7 @@ def validated_plan(*, two_lines=False):
             date(2026, 8, 3),
             lines,
             OrdineState.APERTO,
+            OrdineCreationType.AUTOMATICO,
             ProgrammaFornituraId("PF-000001"),
         ),
         date(2026, 8, 6),

@@ -457,6 +457,7 @@ Colonne:
 - `data_ordine date NOT NULL`;
 - `data_consegna_prevista date NULL`;
 - `stato ordine_state NOT NULL`;
+- `tipo_creazione ordine_creation_type NOT NULL`, senza default;
 - `chiave_idempotenza text NULL`;
 - `created_at`, `created_by` NOT NULL.
 
@@ -464,8 +465,18 @@ Vincoli:
 
 - `chiave_idempotenza` UNIQUE quando presente;
 - ORDINI automatici richiedono programma, RUN, data prevista e chiave idempotente;
-- ORDINI manuali possono non avere tali metadati;
+- ORDINI manuali richiedono RUN, programma e chiave idempotente NULL; la data prevista resta facoltativa;
+- `tipo_creazione` è immutabile e non viene dedotto da RUN, programma, chiave o provenance;
 - data prevista non precedente a data ordine, salvo import storico esplicitamente validato prima del Freeze dati.
+
+La matrice fisica congelata è:
+
+| `tipo_creazione` | `run_id` | `programma_fornitura_id` | `data_consegna_prevista` | `chiave_idempotenza` | origini righe |
+|---|---|---|---|---|---|
+| `AUTOMATICO` | NOT NULL | NOT NULL | NOT NULL | NOT NULL | almeno una per ogni riga |
+| `MANUALE` | NULL | NULL | NULL ammesso | NULL | nessuna |
+
+Il CHECK di riga applica le combinazioni dei cinque campi. L'obbligatorietà o il divieto della provenance è verificato al termine della transazione mediante vincolo differibile o validazione transazionale.
 
 Indici: UK public ID; UK idempotency key; FK cliente, programma e RUN; (`stato`, `data_consegna_prevista`); (`cliente_id`, `data_ordine`); (`programma_fornitura_id`, `data_consegna_prevista`).
 
@@ -789,6 +800,7 @@ Delete/update: vietati. La tabella non sostituisce i Facts del dominio e non è 
 | `varieta_state` | ATTIVA, IN_SPERIMENTAZIONE, SOSPESA, DISMESSA |
 | `programma_fornitura_state` | ATTIVO, SOSPESO, TERMINATO |
 | `ordine_state` | APERTO, PARZIALMENTE_EVASO, EVASO, ANNULLATO |
+| `ordine_creation_type` | AUTOMATICO, MANUALE |
 | `consegna_state` | PROGRAMMATA, IN_PREPARAZIONE, CONSEGNATA, ANNULLATA |
 | `semina_state` | AVVIATA, GERMINAZIONE, LUCE, CRESCITA, PRONTA_ALLA_RACCOLTA, CHIUSA |
 | `semina_esito` | RACCOLTA_COMPLETA, RACCOLTA_PARZIALE_CON_SCARTO, SCARTO_TOTALE, INTERRUZIONE |

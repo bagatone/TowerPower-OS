@@ -10,6 +10,26 @@ from .errors import InvalidIdentifierError
 
 
 @dataclass(frozen=True)
+class ActorId:
+    """Identità applicativa provider-neutral dell'attore di un'operazione."""
+
+    value: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, str):
+            raise InvalidIdentifierError("ActorId deve contenere una stringa.")
+        if not self.value or not self.value.strip():
+            raise InvalidIdentifierError("ActorId non può essere vuoto.")
+        if self.value != self.value.strip():
+            raise InvalidIdentifierError(
+                "ActorId non accetta whitespace iniziale o finale."
+            )
+
+    def __str__(self) -> str:
+        return self.value
+
+
+@dataclass(frozen=True)
 class PermanentId:
     """Identificativo pubblico permanente appartenente a un solo tipo."""
 

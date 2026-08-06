@@ -59,6 +59,24 @@ La materializzazione finale è applicativa e non autorizza una seconda scrittura
 
 ## 5. Ownership dei dati
 
+### Contesto di esecuzione e actor
+
+Ogni `CommitRequest` trasporta obbligatoriamente un `CommitExecutionContext`
+immutabile composto da `actor: ActorId`, `reason` e `correlation_id`. I tre
+valori sono provider-neutral, espliciti, non vuoti, privi di whitespace
+iniziale o finale e senza default o inferenza. Il contesto appartiene al
+confine di esecuzione del commit: non appartiene a ORDINE, WritePlan,
+SchedulingRunCompletion o RUN e non può essere modificato dal repository.
+
+`ActorId` è un Value Object testuale immutabile. Non congela ruoli, provider
+di identità o actor tecnici predefiniti. Un actor umano, servizio, job o CLI è
+ammesso soltanto se il chiamante ne fornisce esplicitamente l'identità. Sono
+vietati fallback come SYSTEM, AUTO, UNKNOWN, SCHEDULER o ADMIN.
+
+Il futuro writer usa `actor.value` sia per `ordini.created_by` sia per
+`audit_eventi.actor`; non riscrive `runs.created_by`. Reason e correlation ID
+sono trasportati dal chiamante e non vengono generati dal runtime.
+
 ### `run_id`
 
 `run_id` appartiene al contesto RUN, allo `SchedulingResult` e al `WritePlan`. Non è duplicato in `ScheduledOrderRecord`; il futuro writer lo associa agli ORDINI usando il contesto del commit.
@@ -199,6 +217,35 @@ Il futuro `PostgreSQLCommitRepository`, non ancora implementato, deve eseguire i
 14. produzione della ricevuta.
 
 Sono vietati retry ciechi, secondi writer, persistenza parziale, conclusione anticipata della RUN e chiamate esterne mentre la transazione detiene lock.
+
+### Audit del commit automatico
+
+Un commit riuscito inserisce nella stessa transazione un evento audit per
+ogni ORDINE, nello stesso ordine dei record del WritePlan, e infine un solo
+evento per la conclusione della RUN. Non produce eventi per righe ORDINE,
+provenance, preflight, collisioni, errori o rollback. Un rollback elimina
+anche ogni evento inserito nella transazione.
+
+| Evento | `entity_type` | `operation` | `before_data` | `after_data` |
+|---|---|---|---|---|
+| ORDINE inserito | `ORDINE` | `INSERT` | NULL | snapshot ORDINE congelato |
+| RUN conclusa, sempre ultima | `RUN` | `STATE_TRANSITION` | snapshot RUN aperta | snapshot RUN conclusa |
+
+Entrambi usano actor, reason e correlation ID del `CommitExecutionContext`.
+L'evento ORDINE usa come `entity_public_id` l'OrdineId; l'evento RUN usa il
+RunId.
+
+Il payload ORDINE contiene esattamente, in ordine deterministico:
+`public_id`, `cliente_id`, `programma_fornitura_id`, `run_id`, `data_ordine`,
+`data_consegna_prevista`, `stato`, `tipo_creazione`, `chiave_idempotenza`,
+`righe_count`, `origini_count`. Date e ID sono testuali; il tipo è
+`AUTOMATICO`. Non contiene PK, righe complete, aggregati o actor duplicato.
+
+Il `before_data` RUN contiene esattamente `public_id`, stato aperto letto dal
+database, `version=expected_version` e `completed_at=null`. L'`after_data`
+contiene esattamente `public_id`, stato finale, versione incrementata,
+completed_at ISO, simulation e i cinque contatori della completion. Warning,
+errori, PK e created_by non sono duplicati nel payload.
 
 ## 13. Idempotenza
 

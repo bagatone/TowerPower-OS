@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from ...domain.identifiers import RunId
+from ...domain.identifiers import ActorId, RunId
 from ...domain.time_reference import CurrentSystemDate
 from ..write_plan.models import ValidatedWritePlan
 from ..run_tracking.models import SchedulingRunCompletion
 from .errors import InvalidCommitRequestError
+from .context import CommitExecutionContext
 
 
 class CommitStatus(str, Enum):
@@ -26,6 +27,7 @@ class CommitRequest:
 
     validated_plan: ValidatedWritePlan
     requested_at: CurrentSystemDate
+    execution_context: CommitExecutionContext
 
     def __post_init__(self) -> None:
         if not isinstance(self.validated_plan, ValidatedWritePlan):
@@ -35,6 +37,10 @@ class CommitRequest:
         if not isinstance(self.requested_at, CurrentSystemDate):
             raise InvalidCommitRequestError(
                 "requested_at deve essere CURRENT_SYSTEM_DATE."
+            )
+        if not isinstance(self.execution_context, CommitExecutionContext):
+            raise InvalidCommitRequestError(
+                "execution_context deve essere un CommitExecutionContext."
             )
         if (
             self.requested_at.datetime
@@ -52,6 +58,18 @@ class CommitRequest:
     @property
     def expected_version(self) -> int | None:
         return self.completion.expected_version if self.completion is not None else None
+
+    @property
+    def actor(self) -> ActorId:
+        return self.execution_context.actor
+
+    @property
+    def audit_reason(self) -> str:
+        return self.execution_context.reason
+
+    @property
+    def correlation_id(self) -> str:
+        return self.execution_context.correlation_id
 
 
 @dataclass(frozen=True)

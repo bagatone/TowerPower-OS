@@ -5,6 +5,7 @@ import pytest
 
 from src.tpo_core.application.committer import (
     ApplicationCommitter,
+    CommitExecutionContext,
     CommitExistingKeyError,
     CommitExecutionError,
     CommitRequest,
@@ -19,6 +20,7 @@ from src.tpo_core.application.write_plan import (
 )
 from src.tpo_core.domain.entities.ordine import Ordine, RigaOrdine
 from src.tpo_core.domain.identifiers import (
+    ActorId,
     ClienteId,
     OrdineId,
     ProgrammaFornituraId,
@@ -104,7 +106,15 @@ def request_for(*records: ScheduledOrderRecord) -> CommitRequest:
         expected_schema_version="1.0",
         validation_snapshot=snapshot,
     )
-    return CommitRequest(validated, instant(8))
+    return CommitRequest(
+        validated,
+        instant(8),
+        CommitExecutionContext(
+            actor=ActorId("actor-test"),
+            reason="test commit",
+            correlation_id="correlation-test-001",
+        ),
+    )
 
 
 class FakeGateway:
@@ -160,6 +170,13 @@ def test_execute_fa_un_solo_append_e_riconcilia() -> None:
     assert gateway.append_calls[0]["spreadsheet_id"] == "sandbox-spreadsheet"
     assert gateway.append_calls[0]["sheet_name"] == "ORDINI"
     assert tuple(gateway.append_calls[0]["rows"][0]) == ORDINI_HEADERS
+    assert all(
+        set(row) == set(ORDINI_HEADERS)
+        and "actor" not in row
+        and "reason" not in row
+        and "correlation_id" not in row
+        for row in gateway.append_calls[0]["rows"]
+    )
     assert receipt.appended_physical_row_count == 2
     assert receipt.reconciled_idempotency_keys == ("key-001",)
     assert receipt.reconciliation_complete is True

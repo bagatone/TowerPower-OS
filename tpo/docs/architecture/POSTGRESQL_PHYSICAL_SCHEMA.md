@@ -482,6 +482,10 @@ Indici: UK public ID; UK idempotency key; FK cliente, programma e RUN; (`stato`,
 
 Delete/update: ORDINE registrato append-only nella struttura. ON DELETE RESTRICT dalle relazioni. Lo stato evolve tramite transazione auditata; righe e riferimenti originari non cambiano.
 
+Nel commit automatico `created_by` è obbligatoriamente
+`CommitRequest.execution_context.actor.value`. Non esiste un default e il
+writer non deduce o sostituisce l'actor.
+
 ### 5.16 `righe_ordine`
 
 **Responsabilità:** righe prodotto immutabili dell’ORDINE.
@@ -791,6 +795,24 @@ Vincoli: almeno uno tra before/after è presente; i JSONB devono essere oggetti;
 Indici: (`entity_type`, `entity_public_id`, `occurred_at`); `run_id`; `actor`; `occurred_at`; GIN sui payload soltanto se necessario.
 
 Delete/update: vietati. La tabella non sostituisce i Facts del dominio e non è usata per ricostruire lo STOCK.
+
+Per il commit automatico la cardinalità congelata è un evento `ORDINE` con
+operation `INSERT` per ogni testata inserita, seguito da un solo evento `RUN`
+con operation `STATE_TRANSITION`. Gli eventi ORDINE seguono l'ordine del
+WritePlan e RUN è sempre ultimo. Actor, reason e correlation ID provengono
+senza default dal `CommitExecutionContext`.
+
+L'evento ORDINE ha `before_data NULL` e un `after_data` composto esattamente
+da `public_id`, `cliente_id`, `programma_fornitura_id`, `run_id`,
+`data_ordine`, `data_consegna_prevista`, `stato`, `tipo_creazione`,
+`chiave_idempotenza`, `righe_count`, `origini_count`.
+
+L'evento RUN ha `before_data` composto esattamente da `public_id`, stato
+aperto persistente, versione attesa e `completed_at` NULL. `after_data`
+contiene esattamente `public_id`, stato finale, versione incrementata,
+completed_at, simulation, programmi_letti, righe_valutate,
+occorrenze_valutate, ordini_generati ed elementi_saltati. Non vengono creati
+eventi per righe, provenance, preflight, collisioni, errori o rollback.
 
 ## 6. Enum PostgreSQL
 

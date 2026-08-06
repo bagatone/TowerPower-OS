@@ -1,9 +1,11 @@
 from dataclasses import FrozenInstanceError
+from inspect import Parameter, signature
 
 import pytest
 
 from src.tpo_core.domain.errors import InvalidIdentifierError
 from src.tpo_core.domain.identifiers import (
+    ActorId,
     ClienteId,
     ConsegnaId,
     IdGenerator,
@@ -16,6 +18,21 @@ from src.tpo_core.domain.identifiers import (
     SeminaId,
     VarietaId,
 )
+
+
+def test_actor_id_valido_stabile_e_immutabile() -> None:
+    actor = ActorId("actor-test")
+    assert actor.value == "actor-test"
+    assert str(actor) == "actor-test"
+    assert signature(ActorId).parameters["value"].default is Parameter.empty
+    with pytest.raises(FrozenInstanceError):
+        actor.value = "altro"
+
+
+@pytest.mark.parametrize("value", ["", "   ", " actor", "actor ", None, 1])
+def test_actor_id_rifiuta_valori_invalidi(value) -> None:
+    with pytest.raises(InvalidIdentifierError):
+        ActorId(value)
 
 
 VALID_IDS = [

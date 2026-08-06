@@ -42,6 +42,14 @@ L'ORDINE costituisce il riferimento operativo per la pianificazione delle CONSEG
 - Un ORDINE AUTOMATICO è generato esclusivamente dallo Scheduling Engine, appartiene a una RUN, mantiene il riferimento al PROGRAMMA_FORNITURA, possiede data prevista e chiave idempotente e richiede almeno una provenance per ogni riga.
 - Un ORDINE MANUALE è creato fuori dallo Scheduling Engine, non appartiene a una RUN, non riferisce un PROGRAMMA_FORNITURA, non usa la chiave idempotente di scheduling e non possiede provenance; la data prevista è facoltativa.
 - Importazione e correzione sono processi e non tipi di ORDINE. Non trasformano un ORDINE AUTOMATICO in MANUALE o viceversa.
+- Ogni commit automatico riceve un `CommitExecutionContext` esplicito con
+  `ActorId`, reason e correlation ID, senza default o inferenza.
+- `ordini.created_by` coincide con l'ActorId del contesto di commit.
+- La registrazione produce un evento audit `ORDINE`/`INSERT` per ogni ORDINE,
+  nell'ordine del WritePlan; la conclusione RUN auditata è sempre l'ultimo
+  evento della stessa transazione.
+- Un rollback non lascia eventi audit persistenti. Righe ORDINE e provenance
+  non producono eventi autonomi.
 
 ## Ciclo di vita
 

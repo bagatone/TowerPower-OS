@@ -486,6 +486,19 @@ Nel commit automatico `created_by` è obbligatoriamente
 `CommitRequest.execution_context.actor.value`. Non esiste un default e il
 writer non deduce o sostituisce l'actor.
 
+Nel commit automatico `created_at` è valorizzato esplicitamente con
+`CommitRequest.requested_at.datetime`. Il writer non usa il default PostgreSQL
+quando il valore applicativo è disponibile e non sostituisce tale valore con
+`SchedulingRunCompletion.completed_at`, con il parametro `completed_at` di
+`execute_commit()` o con un clock interno. Il parametro di `execute_commit()`
+alimenta esclusivamente `CommitExecutionReceipt.commit_completed_at` nel
+protocollo di commit.
+
+Ai fini della ricevuta PostgreSQL,
+`CommitExecutionReceipt.appended_physical_row_count` conta esclusivamente i
+record inseriti in `tpo.righe_ordine`. Non conta testate `tpo.ordini`, origini,
+messaggi, audit, aggiornamento della RUN, lookup o query di controllo.
+
 ### 5.16 `righe_ordine`
 
 **Responsabilità:** righe prodotto immutabili dell’ORDINE.

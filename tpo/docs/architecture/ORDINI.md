@@ -45,6 +45,9 @@ L'ORDINE costituisce il riferimento operativo per la pianificazione delle CONSEG
 - Ogni commit automatico riceve un `CommitExecutionContext` esplicito con
   `ActorId`, reason e correlation ID, senza default o inferenza.
 - `ordini.created_by` coincide con l'ActorId del contesto di commit.
+- `ordini.created_at` coincide con `CommitRequest.requested_at.datetime`; non
+  usa il timestamp della completion della RUN, il completamento del protocollo
+  di commit, il default PostgreSQL o un clock interno del writer.
 - La registrazione produce un evento audit `ORDINE`/`INSERT` per ogni ORDINE,
   nell'ordine del WritePlan; la conclusione RUN auditata è sempre l'ultimo
   evento della stessa transazione.
@@ -139,6 +142,22 @@ La matrice ufficiale è:
 Il `PostgreSQLCommitRepository` costituisce il writer autorevole degli ORDINI AUTOMATICI prodotti dal percorso Scheduling → WritePlan. Un futuro caso d'uso manuale deve essere separato e non attraversa il WritePlan dello Scheduling.
 
 Nessun valore `IMPORTATO`, `CORRETTIVO`, `LEGACY` o `AMMINISTRATIVO` appartiene a `OrdineCreationType`. Un import deve dichiarare uno dei due tipi ufficiali e soddisfarne integralmente gli invarianti; una correzione preserva il tipo originario e viene auditata.
+
+## Conteggi del commit automatico
+
+Nel protocollo di commit `expected_record_count` conta le testate ORDINE del
+piano e `expected_logical_row_count` conta tutte le relative righe logiche.
+`appended_physical_row_count` conta invece le righe operative effettivamente
+persistite: righe fisiche ORDINI in Google Sheets oppure record
+`tpo.righe_ordine` in PostgreSQL. Header, testate PostgreSQL, provenance, audit,
+messaggi, aggiornamento RUN, lookup, query di controllo, actor e contesto non
+sono inclusi.
+
+`CommitResult.committed_operations` coincide con
+`appended_physical_row_count`. I tre timestamp restano separati: la completion
+indica la conclusione semantica della RUN, `request.requested_at` avvia la
+richiesta e valorizza `ordini.created_at`, mentre il `completed_at` passato a
+`execute_commit()` conclude il protocollo e valorizza la ricevuta.
 
 ## Integrità Storica
 

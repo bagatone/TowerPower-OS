@@ -74,7 +74,7 @@ class CommitRequest:
 
 @dataclass(frozen=True)
 class CommitResult:
-    """Esito applicativo della preparazione o esecuzione del commit."""
+    """Esito; ``committed_operations`` conta le righe operative persistite."""
 
     run_id: RunId
     commit_started_at: CurrentSystemDate
@@ -151,7 +151,11 @@ class CommitResult:
 
 @dataclass(frozen=True)
 class CommitExecutionReceipt:
-    """Prova immutabile dell'append e della successiva riconciliazione."""
+    """Prova immutabile dei conteggi e della successiva riconciliazione.
+
+    I record attesi sono testate ORDINE, le righe logiche sono RIGHE_ORDINE del
+    piano e le righe fisiche appendate sono righe operative ORDINE persistite.
+    """
 
     run_id: RunId
     target_name: str

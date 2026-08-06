@@ -178,6 +178,9 @@ def test_execute_fa_un_solo_append_e_riconcilia() -> None:
         for row in gateway.append_calls[0]["rows"]
     )
     assert receipt.appended_physical_row_count == 2
+    assert receipt.expected_record_count == 1
+    assert receipt.expected_logical_row_count == 2
+    assert len(gateway.append_calls[0]["rows"]) == 2
     assert receipt.reconciled_idempotency_keys == ("key-001",)
     assert receipt.reconciliation_complete is True
 

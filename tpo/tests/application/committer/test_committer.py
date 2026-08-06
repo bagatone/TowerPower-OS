@@ -362,6 +362,77 @@ def test_commit_non_assume_corrispondenza_tra_righe_logiche_e_fisiche() -> None:
     assert result.committed_operations == 2
 
 
+def test_receipt_congela_unita_distinte_ed_e_immutabile() -> None:
+    receipt = CommitExecutionReceipt(
+        run_id=RunId("RUN-000001"),
+        target_name="ORDINI",
+        expected_record_count=1,
+        expected_logical_row_count=2,
+        appended_physical_row_count=3,
+        reconciled_idempotency_keys=("key-001",),
+        commit_completed_at=instant(9),
+        reconciliation_complete=True,
+    )
+    assert (
+        receipt.expected_record_count,
+        receipt.expected_logical_row_count,
+        receipt.appended_physical_row_count,
+    ) == (1, 2, 3)
+    with pytest.raises(FrozenInstanceError):
+        receipt.appended_physical_row_count = 4
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "expected_record_count",
+        "expected_logical_row_count",
+        "appended_physical_row_count",
+    ),
+)
+def test_receipt_rifiuta_ogni_conteggio_negativo(field) -> None:
+    plan = validated_plan()
+    with pytest.raises(InvalidCommitRequestError, match=field):
+        execution_receipt(plan, instant(9), **{field: -1})
+
+
+def test_timestamp_del_protocollo_restano_distinti() -> None:
+    validated = validated_plan()
+    completion = SchedulingRunCompletion(
+        run_id=validated.plan.run_id,
+        started_at=instant(4),
+        completed_at=instant(6),
+        simulation=False,
+        expected_version=3,
+        final_state=RunState.SUCCESS_WITH_WARNINGS,
+        programmi_letti=1,
+        righe_valutate=1,
+        occorrenze_valutate=1,
+        ordini_generati=1,
+        elementi_saltati=0,
+        warnings=validated.plan.warnings,
+        errors=(),
+    )
+    authoritative = replace(
+        validated,
+        plan=replace(validated.plan, completion=completion),
+    )
+    request = CommitRequest(authoritative, instant(8), execution_context())
+    commit_completed_at = instant(9)
+    receipt = execution_receipt(authoritative, commit_completed_at)
+    repository = FakeCommitRepository(receipt=receipt)
+
+    result = ApplicationCommitter(repository).commit(
+        request,
+        commit_completed_at,
+    )
+
+    assert request.completion.completed_at == instant(6)
+    assert request.requested_at == instant(8)
+    assert repository.execute_calls == [(request, commit_completed_at)]
+    assert result.commit_completed_at == instant(9)
+
+
 def test_commit_propaga_errore_repository_senza_retry() -> None:
     expected = RuntimeError("commit repository")
     plan = validated_plan()

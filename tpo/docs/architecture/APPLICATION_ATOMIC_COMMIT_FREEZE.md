@@ -87,7 +87,21 @@ sono trasportati dal chiamante e non vengono generati dal runtime.
 
 ### Timestamp
 
-Il `completed_at` della RUN appartiene alla proposta di conclusione. Non è generato dal repository. Anche il timestamp di completamento dell'operazione di commit è fornito dall'Application a `ApplicationCommitter.commit()` e deve coincidere con la ricevuta; l'Infrastructure non inventa timestamp applicativi.
+I tre timestamp del protocollo hanno responsabilità distinte e non sono
+intercambiabili:
+
+- `SchedulingRunCompletion.completed_at` è la conclusione semantica della RUN
+  proposta dallo Scheduling;
+- `CommitRequest.requested_at` è l'inizio applicativo della richiesta di commit
+  e valorizza esplicitamente `ordini.created_at` tramite il relativo
+  `CurrentSystemDate.datetime`;
+- il parametro `completed_at` di `CommitRepository.execute_commit()` è il
+  completamento del protocollo di commit e alimenta
+  `CommitExecutionReceipt.commit_completed_at`.
+
+Il repository non usa per `ordini.created_at` né il timestamp della completion
+né quello di completamento del commit, non usa il default PostgreSQL quando il
+valore applicativo è disponibile e non genera timestamp con un clock interno.
 
 ### `simulation`
 
@@ -277,7 +291,32 @@ I modelli congelati sono `CommitExecutionReceipt`, `CommitResult` e `CommitStatu
 - `COMMITTED` viene restituito soltanto dopo commit fisico e riconciliazione completa;
 - `RECONCILIATION_REQUIRED` indica che la prova disponibile non consente di dichiarare una riconciliazione completa.
 
-Una risposta incerta non autorizza un retry cieco. I conteggi logici attesi e le righe fisiche appendate restano distinti. La ricevuta deve essere coerente con `run_id`, target, conteggi del piano, timestamp fornito e insieme delle chiavi idempotenti.
+Una risposta incerta non autorizza un retry cieco. I conteggi della ricevuta
+hanno unità distinte:
+
+- `expected_record_count` conta le testate ORDINE attese dal
+  `ValidatedWritePlan`;
+- `expected_logical_row_count` conta tutte le RIGHE_ORDINE logiche contenute
+  negli ORDINI del piano;
+- `appended_physical_row_count` conta le righe operative ORDINE effettivamente
+  persistite dal target: righe fisiche del foglio ORDINI per Google Sheets e
+  record inseriti in `tpo.righe_ordine` per PostgreSQL.
+
+`appended_physical_row_count` non conta testate `tpo.ordini`, provenance
+`tpo.origini_righe_ordine`, messaggi, audit, aggiornamento della RUN, lookup,
+query di controllo o header Google Sheets. Actor e contesto di esecuzione non
+sono unità persistite e non incrementano il conteggio. L'equivalenza
+provider-neutral consiste nel fatto che ogni unità rappresenta una riga
+operativa dell'ORDINE.
+
+`CommitResult.committed_operations` coincide esclusivamente con
+`CommitExecutionReceipt.appended_physical_row_count`: non rappresenta statement
+SQL, record tecnici totali, testate più righe, provenance, audit, messaggi o
+aggiornamenti della RUN.
+
+La ricevuta deve essere coerente con `run_id`, target, conteggi del piano,
+timestamp fornito e insieme delle chiavi idempotenti. I tre conteggi sono interi
+non negativi e la ricevuta è immutabile.
 
 ## 16. Error handling
 

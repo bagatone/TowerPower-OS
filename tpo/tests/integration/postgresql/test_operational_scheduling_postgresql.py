@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 import os
 from pathlib import Path
+from threading import Barrier, Lock, Thread
 from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo
 
@@ -513,9 +514,136 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
         engine.dispose()
 
 
-@pytest.mark.skip(
-    reason="Concorrenza orchestratore reale rinviata al 2.20: sincronizzazione deterministica non congelata."
-)
 @pytest.mark.postgresql_integration
-def test_operational_commit_concurrency_postgresql() -> None:
-    pass
+@pytest.mark.skipif(
+    not DATABASE_URL,
+    reason="TPO_TEST_DATABASE_URL non configurata: PostgreSQL reale non eseguito.",
+)
+def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
+    url = _validated_database_url()
+    engine = sa.create_engine(_sqlalchemy_psycopg_url(url))
+    migrated = False
+    try:
+        with engine.connect() as connection:
+            if sa.inspect(connection).has_schema("tpo"):
+                pytest.fail("Lo schema tpo esiste già: è richiesto un database test vuoto.")
+            command.upgrade(make_config(connection=connection), "head")
+            connection.commit()
+            migrated = True
+
+        admin = psycopg.connect(url)
+        try:
+            _seed(admin)
+            container = build_application(
+                _settings_file(tmp_path),
+                google_service=NoNetworkGoogleService(),
+                id_generator=LegacyIdGenerator(),
+                postgresql_environment=_postgresql_environment(url),
+            )
+            assert container.execute_scheduling_commit is not None
+            assert container.application_committer is not None
+            assert container.postgresql_commit_repository is not None
+
+            allocator = (
+                container.execute_scheduling_commit._run_scheduling._id_generator
+            )
+            original_next_id = allocator.next_id
+            allocation_lock = Lock()
+
+            def synchronized_next_id(identifier_type):
+                with allocation_lock:
+                    return original_next_id(identifier_type)
+
+            allocator.next_id = synchronized_next_id
+
+            commit_connections = _CountingFactory(
+                container.postgresql_connection_factory
+            )
+            container.postgresql_commit_repository._connection_factory = (
+                commit_connections
+            )
+
+            commit_barrier = Barrier(2)
+            original_commit = container.application_committer.commit
+
+            def synchronized_commit(request, completed_at):
+                commit_barrier.wait(timeout=10)
+                return original_commit(request, completed_at)
+
+            container.application_committer.commit = synchronized_commit
+
+            outcomes: list[str] = []
+            unexpected: list[BaseException] = []
+            outcome_lock = Lock()
+
+            def execute() -> None:
+                try:
+                    result = container.execute_scheduling_commit.execute(
+                        _input("RUN-900001")
+                    )
+                    assert result.commit_result.status is CommitStatus.COMMITTED
+                    outcome = "committed"
+                except CommitExecutionError:
+                    outcome = "run_conflict"
+                except BaseException as exc:
+                    with outcome_lock:
+                        unexpected.append(exc)
+                    return
+                with outcome_lock:
+                    outcomes.append(outcome)
+
+            threads = [Thread(target=execute), Thread(target=execute)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=20)
+
+            assert all(not thread.is_alive() for thread in threads)
+            assert not unexpected, f"Errori orchestratore inattesi: {unexpected!r}"
+            assert sorted(outcomes) == ["committed", "run_conflict"]
+            assert commit_connections.connections == 2
+
+            with admin.cursor() as cursor:
+                cursor.execute("SELECT count(*) FROM tpo.ordini")
+                assert cursor.fetchone() == (1,)
+                cursor.execute("SELECT count(*) FROM tpo.righe_ordine")
+                assert cursor.fetchone() == (2,)
+                cursor.execute("SELECT count(*) FROM tpo.origini_righe_ordine")
+                assert cursor.fetchone() == (2,)
+                cursor.execute("SELECT count(*) FROM tpo.audit_eventi")
+                assert cursor.fetchone() == (2,)
+                cursor.execute(
+                    """SELECT completed_at, state, version FROM tpo.runs
+                       WHERE public_id = %s""",
+                    ("RUN-900001",),
+                )
+                completed_at, state, version = cursor.fetchone()
+                assert completed_at == instant(8, 7).datetime
+                assert state == "SUCCESS"
+                assert version == 1
+                cursor.execute(
+                    """SELECT next_value, version FROM tpo.id_sequences
+                       WHERE identifier_type = %s""",
+                    ("OrdineId",),
+                )
+                assert cursor.fetchone() == (900003, 2)
+        finally:
+            admin.close()
+    finally:
+        if migrated:
+            with engine.connect() as connection:
+                command.downgrade(make_config(connection=connection), "base")
+                connection.commit()
+        engine.dispose()
+
+
+class _CountingFactory:
+    def __init__(self, delegate) -> None:
+        self._delegate = delegate
+        self.connections = 0
+        self._lock = Lock()
+
+    def connect(self):
+        with self._lock:
+            self.connections += 1
+        return self._delegate.connect()

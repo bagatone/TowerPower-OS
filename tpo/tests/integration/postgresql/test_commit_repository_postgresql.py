@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 import os
+from threading import Barrier, Lock, Thread
 from urllib.parse import urlparse
 
 from alembic import command
@@ -15,7 +16,7 @@ from src.tpo_core.application.committer import (
     CommitExistingKeyError,
     CommitRequest,
 )
-from src.tpo_core.domain.identifiers import RunId
+from src.tpo_core.domain.identifiers import OrdineId, RunId
 from src.tpo_core.infrastructure.postgresql.alembic import make_config
 from src.tpo_core.infrastructure.postgresql.commit_repository import (
     PostgreSQLCommitRepository,
@@ -39,6 +40,55 @@ class URLConnectionFactory:
         return psycopg.connect(DATABASE_URL)
 
 
+class CoordinatedConnectionFactory:
+    """Apre connessioni reali e sincronizza un punto SQL scelto dal test."""
+
+    def __init__(self, barrier: Barrier, *, synchronize_insert: bool) -> None:
+        self._barrier = barrier
+        self._synchronize_insert = synchronize_insert
+        self.connections = 0
+
+    def connect(self):
+        self.connections += 1
+        connection = psycopg.connect(DATABASE_URL)
+        if not self._synchronize_insert:
+            self._barrier.wait(timeout=10)
+        return _ConnectionProxy(connection, self._barrier if self._synchronize_insert else None)
+
+
+class _ConnectionProxy:
+    def __init__(self, connection, insert_barrier: Barrier | None) -> None:
+        self._connection = connection
+        self._insert_barrier = insert_barrier
+
+    def cursor(self):
+        return _CursorProxy(self._connection.cursor(), self._insert_barrier)
+
+    def __getattr__(self, name):
+        return getattr(self._connection, name)
+
+
+class _CursorProxy:
+    def __init__(self, cursor, insert_barrier: Barrier | None) -> None:
+        self._cursor = cursor
+        self._insert_barrier = insert_barrier
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    def execute(self, query, params=None):
+        if (
+            self._insert_barrier is not None
+            and "INSERT INTO tpo.ordini" in " ".join(query.split())
+        ):
+            self._insert_barrier.wait(timeout=10)
+        return self._cursor.execute(query, params)
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
 def _database_name_without_connecting(url: str) -> str:
     return urlparse(url).path.lstrip("/").split("?", 1)[0]
 
@@ -52,7 +102,13 @@ def _sqlalchemy_psycopg_url(url: str):
     pytest.fail("TPO_TEST_DATABASE_URL usa un dialect PostgreSQL non autorizzato.")
 
 
-def _request_for_run(public_id: str, *, version: int = 3) -> CommitRequest:
+def _request_for_run(
+    public_id: str,
+    *,
+    version: int = 3,
+    order_id: str = "ORD-000001",
+    idempotency_key: str = "key-001",
+) -> CommitRequest:
     request = valid_request()
     run_id = RunId(public_id)
     completion = replace(
@@ -60,7 +116,19 @@ def _request_for_run(public_id: str, *, version: int = 3) -> CommitRequest:
         run_id=run_id,
         expected_version=version,
     )
-    plan = replace(request.validated_plan.plan, run_id=run_id, completion=completion)
+    source_record = request.validated_plan.plan.records[0]
+    record = replace(
+        source_record,
+        ordine=replace(source_record.ordine, id=OrdineId(order_id)),
+        chiave_idempotenza=idempotency_key,
+    )
+    plan = replace(
+        request.validated_plan.plan,
+        run_id=run_id,
+        records=(record,),
+        idempotency_keys=(idempotency_key,),
+        completion=completion,
+    )
     snapshot = replace(request.validated_plan.validation_snapshot, run_id=run_id)
     validated = replace(request.validated_plan, plan=plan, validation_snapshot=snapshot)
     return replace(request, validated_plan=validated)
@@ -203,6 +271,118 @@ def test_commit_atomico_postgresql_reale() -> None:
         engine.dispose()
 
 
-@pytest.mark.skip(reason="Concorrenza reale separata: richiede orchestrazione dedicata.")
 def test_commit_concorrente_postgresql_reale() -> None:
-    pass
+    database_name = _database_name_without_connecting(DATABASE_URL)
+    if "test" not in database_name.lower():
+        pytest.fail("TPO_TEST_DATABASE_URL deve indicare un database dedicato ai test.")
+
+    engine = sa.create_engine(_sqlalchemy_psycopg_url(DATABASE_URL))
+    migrated = False
+    try:
+        with engine.connect() as connection:
+            if sa.inspect(connection).has_schema("tpo"):
+                pytest.fail("Lo schema tpo esiste già: è richiesto un database di test vuoto.")
+            command.upgrade(make_config(connection=connection), "head")
+            connection.commit()
+            migrated = True
+
+        admin = psycopg.connect(DATABASE_URL)
+        try:
+            _insert_fixtures(
+                admin,
+                ("RUN-100001", "RUN-100002", "RUN-100003"),
+            )
+
+            same_run_barrier = Barrier(2)
+            same_run_factory = CoordinatedConnectionFactory(
+                same_run_barrier, synchronize_insert=False
+            )
+            same_run_repository = PostgreSQLCommitRepository(same_run_factory)
+            same_run_request = _request_for_run(
+                "RUN-100001", order_id="ORD-100001", idempotency_key="lock-race"
+            )
+            same_run_outcomes = _concurrent_commits(
+                same_run_repository,
+                (same_run_request, same_run_request),
+            )
+            assert sorted(same_run_outcomes) == ["committed", "run_conflict"]
+            assert same_run_factory.connections == 2
+
+            insert_barrier = Barrier(2)
+            idempotency_factory = CoordinatedConnectionFactory(
+                insert_barrier, synchronize_insert=True
+            )
+            idempotency_repository = PostgreSQLCommitRepository(idempotency_factory)
+            idempotency_outcomes = _concurrent_commits(
+                idempotency_repository,
+                (
+                    _request_for_run(
+                        "RUN-100002",
+                        order_id="ORD-100002",
+                        idempotency_key="idempotency-race",
+                    ),
+                    _request_for_run(
+                        "RUN-100003",
+                        order_id="ORD-100003",
+                        idempotency_key="idempotency-race",
+                    ),
+                ),
+            )
+            assert sorted(idempotency_outcomes) == ["committed", "existing_key"]
+            assert idempotency_factory.connections == 2
+
+            with admin.cursor() as cursor:
+                cursor.execute("SELECT count(*) FROM tpo.ordini")
+                assert cursor.fetchone() == (2,)
+                cursor.execute("SELECT count(*) FROM tpo.righe_ordine")
+                assert cursor.fetchone() == (4,)
+                cursor.execute("SELECT count(*) FROM tpo.origini_righe_ordine")
+                assert cursor.fetchone() == (4,)
+                cursor.execute("SELECT count(*) FROM tpo.audit_eventi")
+                assert cursor.fetchone() == (4,)
+                cursor.execute(
+                    """SELECT count(*) FROM tpo.runs
+                       WHERE completed_at IS NOT NULL AND version = 4"""
+                )
+                assert cursor.fetchone() == (2,)
+        finally:
+            admin.close()
+    finally:
+        if migrated:
+            with engine.connect() as connection:
+                command.downgrade(make_config(connection=connection), "base")
+                connection.commit()
+        engine.dispose()
+
+
+def _concurrent_commits(
+    repository: PostgreSQLCommitRepository,
+    requests: tuple[CommitRequest, CommitRequest],
+) -> list[str]:
+    outcomes: list[str] = []
+    unexpected: list[BaseException] = []
+    outcome_lock = Lock()
+
+    def execute(request: CommitRequest) -> None:
+        try:
+            repository.execute_commit(request, instant(9))
+            outcome = "committed"
+        except CommitExistingKeyError:
+            outcome = "existing_key"
+        except CommitExecutionError:
+            outcome = "run_conflict"
+        except BaseException as exc:
+            with outcome_lock:
+                unexpected.append(exc)
+            return
+        with outcome_lock:
+            outcomes.append(outcome)
+
+    threads = [Thread(target=execute, args=(request,)) for request in requests]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    assert all(not thread.is_alive() for thread in threads)
+    assert not unexpected, f"Errori concorrenti inattesi: {unexpected!r}"
+    return outcomes

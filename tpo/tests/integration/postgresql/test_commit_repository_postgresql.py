@@ -8,6 +8,7 @@ from alembic import command
 import psycopg
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.engine import make_url
 
 from src.tpo_core.application.committer import (
     CommitExecutionError,
@@ -42,6 +43,15 @@ def _database_name_without_connecting(url: str) -> str:
     return urlparse(url).path.lstrip("/").split("?", 1)[0]
 
 
+def _sqlalchemy_psycopg_url(url: str):
+    parsed = make_url(url)
+    if parsed.drivername == "postgresql":
+        return parsed.set(drivername="postgresql+psycopg")
+    if parsed.drivername == "postgresql+psycopg":
+        return parsed
+    pytest.fail("TPO_TEST_DATABASE_URL usa un dialect PostgreSQL non autorizzato.")
+
+
 def _request_for_run(public_id: str, *, version: int = 3) -> CommitRequest:
     request = valid_request()
     run_id = RunId(public_id)
@@ -60,16 +70,19 @@ def _insert_fixtures(connection, run_ids=("RUN-000001",)) -> None:
     with connection.cursor() as cursor:
         cursor.execute(
             """INSERT INTO tpo.clienti
-               (public_id, denominazione, created_by, updated_at, updated_by, version)
-               VALUES ('CLI-000001','Cliente test','test',%s,'test',0)""",
-            (instant(5).datetime,),
+               (public_id, denominazione, created_at, created_by, updated_at,
+                updated_by, version)
+               VALUES ('CLI-000001','Cliente test',%s,'test',%s,'test',0)""",
+            (instant(5).datetime, instant(5).datetime),
         )
         cursor.execute(
             """INSERT INTO tpo.varieta
-               (public_id, denominazione, stato, created_by, updated_at, updated_by, version)
-               VALUES ('VAR-000001','Varietà 1','ATTIVA','test',%s,'test',0),
-                      ('VAR-000002','Varietà 2','ATTIVA','test',%s,'test',0)""",
-            (instant(5).datetime, instant(5).datetime),
+               (public_id, denominazione, stato, created_at, created_by,
+                updated_at, updated_by, version)
+               VALUES ('VAR-000001','Varietà 1','ATTIVA',%s,'test',%s,'test',0),
+                      ('VAR-000002','Varietà 2','ATTIVA',%s,'test',%s,'test',0)""",
+            (instant(5).datetime, instant(5).datetime,
+             instant(5).datetime, instant(5).datetime),
         )
         cursor.execute(
             """INSERT INTO tpo.programmi_fornitura
@@ -121,7 +134,7 @@ def test_commit_atomico_postgresql_reale() -> None:
     if "test" not in database_name.lower():
         pytest.fail("TPO_TEST_DATABASE_URL deve indicare un database dedicato ai test.")
 
-    engine = sa.create_engine(DATABASE_URL)
+    engine = sa.create_engine(_sqlalchemy_psycopg_url(DATABASE_URL))
     migrated = False
     try:
         with engine.connect() as connection:

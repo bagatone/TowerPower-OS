@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from src.tpo_core.application.committer import ApplicationCommitter
+from src.tpo_core.application.operational_scheduling import ExecuteSchedulingCommit
 from src.tpo_core.application.scheduling.engine import SchedulingEngine
 from src.tpo_core.application.scheduling.use_case import RunScheduling
 from src.tpo_core.bootstrap.container import ApplicationContainer
@@ -20,7 +22,17 @@ from src.tpo_core.infrastructure.google_sheets.programmi_repository import (
     GoogleSheetsProgrammaFornituraRepository,
 )
 from src.tpo_core.infrastructure.postgresql.connection import PostgreSQLConnectionFactory
+from src.tpo_core.infrastructure.postgresql.commit_repository import (
+    PostgreSQLCommitRepository,
+)
 from src.tpo_core.infrastructure.postgresql.health import PostgreSQLHealthCheck
+from src.tpo_core.infrastructure.postgresql.orders_repository import PostgreSQLOrdineRepository
+from src.tpo_core.infrastructure.postgresql.programmi_repository import (
+    PostgreSQLVersionedProgrammaFornituraRepository,
+)
+from src.tpo_core.infrastructure.postgresql.write_plan_validation_repository import (
+    PostgreSQLWritePlanValidationRepository,
+)
 
 
 class NoNetworkGoogleService:
@@ -118,7 +130,96 @@ def test_build_postgresql_pigro_da_environment_esplicito(settings_file: Path) ->
     assert container.postgresql_settings.database == "towerpower"
     assert isinstance(container.postgresql_connection_factory, PostgreSQLConnectionFactory)
     assert isinstance(container.postgresql_health_check, PostgreSQLHealthCheck)
+    assert isinstance(
+        container.postgresql_commit_repository,
+        PostgreSQLCommitRepository,
+    )
+    assert (
+        container.postgresql_commit_repository._connection_factory
+        is container.postgresql_connection_factory
+    )
+    assert isinstance(container.application_committer, ApplicationCommitter)
+    assert isinstance(container.execute_scheduling_commit, ExecuteSchedulingCommit)
+    assert (
+        container.application_committer._repository
+        is container.postgresql_commit_repository
+    )
+    assert (
+        container.execute_scheduling_commit._committer
+        is container.application_committer
+    )
+    operational = container.execute_scheduling_commit._run_scheduling
+    assert isinstance(
+        operational._programmi_repository,
+        PostgreSQLVersionedProgrammaFornituraRepository,
+    )
+    assert isinstance(operational._ordini_repository, PostgreSQLOrdineRepository)
+    assert (
+        operational._programmi_repository._connection_factory
+        is container.postgresql_connection_factory
+    )
+    assert (
+        container.execute_scheduling_commit
+        ._write_plan_validator
+        ._repository
+        ._connection_factory
+        is container.postgresql_connection_factory
+    )
+    assert isinstance(
+        container.execute_scheduling_commit._write_plan_validator._repository,
+        PostgreSQLWritePlanValidationRepository,
+    )
+    assert not any(
+        isinstance(value, GoogleSheetsOrdineRepository)
+        for value in vars(container.execute_scheduling_commit).values()
+    )
     assert service.calls == 0
+
+
+def test_build_postgresql_non_apre_connessioni(
+    settings_file: Path,
+    monkeypatch,
+) -> None:
+    connect_calls = []
+
+    def forbidden_connect(factory):
+        connect_calls.append(factory)
+        raise AssertionError("Il bootstrap PostgreSQL deve restare lazy.")
+
+    monkeypatch.setattr(PostgreSQLConnectionFactory, "connect", forbidden_connect)
+    environment = {
+        "TPO_DATABASE_HOST": "db.example.invalid",
+        "TPO_DATABASE_PORT": "5432",
+        "TPO_DATABASE_NAME": "towerpower",
+        "TPO_DATABASE_USER": "app",
+        "TPO_DATABASE_PASSWORD": "secret",
+        "TPO_DATABASE_SSLMODE": "require",
+        "TPO_DATABASE_CONNECT_TIMEOUT": "3",
+    }
+
+    container = build_application(
+        settings_file,
+        google_service=NoNetworkGoogleService(),
+        id_generator=FakeIdGenerator(),
+        postgresql_environment=environment,
+    )
+
+    assert isinstance(container.postgresql_commit_repository, PostgreSQLCommitRepository)
+    assert isinstance(container.application_committer, ApplicationCommitter)
+    assert isinstance(container.execute_scheduling_commit, ExecuteSchedulingCommit)
+    assert connect_calls == []
+
+
+def test_runtime_senza_postgresql_non_costruisce_commit_repository(
+    settings_file: Path,
+) -> None:
+    container, _, _ = build(settings_file)
+    assert container.postgresql_settings is None
+    assert container.postgresql_connection_factory is None
+    assert container.postgresql_commit_repository is None
+    assert container.application_committer is None
+    assert container.execute_scheduling_commit is None
+    assert isinstance(container.run_scheduling, RunScheduling)
 
 
 def test_build_non_legge_env_local(settings_file: Path, monkeypatch) -> None:
@@ -152,6 +253,8 @@ def test_build_ripetibile_senza_singleton(settings_file: Path) -> None:
     assert first.ordini_repository is not second.ordini_repository
     assert first.scheduling_engine is not second.scheduling_engine
     assert first.run_scheduling is not second.run_scheduling
+    assert first.execute_scheduling_commit is None
+    assert second.execute_scheduling_commit is None
 
 
 @pytest.mark.parametrize(

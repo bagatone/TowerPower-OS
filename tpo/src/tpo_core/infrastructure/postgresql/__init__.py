@@ -11,8 +11,10 @@ from .errors import (
 from .health import PostgreSQLHealthCheck, PostgreSQLHealthResult
 from .identity_repository import PostgreSQLPersistentIdRepository
 from .orders_repository import PostgreSQLOrdineRepository
+from .programmi_repository import PostgreSQLVersionedProgrammaFornituraRepository
 from .run_tracking_repository import PostgreSQLSchedulingRunRepository
 from .settings import PostgreSQLSettings
+from .write_plan_validation_repository import PostgreSQLWritePlanValidationRepository
 
 __all__ = [
     "InvalidPostgreSQLSettingsError",
@@ -25,6 +27,8 @@ __all__ = [
     "PostgreSQLHealthResult",
     "PostgreSQLPersistentIdRepository",
     "PostgreSQLOrdineRepository",
+    "PostgreSQLVersionedProgrammaFornituraRepository",
     "PostgreSQLSchedulingRunRepository",
     "PostgreSQLSettings",
+    "PostgreSQLWritePlanValidationRepository",
 ]

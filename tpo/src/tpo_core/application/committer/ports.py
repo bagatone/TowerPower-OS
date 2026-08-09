@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from ...domain.time_reference import CurrentSystemDate
-from .models import CommitExecutionReceipt, CommitRequest
+from .models import CommitExecutionReceipt, CommitOutcomeUncertain, CommitRequest
 
 
 class CommitRepository(Protocol):
@@ -18,7 +17,6 @@ class CommitRepository(Protocol):
     def execute_commit(
         self,
         request: CommitRequest,
-        completed_at: CurrentSystemDate,
-    ) -> CommitExecutionReceipt:
-        """Esegue un singolo commit e ne restituisce la ricevuta."""
+    ) -> CommitExecutionReceipt | CommitOutcomeUncertain:
+        """Esegue un singolo commit e restituisce un outcome strutturato."""
         ...

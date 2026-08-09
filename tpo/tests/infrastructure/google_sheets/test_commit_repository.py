@@ -49,6 +49,11 @@ def instant(hour: int) -> CurrentSystemDate:
     return CurrentSystemDate(datetime(2026, 8, 3, hour, tzinfo=TZ))
 
 
+class FakeClock:
+    def now(self) -> CurrentSystemDate:
+        return instant(9)
+
+
 def record(number: int, key: str, *, two_lines: bool = False):
     righe = (
         RigaOrdine(
@@ -150,7 +155,7 @@ class FakeGateway:
 
 
 def repository(gateway: FakeGateway) -> GoogleSheetsCommitRepository:
-    return GoogleSheetsCommitRepository(gateway, "sandbox-spreadsheet")
+    return GoogleSheetsCommitRepository(gateway, "sandbox-spreadsheet", FakeClock())
 
 
 def test_prepare_non_esegue_accessi_ne_append() -> None:
@@ -164,7 +169,7 @@ def test_prepare_non_esegue_accessi_ne_append() -> None:
 def test_execute_fa_un_solo_append_e_riconcilia() -> None:
     gateway = FakeGateway()
     request = request_for(record(1, "key-001", two_lines=True))
-    receipt = repository(gateway).execute_commit(request, instant(9))
+    receipt = repository(gateway).execute_commit(request)
     assert len(gateway.append_calls) == 1
     assert len(gateway.read_calls) == 2
     assert gateway.append_calls[0]["spreadsheet_id"] == "sandbox-spreadsheet"
@@ -188,7 +193,7 @@ def test_execute_fa_un_solo_append_e_riconcilia() -> None:
 def test_application_committer_restituisce_committed_dopo_riconciliazione() -> None:
     gateway = FakeGateway()
     request = request_for(record(1, "key-001"))
-    result = ApplicationCommitter(repository(gateway)).commit(request, instant(9))
+    result = ApplicationCommitter(repository(gateway)).commit(request)
     assert result.status is CommitStatus.COMMITTED
     assert result.committed_operations == 1
 
@@ -197,7 +202,7 @@ def test_schema_cambiato_blocca_prima_di_read_e_append() -> None:
     gateway = FakeGateway(headers=ORDINI_HEADERS[:-1])
     with pytest.raises(CommitSchemaChangedError):
         repository(gateway).execute_commit(
-            request_for(record(1, "key-001")), instant(9)
+            request_for(record(1, "key-001"))
         )
     assert gateway.read_calls == []
     assert gateway.append_calls == []
@@ -208,7 +213,7 @@ def test_chiave_esistente_blocca_senza_append() -> None:
     gateway = FakeGateway(rows=existing)
     with pytest.raises(CommitExistingKeyError):
         repository(gateway).execute_commit(
-            request_for(record(1, "key-001")), instant(9)
+            request_for(record(1, "key-001"))
         )
     assert gateway.append_calls == []
 
@@ -218,7 +223,7 @@ def test_riconciliazione_incompleta_non_esegue_secondo_append(mode) -> None:
     gateway = FakeGateway()
     gateway.reconciliation_mode = mode
     request = request_for(record(1, "key-001"))
-    result = ApplicationCommitter(repository(gateway)).commit(request, instant(9))
+    result = ApplicationCommitter(repository(gateway)).commit(request)
     assert result.status is CommitStatus.RECONCILIATION_REQUIRED
     assert len(gateway.append_calls) == 1
 
@@ -229,7 +234,7 @@ def test_errore_append_propagato_con_causa_e_senza_retry() -> None:
     gateway.append_error = cause
     with pytest.raises(CommitExecutionError) as captured:
         repository(gateway).execute_commit(
-            request_for(record(1, "key-001")), instant(9)
+            request_for(record(1, "key-001"))
         )
     assert captured.value.__cause__ is cause
     assert len(gateway.append_calls) == 1
@@ -239,7 +244,7 @@ def test_ordine_record_righe_e_chiavi_preservati() -> None:
     first = record(2, "key-002", two_lines=True)
     second = record(1, "key-001")
     gateway = FakeGateway()
-    repository(gateway).execute_commit(request_for(first, second), instant(9))
+    repository(gateway).execute_commit(request_for(first, second))
     appended = gateway.append_calls[0]["rows"]
     assert [row["ORDINE_ID"] for row in appended] == [
         "ORD-000002",

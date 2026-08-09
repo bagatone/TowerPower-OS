@@ -10,12 +10,15 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
+import src.tpo_core.infrastructure.postgresql.commit_repository as commit_module
+
 from src.tpo_core.application.committer import (
     CommitExecutionContext,
     CommitExecutionError,
     CommitExistingKeyError,
     CommitPreparationError,
     CommitRequest,
+    CommitOutcomeUncertain,
     InvalidCommitRequestError,
 )
 from src.tpo_core.application.run_tracking import SchedulingRunCompletion
@@ -43,6 +46,28 @@ TZ = ZoneInfo("Atlantic/Canary")
 
 def instant(hour: int) -> CurrentSystemDate:
     return CurrentSystemDate(datetime(2026, 8, 6, hour, tzinfo=TZ))
+
+
+class FakeClock:
+    def __init__(self, database=None):
+        self.database = database
+        self.calls = 0
+        self.commit_seen = []
+
+    def now(self) -> CurrentSystemDate:
+        self.calls += 1
+        self.commit_seen.append(
+            False if self.database is None else self.database.commit_observed
+        )
+        return instant(9)
+
+
+class FailingPostCommitClock(FakeClock):
+    def now(self) -> CurrentSystemDate:
+        value = super().now()
+        if self.calls == 2:
+            raise RuntimeError("clock unavailable")
+        return value
 
 
 def valid_request(*, warning: bool = True, completion: bool = True) -> CommitRequest:
@@ -182,7 +207,11 @@ def database(): return Database()
 
 
 @pytest.fixture
-def repository(database): return PostgreSQLCommitRepository(database)
+def clock(database): return FakeClock(database)
+
+
+@pytest.fixture
+def repository(database, clock): return PostgreSQLCommitRepository(database, clock)
 
 
 def test_costruttore_e_prepare_valido_non_aprono_connessione(repository, database):
@@ -208,20 +237,20 @@ def test_target_errato_prima_della_connessione(repository, database):
     assert database.connect_calls == 0
 
 
-@pytest.mark.parametrize("completed", [None, datetime(2026, 8, 6, 9, tzinfo=TZ)])
-def test_completed_at_tipo_errato_prima_della_connessione(repository, database, completed):
-    with pytest.raises(InvalidCommitRequestError): repository.execute_commit(valid_request(), completed)
-    assert database.connect_calls == 0
+def test_transazione_completa_receipt_query_e_parametri(
+    repository, database, clock, monkeypatch
+):
+    receipt_type = commit_module.CommitExecutionReceipt
+    constructed = []
 
+    def receipt_spy(**values):
+        assert database.commit_observed
+        constructed.append(values)
+        return receipt_type(**values)
 
-def test_completed_at_precedente_prima_della_connessione(repository, database):
-    with pytest.raises(InvalidCommitRequestError): repository.execute_commit(valid_request(), instant(7))
-    assert database.connect_calls == 0
-
-
-def test_transazione_completa_receipt_query_e_parametri(repository, database):
-    completed = instant(9); request = valid_request()
-    receipt = repository.execute_commit(request, completed)
+    monkeypatch.setattr(commit_module, "CommitExecutionReceipt", receipt_spy)
+    request = valid_request()
+    receipt = repository.execute_commit(request)
     connection = database.connections[0]
     assert (database.connect_calls, connection.cursor_calls, connection.commits,
             connection.rollbacks, connection.closes) == (1, 1, 1, 0, 1)
@@ -241,12 +270,14 @@ def test_transazione_completa_receipt_query_e_parametri(repository, database):
     assert line_params == [(60, 1, 30, Decimal("2.5"), "GRAM"), (60, 2, 31, Decimal("3"), "SET")]
     assert receipt.appended_physical_row_count == 2
     assert receipt.reconciled_idempotency_keys == ("key-001",)
-    assert receipt.commit_completed_at == completed and receipt.reconciliation_complete
+    assert receipt.commit_completed_at == instant(9) and receipt.reconciliation_complete
     assert database.commit_observed
+    assert clock.commit_seen == [False, True]
+    assert len(constructed) == 1
 
 
 def test_audit_payload_e_run_message_esatti(repository, database):
-    repository.execute_commit(valid_request(), instant(9))
+    repository.execute_commit(valid_request())
     audits = [q for q in database.queries if q[0] == "AUDIT"]
     assert len(audits) == 2 and database.queries[-1][0] == "AUDIT"
     order = audits[0][2]
@@ -271,7 +302,7 @@ def test_audit_payload_e_run_message_esatti(repository, database):
 ])
 def test_conflitti_run_rollback_senza_scritture(repository, database, mutation, message):
     mutation(database)
-    with pytest.raises(CommitExecutionError, match=message): repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(CommitExecutionError, match=message): repository.execute_commit(valid_request())
     assert all(not op.startswith("INSERT") for op, _, _ in database.queries)
     connection = database.connections[0]
     assert connection.rollbacks == 1 and connection.commits == 0 and connection.closes == 1
@@ -279,7 +310,7 @@ def test_conflitti_run_rollback_senza_scritture(repository, database, mutation, 
 
 def test_idempotenza_pre_esistente_rollback(repository, database):
     database.collisions = [("key-001",)]
-    with pytest.raises(CommitExistingKeyError): repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(CommitExistingKeyError): repository.execute_commit(valid_request())
     assert [q[0] for q in database.queries] == ["RUN", "IDEMPOTENCY"]
     assert database.connections[0].rollbacks == 1
 
@@ -292,55 +323,55 @@ def test_idempotenza_pre_esistente_rollback(repository, database):
 ])
 def test_lookup_incoerente_rollback(repository, database, attribute, value):
     setattr(database, attribute, value)
-    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request())
     assert database.connections[0].rollbacks == 1
 
 
 @pytest.mark.parametrize("locators", [[], [[(0,)], [(51,)]], [[(50,), (52,)], [(51,)]]])
 def test_locator_incoerente_rollback(repository, database, locators):
     database.locators = locators or [[]]
-    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request())
     assert database.connections[0].rollbacks == 1
 
 
 @pytest.mark.parametrize("returning", [None, (0,"ORD-000001"), (60,"ORD-999999")])
 def test_returning_ordine_incoerente(repository, database, returning):
     database.order_returning = returning
-    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request())
     assert database.connections[0].rollbacks == 1
 
 
 @pytest.mark.parametrize("returning", [None, (0,1), (70,2)])
 def test_returning_riga_incoerente(repository, database, returning):
     database.line_returning[0] = returning
-    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request())
     assert database.connections[0].rollbacks == 1
 
 
 @pytest.mark.parametrize("returning", [None, ("RUN-999999",4,instant(6).datetime,"SUCCESS_WITH_WARNINGS"), ("RUN-000001",5,instant(6).datetime,"SUCCESS_WITH_WARNINGS"), ("RUN-000001",4,instant(7).datetime,"SUCCESS_WITH_WARNINGS")])
 def test_update_run_incoerente(repository, database, returning):
     database.update_returning = returning
-    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request())
     assert database.connections[0].rollbacks == 1
 
 
 @pytest.mark.parametrize("op", ["PROVENANCE", "AUDIT", "MESSAGE"])
 def test_rowcount_scrittura_incoerente(repository, database, op):
     database.rowcount_override[op] = 0
-    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request())
     assert database.connections[0].rollbacks == 1
 
 
 def test_success_senza_warning_non_inserisce_messaggi(repository, database):
     database.update_returning = ("RUN-000001",4,instant(6).datetime,"SUCCESS")
-    repository.execute_commit(valid_request(warning=False), instant(9))
+    repository.execute_commit(valid_request(warning=False))
     assert "MESSAGE" not in [q[0] for q in database.queries]
 
 
 @pytest.mark.parametrize("op", ["RUN", "CLIENTS", "ORDER"])
 def test_psycopg_convertito_con_causa_e_un_solo_tentativo(repository, database, op):
     database.fail_on = op
-    with pytest.raises(CommitExecutionError) as captured: repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(CommitExecutionError) as captured: repository.execute_commit(valid_request())
     assert captured.value.__cause__ is database.failure
     assert "password" not in str(captured.value) and database.connect_calls == 1
     assert database.connections[0].rollbacks == 1
@@ -355,7 +386,7 @@ class NamedUnique(psycopg.errors.UniqueViolation):
 @pytest.mark.parametrize("name, expected", [("ordini_chiave_idempotenza_key", CommitExistingKeyError), ("ordini_public_id_key", CommitExecutionError)])
 def test_unique_violation_classificata_per_constraint(repository, database, name, expected):
     database.fail_on = "ORDER"; database.failure = NamedUnique(name)
-    with pytest.raises(expected) as captured: repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(expected) as captured: repository.execute_commit(valid_request())
     assert captured.value.__cause__ is database.failure
     assert database.connections[0].rollbacks == 1 and database.connect_calls == 1
 
@@ -363,17 +394,50 @@ def test_unique_violation_classificata_per_constraint(repository, database, name
 @pytest.mark.parametrize("failure", [TypeError("bug"), AttributeError("bug"), AssertionError("bug")])
 def test_errori_programmazione_non_mascherati(repository, database, failure):
     database.fail_on = "ORDER"; database.failure = failure
-    with pytest.raises(type(failure), match="bug"): repository.execute_commit(valid_request(), instant(9))
+    with pytest.raises(type(failure), match="bug"): repository.execute_commit(valid_request())
     assert database.connections[0].rollbacks == 1
 
 
-def test_commit_in_certo_non_restituisce_receipt_e_cleanup(repository, database):
+def test_commit_in_certo_non_restituisce_receipt_e_cleanup(
+    repository, database, monkeypatch
+):
+    constructed = []
+    monkeypatch.setattr(
+        commit_module,
+        "CommitExecutionReceipt",
+        lambda **values: constructed.append(values),
+    )
     database.fail_commit = database.fail_rollback = database.fail_close = database.fail_cursor_close = True
-    with pytest.raises(CommitExecutionError) as captured: repository.execute_commit(valid_request(), instant(9))
+    outcome = repository.execute_commit(valid_request())
     connection = database.connections[0]
-    assert isinstance(captured.value.__cause__, psycopg.DatabaseError)
+    assert isinstance(outcome, CommitOutcomeUncertain)
+    assert isinstance(outcome.technical_cause, psycopg.DatabaseError)
+    assert not hasattr(outcome, "commit_completed_at")
+    assert constructed == []
     assert (connection.commits, connection.rollbacks, connection.closes) == (1,1,1)
     assert connection.cursor_instance.closed == 1
+
+
+def test_clock_post_commit_failure_restituisce_outcome_incerto_senza_retry(database):
+    clock = FailingPostCommitClock(database)
+    repository = PostgreSQLCommitRepository(database, clock)
+    outcome = repository.execute_commit(valid_request())
+    connection = database.connections[0]
+    assert isinstance(outcome, CommitOutcomeUncertain)
+    assert isinstance(outcome.technical_cause, RuntimeError)
+    assert not hasattr(outcome, "commit_completed_at")
+    assert (connection.commits, connection.rollbacks) == (1, 0)
+    assert clock.commit_seen == [False, True]
+
+
+def test_close_failure_post_commit_non_sostituisce_receipt(repository, database):
+    database.fail_close = True
+    receipt = repository.execute_commit(valid_request())
+    connection = database.connections[0]
+    assert isinstance(receipt, commit_module.CommitExecutionReceipt)
+    assert receipt.commit_completed_at == instant(9)
+    assert receipt.reconciliation_complete is True
+    assert (connection.commits, connection.closes) == (1, 1)
 
 
 def test_lookup_table_whitelist(database):

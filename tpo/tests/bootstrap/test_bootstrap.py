@@ -49,6 +49,11 @@ class FakeIdGenerator:
         raise AssertionError("Il bootstrap non deve generare identificativi.")
 
 
+class NoCallClock:
+    def now(self):
+        raise AssertionError("Il bootstrap non deve leggere il clock.")
+
+
 @pytest.fixture
 def settings_file(tmp_path: Path) -> Path:
     path = tmp_path / "settings.yaml"
@@ -121,11 +126,13 @@ def test_build_postgresql_pigro_da_environment_esplicito(settings_file: Path) ->
         "TPO_DATABASE_CONNECT_TIMEOUT": "3",
     }
     service = NoNetworkGoogleService()
+    clock = NoCallClock()
     container = build_application(
         settings_file,
         google_service=service,
         id_generator=FakeIdGenerator(),
         postgresql_environment=environment,
+        clock=clock,
     )
     assert container.postgresql_settings.database == "towerpower"
     assert isinstance(container.postgresql_connection_factory, PostgreSQLConnectionFactory)
@@ -140,6 +147,9 @@ def test_build_postgresql_pigro_da_environment_esplicito(settings_file: Path) ->
     )
     assert isinstance(container.application_committer, ApplicationCommitter)
     assert isinstance(container.execute_scheduling_commit, ExecuteSchedulingCommit)
+    assert container.clock is clock
+    assert container.postgresql_commit_repository._clock is clock
+    assert container.execute_scheduling_commit._clock is clock
     assert (
         container.application_committer._repository
         is container.postgresql_commit_repository

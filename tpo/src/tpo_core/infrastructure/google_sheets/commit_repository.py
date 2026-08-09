@@ -14,7 +14,7 @@ from ...application.committer.errors import (
     InvalidCommitRequestError,
 )
 from ...application.committer.models import CommitExecutionReceipt, CommitRequest
-from ...domain.time_reference import CurrentSystemDate
+from ...application.ports.clock import Clock
 from .errors import GoogleSheetsRepositoryError
 from .mappers import (
     ORDINI_HEADERS,
@@ -49,6 +49,7 @@ class GoogleSheetsCommitRepository:
         self,
         gateway: _CommitGateway,
         spreadsheet_id: str,
+        clock: Clock,
         sheet_name: str = ORDINI_SHEET_NAME,
     ) -> None:
         if not isinstance(spreadsheet_id, str) or not spreadsheet_id.strip():
@@ -61,28 +62,16 @@ class GoogleSheetsCommitRepository:
             )
         self._gateway = gateway
         self._spreadsheet_id = spreadsheet_id
+        self._clock = clock
         self._sheet_name = sheet_name
 
     def prepare_commit(self, request: CommitRequest) -> None:
         """Verifica soltanto il target logico, senza accedere a Google Sheets."""
         self._validate_request_target(request, CommitPreparationError)
 
-    def execute_commit(
-        self,
-        request: CommitRequest,
-        completed_at: CurrentSystemDate,
-    ) -> CommitExecutionReceipt:
+    def execute_commit(self, request: CommitRequest) -> CommitExecutionReceipt:
         """Controlla, appende una volta e riconcilia senza retry."""
         self._validate_request_target(request, CommitExecutionError)
-        if not isinstance(completed_at, CurrentSystemDate):
-            raise InvalidCommitRequestError(
-                "completed_at deve essere CURRENT_SYSTEM_DATE."
-            )
-        if completed_at.datetime < request.requested_at.datetime:
-            raise InvalidCommitRequestError(
-                "completed_at non può precedere requested_at."
-            )
-
         plan = request.validated_plan.plan
         self._verify_headers()
         existing_records = self._read_records("lettura pre-commit")
@@ -124,6 +113,11 @@ class GoogleSheetsCommitRepository:
             key for key in plan.idempotency_keys if key_counts[key] == 1
         )
         reconciliation_complete = reconciled == plan.idempotency_keys
+        completed_at = self._clock.now()
+        if completed_at.datetime < request.requested_at.datetime:
+            raise CommitExecutionError(
+                "Il Clock ha prodotto commit_completed_at precedente a requested_at."
+            )
         return CommitExecutionReceipt(
             run_id=plan.run_id,
             target_name=request.validated_plan.target_name,

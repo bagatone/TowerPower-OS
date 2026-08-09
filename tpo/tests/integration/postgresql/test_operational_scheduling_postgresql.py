@@ -51,6 +51,11 @@ class LegacyIdGenerator:
         raise AssertionError("Il grafo operativo deve usare PostgreSQL Identity.")
 
 
+class FixedClock:
+    def now(self) -> CurrentSystemDate:
+        return instant(9, 7)
+
+
 def instant(day: int, hour: int) -> CurrentSystemDate:
     return CurrentSystemDate(datetime(2026, 8, day, hour, tzinfo=TZ))
 
@@ -273,9 +278,6 @@ def _input(run_id: str, *, day: int = 8, expected_version: int = 0):
             RunId(run_id), instant(8, 5), False, expected_version
         ),
         current_system_date=instant(day, 6),
-        completion_at=instant(day, 7),
-        requested_at=instant(day, 8),
-        commit_completed_at=instant(day, 9),
         execution_context=CommitExecutionContext(
             ActorId("e2e-scheduler"), "postgresql e2e validation", "e2e-2.19"
         ),
@@ -308,6 +310,7 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                 google_service=google,
                 id_generator=LegacyIdGenerator(),
                 postgresql_environment=_postgresql_environment(url),
+                clock=FixedClock(),
             )
             assert container.execute_scheduling_commit is not None
             assert container.application_committer is not None
@@ -347,7 +350,7 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
             captured_requests = []
             original_commit = container.application_committer.commit
 
-            def capture_commit(request, completed_at):
+            def capture_commit(request):
                 captured_requests.append(request)
                 with admin.cursor() as cursor:
                     cursor.execute(
@@ -357,7 +360,7 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                     )
                     physical_run = cursor.fetchone()
                 assert physical_run[0] is None and physical_run[1] is None
-                return original_commit(request, completed_at)
+                return original_commit(request)
 
             container.application_committer.commit = capture_commit
             output = container.execute_scheduling_commit.execute(
@@ -369,8 +372,8 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
             assert output.commit_result.status is CommitStatus.COMMITTED
             assert output.completed_run.run_id == RunId("RUN-900001")
             assert output.completed_run.version == 1
-            assert output.completed_run.completed_at == instant(8, 7)
-            assert output.commit_result.commit_completed_at == instant(8, 9)
+            assert output.completed_run.completed_at == instant(9, 7)
+            assert output.commit_result.commit_completed_at == instant(9, 7)
             assert output.commit_result.expected_operations == 2
             assert output.commit_result.committed_operations == 2
             assert len(captured_requests) == 1
@@ -391,7 +394,7 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                     ("RUN-900001",),
                 )
                 assert cursor.fetchone() == (
-                    instant(8, 7).datetime, "SUCCESS", 1, 2, 1, 1, 0, 1
+                    instant(9, 7).datetime, "SUCCESS", 1, 2, 1, 1, 0, 1
                 )
                 cursor.execute(
                     """SELECT o.public_id, c.public_id, p.public_id, r.public_id,
@@ -405,7 +408,7 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                 assert order[:9] == (
                     "ORD-900001", "CLI-900001", "PF-900001", "RUN-900001",
                     date(2026, 8, 8), date(2026, 8, 8), "AUTOMATICO",
-                    instant(8, 8).datetime, "e2e-scheduler",
+                    instant(9, 7).datetime, "e2e-scheduler",
                 )
                 idempotency_key = order[9]
                 assert isinstance(idempotency_key, str) and idempotency_key
@@ -482,7 +485,7 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
 
             with pytest.raises(CommitExecutionError, match="già conclusa"):
                 container.postgresql_commit_repository.execute_commit(
-                    captured_requests[0], instant(8, 9)
+                    captured_requests[0]
                 )
 
             with admin.cursor() as cursor:
@@ -499,7 +502,7 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                        FROM tpo.runs ORDER BY public_id"""
                 )
                 assert cursor.fetchall() == [
-                    ("RUN-900001", instant(8, 7).datetime, "SUCCESS", 1),
+                    ("RUN-900001", instant(9, 7).datetime, "SUCCESS", 1),
                     ("RUN-900002", None, None, 0),
                     ("RUN-900003", None, None, 1),
                 ]
@@ -539,6 +542,7 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
                 google_service=NoNetworkGoogleService(),
                 id_generator=LegacyIdGenerator(),
                 postgresql_environment=_postgresql_environment(url),
+                clock=FixedClock(),
             )
             assert container.execute_scheduling_commit is not None
             assert container.application_committer is not None
@@ -566,9 +570,9 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
             commit_barrier = Barrier(2)
             original_commit = container.application_committer.commit
 
-            def synchronized_commit(request, completed_at):
+            def synchronized_commit(request):
                 commit_barrier.wait(timeout=10)
-                return original_commit(request, completed_at)
+                return original_commit(request)
 
             container.application_committer.commit = synchronized_commit
 
@@ -618,7 +622,7 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
                     ("RUN-900001",),
                 )
                 completed_at, state, version = cursor.fetchone()
-                assert completed_at == instant(8, 7).datetime
+                assert completed_at == instant(9, 7).datetime
                 assert state == "SUCCESS"
                 assert version == 1
                 cursor.execute(

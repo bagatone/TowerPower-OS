@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import psycopg
@@ -15,8 +16,11 @@ from ...application.committer.errors import (
     InvalidCommitRequestError,
 )
 from ...application.committer.models import CommitExecutionReceipt, CommitRequest
+from ...application.committer.models import CommitOutcomeUncertain
+from ...application.ports.clock import Clock
 from ...application.run_tracking.models import SchedulingRunCompletion
 from ...application.write_plan.models import ValidatedWritePlan
+from ...domain.identifiers import RunId
 from ...domain.states import OrdineCreationType, RunState
 from ...domain.time_reference import CurrentSystemDate
 from .connection import PostgreSQLConnectionFactory
@@ -25,30 +29,62 @@ from .connection import PostgreSQLConnectionFactory
 class PostgreSQLCommitRepository:
     """Applica l'intero WritePlan in una sola transazione PostgreSQL."""
 
-    def __init__(self, connection_factory: PostgreSQLConnectionFactory) -> None:
+    def __init__(
+        self,
+        connection_factory: PostgreSQLConnectionFactory,
+        clock: Clock,
+    ) -> None:
         self._connection_factory = connection_factory
+        self._clock = clock
 
     def prepare_commit(self, request: CommitRequest) -> None:
         self._validate(request)
 
     def execute_commit(
-        self, request: CommitRequest, completed_at: CurrentSystemDate
-    ) -> CommitExecutionReceipt:
+        self, request: CommitRequest
+    ) -> CommitExecutionReceipt | CommitOutcomeUncertain:
         self._validate(request)
-        if not isinstance(completed_at, CurrentSystemDate):
-            raise InvalidCommitRequestError("completed_at deve essere CURRENT_SYSTEM_DATE.")
-        if completed_at.datetime < request.requested_at.datetime:
-            raise InvalidCommitRequestError("completed_at non può precedere requested_at.")
 
         connection = self._connection_factory.connect()
         cursor = None
         committed = False
         try:
             cursor = connection.cursor()
-            receipt = self._execute(cursor, request, completed_at)
-            connection.commit()
+            audit_occurred_at = self._clock.now()
+            if audit_occurred_at.datetime < request.requested_at.datetime:
+                raise CommitExecutionError(
+                    "Il Clock ha prodotto un audit timestamp precedente a requested_at."
+                )
+            committed_facts = self._execute(cursor, request, audit_occurred_at)
+            try:
+                connection.commit()
+            except Exception as exc:
+                return _uncertain(request, exc)
             committed = True
-            return receipt
+            try:
+                commit_completed_at = self._clock.now()
+                if commit_completed_at.datetime < request.requested_at.datetime:
+                    raise ValueError(
+                        "commit_completed_at non può precedere requested_at."
+                    )
+            except Exception as exc:
+                return _uncertain(request, exc)
+            return CommitExecutionReceipt(
+                run_id=committed_facts.run_id,
+                target_name=committed_facts.target_name,
+                expected_record_count=committed_facts.expected_record_count,
+                expected_logical_row_count=(
+                    committed_facts.expected_logical_row_count
+                ),
+                appended_physical_row_count=(
+                    committed_facts.appended_physical_row_count
+                ),
+                reconciled_idempotency_keys=(
+                    committed_facts.reconciled_idempotency_keys
+                ),
+                commit_completed_at=commit_completed_at,
+                reconciliation_complete=True,
+            )
         except CommitExistingKeyError:
             raise
         except psycopg.errors.UniqueViolation as exc:
@@ -97,7 +133,12 @@ class PostgreSQLCommitRepository:
             if any(item.programma_fornitura_id != order.programma_fornitura_id for item in record.provenance):
                 raise CommitPreparationError("La provenance appartiene a un altro PROGRAMMA.")
 
-    def _execute(self, cursor: Any, request: CommitRequest, completed_at: CurrentSystemDate) -> CommitExecutionReceipt:
+    def _execute(
+        self,
+        cursor: Any,
+        request: CommitRequest,
+        audit_occurred_at: CurrentSystemDate,
+    ) -> "_PreCommitFacts":
         plan = request.validated_plan.plan
         completion = request.completion
         cursor.execute(
@@ -181,7 +222,7 @@ class PostgreSQLCommitRepository:
                 "chiave_idempotenza": record.chiave_idempotenza,
                 "righe_count": len(order.righe), "origini_count": len(record.provenance),
             }
-            self._audit(cursor, completed_at, request, run_id, "ORDINE", order.id.value, "INSERT", None, after)
+            self._audit(cursor, audit_occurred_at, request, run_id, "ORDINE", order.id.value, "INSERT", None, after)
             inserted_keys.append(record.chiave_idempotenza)
 
         cursor.execute(
@@ -210,12 +251,17 @@ class PostgreSQLCommitRepository:
                  "simulation": completion.simulation, "programmi_letti": completion.programmi_letti,
                  "righe_valutate": completion.righe_valutate, "occorrenze_valutate": completion.occorrenze_valutate,
                  "ordini_generati": completion.ordini_generati, "elementi_saltati": completion.elementi_saltati}
-        self._audit(cursor, completed_at, request, run_id, "RUN", completion.run_id.value, "STATE_TRANSITION", before, after)
+        self._audit(cursor, audit_occurred_at, request, run_id, "RUN", completion.run_id.value, "STATE_TRANSITION", before, after)
         if physical_lines != plan.expected_logical_row_count:
             raise CommitExecutionError("Conteggio fisico RIGHE_ORDINE incoerente.")
-        return CommitExecutionReceipt(plan.run_id, request.validated_plan.target_name,
-            plan.expected_record_count, plan.expected_logical_row_count, physical_lines,
-            tuple(inserted_keys), completed_at, True)
+        return _PreCommitFacts(
+            run_id=plan.run_id,
+            target_name=request.validated_plan.target_name,
+            expected_record_count=plan.expected_record_count,
+            expected_logical_row_count=plan.expected_logical_row_count,
+            appended_physical_row_count=physical_lines,
+            reconciled_idempotency_keys=tuple(inserted_keys),
+        )
 
     @staticmethod
     def _lookup(cursor: Any, table: str, public_ids: set[str]) -> dict[str, int]:
@@ -295,6 +341,34 @@ class PostgreSQLCommitRepository:
 
 def _positive(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+@dataclass(frozen=True)
+class _PreCommitFacts:
+    """Fatti transazionali noti prima della conferma fisica del commit."""
+
+    run_id: RunId
+    target_name: str
+    expected_record_count: int
+    expected_logical_row_count: int
+    appended_physical_row_count: int
+    reconciled_idempotency_keys: tuple[str, ...]
+
+
+def _uncertain(
+    request: CommitRequest,
+    cause: Exception,
+) -> CommitOutcomeUncertain:
+    plan = request.validated_plan.plan
+    return CommitOutcomeUncertain(
+        run_id=plan.run_id,
+        requested_at=request.requested_at,
+        idempotency_keys=plan.idempotency_keys,
+        expected_record_count=plan.expected_record_count,
+        expected_logical_row_count=plan.expected_logical_row_count,
+        correlation_id=request.correlation_id,
+        technical_cause=cause,
+    )
 
 
 def _cleanup(cursor: Any, connection: Any, *, rollback: bool) -> None:

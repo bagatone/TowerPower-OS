@@ -6,7 +6,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from src.tpo_core.application.committer import (
+    ApplicationCommitter,
     CommitExecutionContext,
+    CommitOutcomeUncertain,
     CommitRequest,
     CommitResult,
     CommitStatus,
@@ -54,6 +56,14 @@ def instant(hour: int) -> CurrentSystemDate:
     return CurrentSystemDate(datetime(2026, 8, 8, hour, tzinfo=TZ))
 
 
+class FakeClock:
+    def __init__(self, *values: CurrentSystemDate) -> None:
+        self.values = list(values)
+
+    def now(self) -> CurrentSystemDate:
+        return self.values.pop(0)
+
+
 def scheduling_result(state: RunState = RunState.SUCCESS) -> SchedulingResult:
     program_id = ProgrammaFornituraId("PF-000001")
     record = ScheduledOrderRecord(
@@ -96,9 +106,6 @@ def request(*, simulation: bool = False) -> ExecuteSchedulingCommitInput:
             RunId("RUN-000001"), instant(5), simulation, version=2
         ),
         current_system_date=instant(6),
-        completion_at=instant(7),
-        requested_at=instant(8),
-        commit_completed_at=instant(9),
         execution_context=CommitExecutionContext(
             ActorId("scheduler"), "scheduled orders", "correlation-1"
         ),
@@ -144,15 +151,29 @@ def dependencies(*, result=None, commit_status=CommitStatus.COMMITTED):
             target_name=WRITE_TARGET_ORDINI,
         ),
     )
+    committed = commit_status is CommitStatus.COMMITTED
+    reconciliation_context = (
+        None
+        if committed
+        else CommitOutcomeUncertain(
+            run_id=result.run_id,
+            requested_at=instant(8),
+            idempotency_keys=plan.idempotency_keys,
+            expected_record_count=plan.expected_record_count,
+            expected_logical_row_count=plan.expected_logical_row_count,
+            correlation_id="correlation-1",
+        )
+    )
     commit_result = CommitResult(
         run_id=result.run_id,
         commit_started_at=instant(8),
         target_name=WRITE_TARGET_ORDINI,
         expected_operations=1,
         status=commit_status,
-        committed_operations=1,
-        reconciled_idempotency_keys=("key-1",),
-        commit_completed_at=instant(9),
+        committed_operations=1 if committed else None,
+        reconciled_idempotency_keys=("key-1",) if committed else (),
+        commit_completed_at=instant(9) if committed else None,
+        reconciliation_context=reconciliation_context,
     )
     run_scheduling = Mock()
     run_scheduling.execute.return_value = result
@@ -165,7 +186,12 @@ def dependencies(*, result=None, commit_status=CommitStatus.COMMITTED):
     committer = Mock()
     committer.commit.return_value = commit_result
     use_case = ExecuteSchedulingCommit(
-        run_scheduling, run_service, builder, validator, committer
+        run_scheduling,
+        run_service,
+        builder,
+        validator,
+        committer,
+        FakeClock(instant(7), instant(8)),
     )
     return use_case, run_scheduling, run_service, builder, validator, committer
 
@@ -187,15 +213,15 @@ def test_percorso_operativo_preserva_input_output_e_chiamate() -> None:
     validator.validate.assert_called_once()
     commit_request = committer.commit.call_args.args[0]
     assert isinstance(commit_request, CommitRequest)
-    assert commit_request.requested_at is source.requested_at
+    assert commit_request.requested_at == instant(8)
     assert commit_request.execution_context is source.execution_context
-    assert committer.commit.call_args.args[1] is source.commit_completed_at
+    assert len(committer.commit.call_args.args) == 1
     assert output.scheduling_result is scheduling.execute.return_value
     assert output.commit_result is committer.commit.return_value
-    assert output.completed_run.completed_at == source.completion_at
+    assert output.completed_run.completed_at == instant(7)
     assert output.completed_run.version == source.open_run.version + 1
     with pytest.raises(FrozenInstanceError):
-        source.requested_at = instant(10)
+        source.current_system_date = instant(10)
 
 
 def test_sequenza_esatta_e_completed_run_solo_dopo_commit() -> None:
@@ -253,9 +279,39 @@ def test_errori_propagati_senza_retry(failing_dependency: str) -> None:
 
 
 def test_risultato_non_riconciliato_non_materializza_completed_run() -> None:
-    use_case, _, _, _, _, committer = dependencies(
+    use_case, _, _, _, _, _ = dependencies(
         commit_status=CommitStatus.RECONCILIATION_REQUIRED
     )
-    with pytest.raises(OperationalSchedulingCommitError, match="conferma"):
-        use_case.execute(request())
-    assert committer.commit.call_count == 1
+
+    class UncertainRepository:
+        def __init__(self) -> None:
+            self.requests = []
+
+        def execute_commit(self, commit_request):
+            self.requests.append(commit_request)
+            plan = commit_request.validated_plan.plan
+            return CommitOutcomeUncertain(
+                run_id=plan.run_id,
+                requested_at=commit_request.requested_at,
+                idempotency_keys=plan.idempotency_keys,
+                expected_record_count=plan.expected_record_count,
+                expected_logical_row_count=plan.expected_logical_row_count,
+                correlation_id=commit_request.correlation_id,
+            )
+
+    repository = UncertainRepository()
+    use_case._committer = ApplicationCommitter(repository)
+    output = use_case.execute(request())
+    assert output.commit_result.status is CommitStatus.RECONCILIATION_REQUIRED
+    assert output.completed_run is None
+    context = output.commit_result.reconciliation_context
+    assert context is not None
+    assert context.run_id == RunId("RUN-000001")
+    assert context.requested_at == instant(8)
+    assert context.correlation_id == "correlation-1"
+    assert context.idempotency_keys == ("key-1",)
+    assert context.expected_record_count == 1
+    assert context.expected_logical_row_count == 1
+    assert output.commit_result.committed_operations is None
+    assert output.commit_result.commit_completed_at is None
+    assert len(repository.requests) == 1

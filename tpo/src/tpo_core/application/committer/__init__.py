@@ -10,7 +10,13 @@ from .errors import (
     CommitSerializationError,
     InvalidCommitRequestError,
 )
-from .models import CommitExecutionReceipt, CommitRequest, CommitResult, CommitStatus
+from .models import (
+    CommitExecutionReceipt,
+    CommitOutcomeUncertain,
+    CommitRequest,
+    CommitResult,
+    CommitStatus,
+)
 from .context import CommitExecutionContext
 from .ports import CommitRepository
 from .service import ApplicationCommitter
@@ -20,6 +26,7 @@ __all__ = (
     "CommitError",
     "CommitExecutionError",
     "CommitExecutionReceipt",
+    "CommitOutcomeUncertain",
     "CommitExecutionContext",
     "CommitExistingKeyError",
     "CommitPreparationError",

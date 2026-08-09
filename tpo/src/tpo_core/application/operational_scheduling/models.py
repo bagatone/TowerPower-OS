@@ -17,9 +17,6 @@ class ExecuteSchedulingCommitInput:
 
     open_run: OpenSchedulingRun
     current_system_date: CurrentSystemDate
-    completion_at: CurrentSystemDate
-    requested_at: CurrentSystemDate
-    commit_completed_at: CurrentSystemDate
     execution_context: CommitExecutionContext
 
 
@@ -29,4 +26,4 @@ class ExecuteSchedulingCommitResult:
 
     scheduling_result: SchedulingResult
     commit_result: CommitResult
-    completed_run: CompletedSchedulingRun
+    completed_run: CompletedSchedulingRun | None

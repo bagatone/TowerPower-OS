@@ -40,6 +40,11 @@ class URLConnectionFactory:
         return psycopg.connect(DATABASE_URL)
 
 
+class FixedClock:
+    def now(self):
+        return instant(9)
+
+
 class CoordinatedConnectionFactory:
     """Apre connessioni reali e sincronizza un punto SQL scelto dal test."""
 
@@ -215,9 +220,9 @@ def test_commit_atomico_postgresql_reale() -> None:
         admin = psycopg.connect(DATABASE_URL)
         try:
             _insert_fixtures(admin, ("RUN-000001", "RUN-000002", "RUN-000003"))
-            repository = PostgreSQLCommitRepository(URLConnectionFactory())
+            repository = PostgreSQLCommitRepository(URLConnectionFactory(), FixedClock())
             request = _request_for_run("RUN-000001")
-            receipt = repository.execute_commit(request, instant(9))
+            receipt = repository.execute_commit(request)
 
             assert receipt.run_id == RunId("RUN-000001")
             assert receipt.expected_record_count == 1
@@ -246,12 +251,12 @@ def test_commit_atomico_postgresql_reale() -> None:
 
             duplicate = _request_for_run("RUN-000002")
             with pytest.raises(CommitExistingKeyError):
-                repository.execute_commit(duplicate, instant(9))
+                repository.execute_commit(duplicate)
             wrong_version = _request_for_run("RUN-000003", version=2)
             with pytest.raises(CommitExecutionError):
-                repository.execute_commit(wrong_version, instant(9))
+                repository.execute_commit(wrong_version)
             with pytest.raises(CommitExecutionError):
-                repository.execute_commit(request, instant(9))
+                repository.execute_commit(request)
 
             with admin.cursor() as cursor:
                 cursor.execute("SELECT public_id,completed_at,version FROM tpo.runs ORDER BY public_id")
@@ -297,7 +302,9 @@ def test_commit_concorrente_postgresql_reale() -> None:
             same_run_factory = CoordinatedConnectionFactory(
                 same_run_barrier, synchronize_insert=False
             )
-            same_run_repository = PostgreSQLCommitRepository(same_run_factory)
+            same_run_repository = PostgreSQLCommitRepository(
+                same_run_factory, FixedClock()
+            )
             same_run_request = _request_for_run(
                 "RUN-100001", order_id="ORD-100001", idempotency_key="lock-race"
             )
@@ -312,7 +319,9 @@ def test_commit_concorrente_postgresql_reale() -> None:
             idempotency_factory = CoordinatedConnectionFactory(
                 insert_barrier, synchronize_insert=True
             )
-            idempotency_repository = PostgreSQLCommitRepository(idempotency_factory)
+            idempotency_repository = PostgreSQLCommitRepository(
+                idempotency_factory, FixedClock()
+            )
             idempotency_outcomes = _concurrent_commits(
                 idempotency_repository,
                 (
@@ -365,7 +374,7 @@ def _concurrent_commits(
 
     def execute(request: CommitRequest) -> None:
         try:
-            repository.execute_commit(request, instant(9))
+            repository.execute_commit(request)
             outcome = "committed"
         except CommitExistingKeyError:
             outcome = "existing_key"

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ..domain.identifiers import IdGenerator
+from ..application.ports.clock import Clock
 from .container import ApplicationContainer, _build_container
 from .settings import load_settings
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
@@ -17,6 +18,7 @@ def build_application(
     google_service: Any,
     id_generator: IdGenerator,
     postgresql_environment: Mapping[str, str] | None = None,
+    clock: Clock | None = None,
 ) -> ApplicationContainer:
     """Carica la configurazione e compone una nuova applicazione completa."""
 
@@ -31,4 +33,5 @@ def build_application(
         google_service=google_service,
         id_generator=id_generator,
         postgresql_settings=postgresql_settings,
+        clock=clock,
     )

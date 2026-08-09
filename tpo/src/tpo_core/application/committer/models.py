@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from ...domain.identifiers import ActorId, RunId
@@ -84,6 +84,7 @@ class CommitResult:
     committed_operations: int | None = None
     reconciled_idempotency_keys: tuple[str, ...] = ()
     commit_completed_at: CurrentSystemDate | None = None
+    reconciliation_context: CommitOutcomeUncertain | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, RunId):
@@ -126,11 +127,29 @@ class CommitResult:
                 self.committed_operations is not None
                 or self.reconciled_idempotency_keys
                 or self.commit_completed_at is not None
+                or self.reconciliation_context is not None
             ):
                 raise InvalidCommitRequestError(
                     "PREPARED non può contenere dati di commit completato."
                 )
             return
+        if self.status is CommitStatus.RECONCILIATION_REQUIRED:
+            if (
+                self.committed_operations is not None
+                or self.commit_completed_at is not None
+                or not isinstance(
+                    self.reconciliation_context, CommitOutcomeUncertain
+                )
+            ):
+                raise InvalidCommitRequestError(
+                    "RECONCILIATION_REQUIRED richiede contesto incerto e non può "
+                    "dichiarare dati di commit confermato."
+                )
+            return
+        if self.reconciliation_context is not None:
+            raise InvalidCommitRequestError(
+                "COMMITTED non può contenere un contesto di riconciliazione."
+            )
         if (
             isinstance(self.committed_operations, bool)
             or not isinstance(self.committed_operations, int)
@@ -146,6 +165,58 @@ class CommitResult:
         if self.commit_completed_at.datetime < self.commit_started_at.datetime:
             raise InvalidCommitRequestError(
                 "commit_completed_at non può precedere commit_started_at."
+            )
+
+
+@dataclass(frozen=True)
+class CommitOutcomeUncertain:
+    """Contesto provider-neutral di un commit dal risultato fisico incerto."""
+
+    run_id: RunId
+    requested_at: CurrentSystemDate
+    idempotency_keys: tuple[str, ...]
+    expected_record_count: int
+    expected_logical_row_count: int
+    correlation_id: str
+    technical_cause: BaseException | None = field(
+        default=None, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.run_id, RunId):
+            raise InvalidCommitRequestError("run_id deve essere un RunId.")
+        if not isinstance(self.requested_at, CurrentSystemDate):
+            raise InvalidCommitRequestError(
+                "requested_at deve essere CURRENT_SYSTEM_DATE."
+            )
+        if not isinstance(self.idempotency_keys, tuple) or any(
+            not isinstance(key, str) or not key.strip()
+            for key in self.idempotency_keys
+        ):
+            raise InvalidCommitRequestError(
+                "idempotency_keys deve contenere stringhe non vuote."
+            )
+        if len(set(self.idempotency_keys)) != len(self.idempotency_keys):
+            raise InvalidCommitRequestError("idempotency_keys contiene duplicati.")
+        for name in ("expected_record_count", "expected_logical_row_count"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise InvalidCommitRequestError(
+                    f"{name} deve essere un intero non negativo."
+                )
+        if (
+            not isinstance(self.correlation_id, str)
+            or not self.correlation_id.strip()
+            or self.correlation_id != self.correlation_id.strip()
+        ):
+            raise InvalidCommitRequestError(
+                "correlation_id deve essere una stringa non vuota senza whitespace esterno."
+            )
+        if self.technical_cause is not None and not isinstance(
+            self.technical_cause, BaseException
+        ):
+            raise InvalidCommitRequestError(
+                "technical_cause deve essere una eccezione."
             )
 
 

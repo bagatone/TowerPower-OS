@@ -14,6 +14,8 @@ from ..application.scheduling.use_case import RunScheduling
 from ..application.write_plan.service import WritePlanBuilder
 from ..application.write_plan.validation import WritePlanValidator
 from ..domain.identifiers import IdGenerator
+from ..application.ports.clock import Clock
+from ..infrastructure.clock import SystemClock
 from ..infrastructure.google_sheets.google_api_gateway import GoogleApiSheetsGateway
 from ..infrastructure.google_sheets.ordini_repository import GoogleSheetsOrdineRepository
 from ..infrastructure.google_sheets.programmi_repository import (
@@ -47,6 +49,7 @@ class ApplicationContainer:
     ordini_repository: GoogleSheetsOrdineRepository
     scheduling_engine: SchedulingEngine
     run_scheduling: RunScheduling
+    clock: Clock
     postgresql_settings: PostgreSQLSettings | None = None
     postgresql_connection_factory: PostgreSQLConnectionFactory | None = None
     postgresql_health_check: PostgreSQLHealthCheck | None = None
@@ -61,7 +64,9 @@ def _build_container(
     google_service: Any,
     id_generator: IdGenerator,
     postgresql_settings: PostgreSQLSettings | None = None,
+    clock: Clock | None = None,
 ) -> ApplicationContainer:
+    clock = clock or SystemClock()
     google_gateway = GoogleApiSheetsGateway(google_service)
     programmi_repository = GoogleSheetsProgrammaFornituraRepository(
         settings.spreadsheet_id,
@@ -91,7 +96,7 @@ def _build_container(
         else None
     )
     postgresql_commit_repository = (
-        PostgreSQLCommitRepository(postgresql_connection_factory)
+        PostgreSQLCommitRepository(postgresql_connection_factory, clock)
         if postgresql_connection_factory is not None
         else None
     )
@@ -128,6 +133,7 @@ def _build_container(
             write_plan_builder,
             write_plan_validator,
             application_committer,
+            clock,
         )
     return ApplicationContainer(
         settings=settings,
@@ -136,6 +142,7 @@ def _build_container(
         ordini_repository=ordini_repository,
         scheduling_engine=scheduling_engine,
         run_scheduling=run_scheduling,
+        clock=clock,
         postgresql_settings=postgresql_settings,
         postgresql_connection_factory=postgresql_connection_factory,
         postgresql_health_check=postgresql_health_check,

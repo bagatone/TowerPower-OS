@@ -15,6 +15,7 @@ Il comando operativo ufficiale V1 è:
 tpo schedule execute \
   --settings SETTINGS \
   --business-date YYYY-MM-DD \
+  --business-time HH:MM \
   --identity IDENTITY \
   --confirm
 ```
@@ -25,17 +26,28 @@ I comandi esistenti `tpo schedule run` e `tpo schedule preflight` conservano
 invariata la propria semantica. Il comando operativo di write non riutilizza
 implicitamente il percorso di simulation legacy.
 
-## 3. Business date
+## 3. Business date e business time
 
 `--business-date` è obbligatorio e accetta una data nel formato
 `YYYY-MM-DD`.
 
-La business date è l'input semantico esplicito del caller. La CLI ne esegue il
-parsing e la validazione sintattica e la usa per costruire l'intenzione
-operativa pubblica. Non la deriva dal Clock, dalla data locale del processo,
+`--business-time` è obbligatorio e accetta un orario nel formato `HH:MM` a 24
+ore.
+
+Business date e business time sono entrambi input semantici espliciti del
+caller. La CLI ne esegue il parsing e la validazione sintattica e costruisce il
+`CurrentSystemDate` combinando:
+
+- business date;
+- business time;
+- timezone ufficiale `Atlantic/Canary`.
+
+Il `CurrentSystemDate` risultante è il riferimento temporale operativo usato
+dallo Scheduling. La CLI non introduce una mezzanotte implicita, non applica
+default e non deriva data o ora dal Clock, dall'orario locale del processo,
 dalla RUN o dall'Infrastructure.
 
-Un valore assente o non valido termina l'esecuzione come
+Un valore assente, non valido o impossibile termina l'esecuzione come
 `OPERATION_INPUT_INVALID` prima di ogni invocazione Application.
 
 ## 4. Operational identity
@@ -89,6 +101,7 @@ Il mapping numerico ufficiale è congelato come segue:
 | `OPERATION_INPUT_INVALID` | `2` |
 | `OPERATION_RUNTIME_UNAVAILABLE` | `3` |
 | `OPERATION_RECONCILIATION_REQUIRED` | `4` |
+| `OPERATION_INTERNAL_ERROR` | `5` |
 
 `OPERATION_COMMITTED` è l'unico success exit.
 
@@ -97,7 +110,17 @@ Input non valido, parsing fallito o conferma mancante producono
 `OPERATION_RUNTIME_UNAVAILABLE`. `OPERATION_FAILED` e
 `OPERATION_RECONCILIATION_REQUIRED` restano esiti distinti.
 
-Il comando operativo V1 non introduce altri exit code.
+Un errore Application inatteso, una violazione non rappresentata dagli outcome
+`COMMITTED`, `FAILED` e `RECONCILIATION_REQUIRED`, oppure un errore non
+classificabile come input non valido o runtime non disponibile produce
+`OPERATION_INTERNAL_ERROR`.
+
+`OPERATION_INTERNAL_ERROR` è un exit del boundary CLI e non introduce un nuovo
+outcome Application. Non viene riclassificato come `OPERATION_FAILED` o
+`OPERATION_RUNTIME_UNAVAILABLE`.
+
+Il comando operativo V1 non introduce exit code ulteriori rispetto a quelli
+congelati in questa sezione.
 
 ## 7. Simulation
 
@@ -143,7 +166,27 @@ termina come `OPERATION_RUNTIME_UNAVAILABLE`.
 Non è ammesso alcun fallback Google, provider alternativo, runtime parziale,
 retry o ricomposizione manuale del percorso operativo.
 
-## 10. Fuori scope
+## 10. Error handling
+
+Il boundary CLI tratta come `OPERATION_INTERNAL_ERROR` esclusivamente:
+
+- un errore Application inatteso;
+- una violazione non rappresentata da `COMMITTED`, `FAILED` o
+  `RECONCILIATION_REQUIRED`;
+- un errore non classificabile come `OPERATION_INPUT_INVALID` o
+  `OPERATION_RUNTIME_UNAVAILABLE`.
+
+In tale caso la CLI:
+
+- restituisce exit code `5`;
+- produce un messaggio generico e provider-neutral;
+- non mostra traceback;
+- non mostra la causa tecnica;
+- non interpreta né analizza eccezioni provider-specific;
+- non esegue retry;
+- non altera gli outcome Application congelati.
+
+## 11. Fuori scope
 
 Restano fuori scope:
 
@@ -157,12 +200,15 @@ Restano fuori scope:
 - recovery e reconciliation operativa;
 - fallback Google.
 
-## 11. Decisioni congelate
+## 12. Decisioni congelate
 
 | Voce | Decisione |
 |---|---|
-| comando ufficiale | `tpo schedule execute` |
+| comando ufficiale | `tpo schedule execute --settings SETTINGS --business-date YYYY-MM-DD --business-time HH:MM --identity IDENTITY --confirm` |
 | business date | obbligatoria, esplicita, formato `YYYY-MM-DD` |
+| business time | obbligatorio, esplicito, formato `HH:MM` a 24 ore |
+| riferimento temporale | business date e business time combinati nella timezone ufficiale `Atlantic/Canary` |
+| default temporali | vietati, inclusa la mezzanotte implicita |
 | identità | `--identity VALUE`, obbligatoria, provider-neutral e opaca |
 | modello identità | esclusivamente `RecognizedOperationalIdentity(VALUE)` |
 | conferma | `--confirm` obbligatorio e non interattivo |
@@ -172,13 +218,16 @@ Restano fuori scope:
 | input invalid exit | `OPERATION_INPUT_INVALID = 2` |
 | runtime unavailable exit | `OPERATION_RUNTIME_UNAVAILABLE = 3` |
 | reconciliation exit | `OPERATION_RECONCILIATION_REQUIRED = 4` |
+| internal error exit | `OPERATION_INTERNAL_ERROR = 5` |
+| internal error output | generico e provider-neutral, senza causa tecnica o traceback |
+| internal error retry | vietato |
 | simulation | assente dal nuovo comando |
 | boundary | esclusivamente `OperationalSchedulingEntryPoint` |
 | accesso diretto al runtime interno | vietato |
 | fallback Google | vietato |
 | Authentication e Authorization | fuori scope |
 
-## 12. Conclusione
+## 13. Conclusione
 
 Ogni implementazione di `tpo schedule execute` deve rispettare integralmente
 questo contratto. La CLI resta un adapter sottile: valida gli input esterni,

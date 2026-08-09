@@ -7,6 +7,7 @@ import sys
 
 from .scheduling import run_scheduling_command
 from .preflight import run_preflight_command
+from .operational import run_operational_scheduling_command
 
 
 class _UsageError(ValueError):
@@ -36,6 +37,14 @@ def _parser() -> argparse.ArgumentParser:
     preflight.add_argument("--current-system-date", required=True)
     preflight.add_argument("--run-id", required=True)
     preflight.add_argument("--json", action="store_true", dest="json_output")
+    execute = schedule_commands.add_parser(
+        "execute", help="Esegue lo Scheduling operativo autorevole."
+    )
+    execute.add_argument("--settings", required=True)
+    execute.add_argument("--business-date", required=True)
+    execute.add_argument("--business-time", required=True)
+    execute.add_argument("--identity", required=True)
+    execute.add_argument("--confirm", action="store_true", required=True)
     return parser
 
 
@@ -49,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.schedule_command == "preflight":
         return run_preflight_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.schedule_command == "execute":
+        return run_operational_scheduling_command(
+            args, stdout=sys.stdout, stderr=sys.stderr
+        )
     return run_scheduling_command(args, stdout=sys.stdout, stderr=sys.stderr)
 
 

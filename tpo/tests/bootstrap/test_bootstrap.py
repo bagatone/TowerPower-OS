@@ -16,6 +16,10 @@ from src.tpo_core.application.operational_entrypoint import (
 from src.tpo_core.application.scheduling.engine import SchedulingEngine
 from src.tpo_core.application.scheduling.use_case import RunScheduling
 from src.tpo_core.bootstrap.container import ApplicationContainer
+from src.tpo_core.bootstrap import (
+    OperationalRuntimeUnavailableError,
+    build_operational_application,
+)
 from src.tpo_core.bootstrap.factory import build_application
 from src.tpo_core.bootstrap.settings import InvalidSettingsError, load_settings
 from src.tpo_core.infrastructure.google_sheets.google_api_gateway import (
@@ -254,6 +258,87 @@ def test_build_postgresql_non_apre_connessioni(
         OperationalSchedulingEntryPoint,
     )
     assert connect_calls == []
+
+
+def test_build_operational_application_lazy_senza_google(
+    settings_file: Path,
+    monkeypatch,
+) -> None:
+    connect_calls = []
+
+    def forbidden_connect(factory):
+        connect_calls.append(factory)
+        raise AssertionError("La factory operativa non deve connettersi.")
+
+    monkeypatch.setattr(PostgreSQLConnectionFactory, "connect", forbidden_connect)
+    container_module = importlib.import_module("src.tpo_core.bootstrap.container")
+    google_constructors = []
+
+    def forbidden_google(*args, **kwargs):
+        google_constructors.append((args, kwargs))
+        raise AssertionError("La factory operativa non deve costruire Google.")
+
+    monkeypatch.setattr(container_module, "GoogleApiSheetsGateway", forbidden_google)
+    monkeypatch.setattr(
+        container_module, "GoogleSheetsProgrammaFornituraRepository", forbidden_google
+    )
+    monkeypatch.setattr(
+        container_module, "GoogleSheetsOrdineRepository", forbidden_google
+    )
+    environment = {
+        "TPO_DATABASE_HOST": "db.example.invalid",
+        "TPO_DATABASE_PORT": "5432",
+        "TPO_DATABASE_NAME": "towerpower",
+        "TPO_DATABASE_USER": "app",
+        "TPO_DATABASE_PASSWORD": "secret",
+        "TPO_DATABASE_SSLMODE": "require",
+        "TPO_DATABASE_CONNECT_TIMEOUT": "3",
+    }
+
+    clock = NoCallClock()
+    container = build_operational_application(
+        settings_file,
+        postgresql_environment=environment,
+        clock=clock,
+    )
+
+    assert container.clock is clock
+    assert container.google_gateway is None
+    assert container.programmi_repository is None
+    assert container.ordini_repository is None
+    assert container.run_scheduling is None
+    assert isinstance(container.postgresql_connection_factory, PostgreSQLConnectionFactory)
+    assert isinstance(container.postgresql_health_check, PostgreSQLHealthCheck)
+    assert isinstance(container.postgresql_commit_repository, PostgreSQLCommitRepository)
+    assert isinstance(container.application_committer, ApplicationCommitter)
+    assert isinstance(
+        container.operational_scheduling_orchestrator,
+        OperationalSchedulingOrchestrator,
+    )
+    assert isinstance(
+        container.operational_scheduling_entry_point,
+        OperationalSchedulingEntryPoint,
+    )
+    operational_run_scheduling = (
+        container.operational_scheduling_orchestrator._run_scheduling
+    )
+    assert isinstance(
+        operational_run_scheduling._programmi_repository,
+        PostgreSQLVersionedProgrammaFornituraRepository,
+    )
+    assert isinstance(
+        operational_run_scheduling._ordini_repository,
+        PostgreSQLOrdineRepository,
+    )
+    assert connect_calls == []
+    assert google_constructors == []
+
+
+def test_build_operational_application_segnala_runtime_indisponibile(
+    settings_file: Path,
+) -> None:
+    with pytest.raises(OperationalRuntimeUnavailableError):
+        build_operational_application(settings_file, postgresql_environment={})
 
 
 def test_runtime_senza_postgresql_non_costruisce_commit_repository(

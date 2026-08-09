@@ -23,11 +23,24 @@ class SchedulingRunService:
         self._id_allocator = id_allocator
         self._repository = repository
 
-    def open_run(self, *, started_at: CurrentSystemDate, simulation: bool) -> OpenSchedulingRun:
-        run_id = self._id_allocator.allocate(RunId).identifier
+    def open_run(
+        self,
+        *,
+        started_at: CurrentSystemDate,
+        simulation: bool,
+        run_id: RunId | None = None,
+    ) -> OpenSchedulingRun:
+        if run_id is None:
+            run_id = self._id_allocator.allocate(RunId).identifier
+        elif not isinstance(run_id, RunId):
+            raise InvalidSchedulingRunError("run_id deve essere un RunId.")
         run = OpenSchedulingRun(run_id=run_id, started_at=started_at, simulation=simulation)
         self._repository.add_open_run(run)
         return run
+
+    def get_run(self, run_id: RunId) -> OpenSchedulingRun | CompletedSchedulingRun:
+        """Legge lo stato autorevole corrente senza deduzioni applicative."""
+        return self._repository.get(run_id)
 
     def complete_run(
         self,
@@ -88,7 +101,7 @@ class SchedulingRunService:
         errors: tuple[str, ...],
         warnings: tuple[str, ...] = (),
     ) -> CompletedSchedulingRun:
-        """Percorso legacy FAILED, separato dal runtime autorevole."""
+        """Conclude autorevolmente failure operative certe senza ORDINI committati."""
         proposal = self.propose_failure(
             open_run=open_run,
             completed_at=completed_at,

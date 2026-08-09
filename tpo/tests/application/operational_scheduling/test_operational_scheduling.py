@@ -100,12 +100,16 @@ def scheduling_result(state: RunState = RunState.SUCCESS) -> SchedulingResult:
     )
 
 
-def request(*, simulation: bool = False) -> ExecuteSchedulingCommitInput:
+def request(
+    *,
+    simulation: bool = False,
+    result: SchedulingResult | None = None,
+) -> ExecuteSchedulingCommitInput:
     return ExecuteSchedulingCommitInput(
         open_run=OpenSchedulingRun(
             RunId("RUN-000001"), instant(5), simulation, version=2
         ),
-        current_system_date=instant(6),
+        scheduling_result=result or scheduling_result(),
         execution_context=CommitExecutionContext(
             ActorId("scheduler"), "scheduled orders", "correlation-1"
         ),
@@ -175,8 +179,6 @@ def dependencies(*, result=None, commit_status=CommitStatus.COMMITTED):
         commit_completed_at=instant(9) if committed else None,
         reconciliation_context=reconciliation_context,
     )
-    run_scheduling = Mock()
-    run_scheduling.execute.return_value = result
     run_service = Mock()
     run_service.propose_completion.return_value = completion
     builder = Mock()
@@ -186,26 +188,20 @@ def dependencies(*, result=None, commit_status=CommitStatus.COMMITTED):
     committer = Mock()
     committer.commit.return_value = commit_result
     use_case = ExecuteSchedulingCommit(
-        run_scheduling,
         run_service,
         builder,
         validator,
         committer,
         FakeClock(instant(7), instant(8)),
     )
-    return use_case, run_scheduling, run_service, builder, validator, committer
+    return use_case, run_service, builder, validator, committer
 
 
 def test_percorso_operativo_preserva_input_output_e_chiamate() -> None:
-    use_case, scheduling, runs, builder, validator, committer = dependencies()
+    use_case, runs, builder, validator, committer = dependencies()
     source = request()
     output = use_case.execute(source)
 
-    scheduling.execute.assert_called_once_with(
-        run_id=source.open_run.run_id,
-        current_system_date=source.current_system_date,
-        simulation=False,
-    )
     runs.propose_completion.assert_called_once()
     assert runs.complete_run.call_count == 0
     assert runs.fail_run.call_count == 0
@@ -216,18 +212,17 @@ def test_percorso_operativo_preserva_input_output_e_chiamate() -> None:
     assert commit_request.requested_at == instant(8)
     assert commit_request.execution_context is source.execution_context
     assert len(committer.commit.call_args.args) == 1
-    assert output.scheduling_result is scheduling.execute.return_value
+    assert output.scheduling_result is source.scheduling_result
     assert output.commit_result is committer.commit.return_value
     assert output.completed_run.completed_at == instant(7)
     assert output.completed_run.version == source.open_run.version + 1
     with pytest.raises(FrozenInstanceError):
-        source.current_system_date = instant(10)
+        source.scheduling_result = scheduling_result()
 
 
 def test_sequenza_esatta_e_completed_run_solo_dopo_commit() -> None:
-    use_case, scheduling, runs, builder, validator, committer = dependencies()
+    use_case, runs, builder, validator, committer = dependencies()
     calls = []
-    scheduling.execute.side_effect = lambda **_: calls.append("schedule") or scheduling_result()
     original_completion = runs.propose_completion.return_value
     runs.propose_completion.side_effect = lambda **_: calls.append("completion") or original_completion
     original_plan = builder.build.return_value
@@ -239,38 +234,32 @@ def test_sequenza_esatta_e_completed_run_solo_dopo_commit() -> None:
 
     output = use_case.execute(request())
     calls.append("completed" if output.completed_run else "missing")
-    assert calls == ["schedule", "completion", "build", "validate", "commit", "completed"]
+    assert calls == ["completion", "build", "validate", "commit", "completed"]
 
 
-def test_simulazione_rifiutata_prima_dello_scheduling() -> None:
-    use_case, scheduling, _, _, _, committer = dependencies()
+def test_simulazione_rifiutata_prima_del_piano() -> None:
+    use_case, _, _, _, committer = dependencies()
     with pytest.raises(OperationalSchedulingCommitError, match="simulazione"):
         use_case.execute(request(simulation=True))
-    scheduling.execute.assert_not_called()
     committer.commit.assert_not_called()
 
 
 def test_failed_non_costruisce_piano_e_non_committta() -> None:
     failed = scheduling_result(RunState.FAILED)
-    use_case, scheduling, runs, builder, validator, committer = dependencies()
-    scheduling.execute.return_value = failed
+    use_case, runs, builder, validator, committer = dependencies()
     with pytest.raises(OperationalSchedulingCommitError, match="FAILED"):
-        use_case.execute(request())
+        use_case.execute(request(result=failed))
     runs.propose_completion.assert_not_called()
     builder.build.assert_not_called()
     validator.validate.assert_not_called()
     committer.commit.assert_not_called()
 
 
-@pytest.mark.parametrize("failing_dependency", ["schedule", "validate", "commit"])
+@pytest.mark.parametrize("failing_dependency", ["validate", "commit"])
 def test_errori_propagati_senza_retry(failing_dependency: str) -> None:
-    use_case, scheduling, _, _, validator, committer = dependencies()
-    dependency = {"schedule": scheduling, "validate": validator, "commit": committer}[
-        failing_dependency
-    ]
-    method = dependency.execute if failing_dependency == "schedule" else (
-        dependency.validate if failing_dependency == "validate" else dependency.commit
-    )
+    use_case, _, _, validator, committer = dependencies()
+    dependency = {"validate": validator, "commit": committer}[failing_dependency]
+    method = dependency.validate if failing_dependency == "validate" else dependency.commit
     method.side_effect = RuntimeError(failing_dependency)
     with pytest.raises(RuntimeError, match=failing_dependency):
         use_case.execute(request())
@@ -279,7 +268,7 @@ def test_errori_propagati_senza_retry(failing_dependency: str) -> None:
 
 
 def test_risultato_non_riconciliato_non_materializza_completed_run() -> None:
-    use_case, _, _, _, _, _ = dependencies(
+    use_case, _, _, _, _ = dependencies(
         commit_status=CommitStatus.RECONCILIATION_REQUIRED
     )
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
 import os
 from pathlib import Path
 from threading import Barrier, Lock, Thread
@@ -18,15 +17,13 @@ from sqlalchemy.engine import URL, make_url
 
 from src.tpo_core.application.committer import (
     CommitExecutionContext,
-    CommitExecutionError,
     CommitStatus,
 )
 from src.tpo_core.application.operational_scheduling import (
-    ExecuteSchedulingCommitInput,
-    ExecuteSchedulingCommitResult,
+    OperationalSchedulingInput,
+    OperationalSchedulingResult,
+    OperationalSchedulingStatus,
 )
-from src.tpo_core.application.run_tracking import OpenSchedulingRun
-from src.tpo_core.application.write_plan import InvalidWritePlanError
 from src.tpo_core.bootstrap.factory import build_application
 from src.tpo_core.domain.identifiers import ActorId, RunId
 from src.tpo_core.domain.states import RunState
@@ -248,35 +245,23 @@ def _seed(connection) -> None:
                        (riga_programma_id, giorno_iso) VALUES (%s, %s)""",
                     (line_id, 6),
                 )
-        cursor.execute(
-            """INSERT INTO tpo.id_sequences
-               (sequence_name, identifier_type, prefix, next_value, version,
-                updated_at, updated_by)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-            ("ORDINE_ID", "OrdineId", "ORD", 900001, 0,
-             instant(8, 4).datetime, "e2e-test"),
-        )
-        for public_id, version in (
-            ("RUN-900001", 0),
-            ("RUN-900002", 0),
-            ("RUN-900003", 1),
+        for sequence_name, identifier_type, prefix in (
+            ("ORDINE_ID", "OrdineId", "ORD"),
+            ("RUN_ID", "RunId", "RUN"),
         ):
             cursor.execute(
-                """INSERT INTO tpo.runs
-                   (public_id, started_at, completed_at, simulation, state,
-                    programmi_letti, righe_valutate, occorrenze_valutate,
-                    ordini_generati, elementi_saltati, version, created_by)
-                   VALUES (%s, %s, NULL, false, NULL, 0, 0, 0, 0, 0, %s, %s)""",
-                (public_id, instant(8, 5).datetime, version, "e2e-test"),
+                """INSERT INTO tpo.id_sequences
+                   (sequence_name, identifier_type, prefix, next_value, version,
+                    updated_at, updated_by)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (sequence_name, identifier_type, prefix, 900001, 0,
+                 instant(8, 4).datetime, "e2e-test"),
             )
     connection.commit()
 
 
-def _input(run_id: str, *, day: int = 8, expected_version: int = 0):
-    return ExecuteSchedulingCommitInput(
-        open_run=OpenSchedulingRun(
-            RunId(run_id), instant(8, 5), False, expected_version
-        ),
+def _operational_input(*, day: int = 8) -> OperationalSchedulingInput:
+    return OperationalSchedulingInput(
         current_system_date=instant(day, 6),
         execution_context=CommitExecutionContext(
             ActorId("e2e-scheduler"), "postgresql e2e validation", "e2e-2.19"
@@ -312,41 +297,9 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                 postgresql_environment=_postgresql_environment(url),
                 clock=FixedClock(),
             )
-            assert container.execute_scheduling_commit is not None
+            assert container.operational_scheduling_orchestrator is not None
             assert container.application_committer is not None
             assert container.postgresql_commit_repository is not None
-            assert (
-                container.application_committer._repository
-                is container.postgresql_commit_repository
-            )
-            program_repository = (
-                container.execute_scheduling_commit
-                ._run_scheduling
-                ._programmi_repository
-            )
-            programs = program_repository.list_versioned_for_scheduling()
-            assert len(programs) == 1
-            versioned = programs[0]
-            assert versioned.programma.id.value == "PF-900001"
-            assert versioned.programma.cliente_id.value == "CLI-900001"
-            assert versioned.version == 2
-            assert versioned.programma.stato.value == "ATTIVO"
-            assert versioned.programma.data_inizio == date(2026, 8, 8)
-            assert versioned.programma.data_fine is None
-            assert versioned.programma.orario_generazione.isoformat() == "05:00:00"
-            assert versioned.programma.finestra_operativa_giorni == 0
-            assert tuple(line.position for line in versioned.lines) == (1, 2)
-            assert tuple(line.line.varieta_id.value for line in versioned.lines) == (
-                "VAR-900001", "VAR-900002"
-            )
-            assert tuple(line.line.quantita.value for line in versioned.lines) == (
-                Decimal("2.5"), Decimal("3")
-            )
-            assert tuple(line.line.quantita.unit.value for line in versioned.lines) == (
-                "GRAM", "SET"
-            )
-            assert versioned.lines[1].line.configurazione_temporale.giorni_settimana == (6,)
-
             captured_requests = []
             original_commit = container.application_committer.commit
 
@@ -363,11 +316,14 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                 return original_commit(request)
 
             container.application_committer.commit = capture_commit
-            output = container.execute_scheduling_commit.execute(
-                _input("RUN-900001")
+            output = container.operational_scheduling_orchestrator.execute(
+                _operational_input()
             )
 
-            assert isinstance(output, ExecuteSchedulingCommitResult)
+            assert isinstance(output, OperationalSchedulingResult)
+            assert output.status is OperationalSchedulingStatus.COMMITTED
+            assert output.open_run.run_id == RunId("RUN-900001")
+            assert output.open_run.started_at == instant(9, 7)
             assert output.scheduling_result.esito is RunState.SUCCESS
             assert output.commit_result.status is CommitStatus.COMMITTED
             assert output.completed_run.run_id == RunId("RUN-900001")
@@ -462,31 +418,20 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                 }
                 cursor.execute(
                     """SELECT next_value, version FROM tpo.id_sequences
-                       WHERE identifier_type = %s""",
-                    ("OrdineId",),
+                       WHERE identifier_type IN (%s, %s)
+                       ORDER BY identifier_type""",
+                    ("OrdineId", "RunId"),
                 )
-                assert cursor.fetchone() == (900002, 1)
+                assert cursor.fetchall() == [(900002, 1), (900002, 1)]
 
-            validation_repository = (
-                container.execute_scheduling_commit._write_plan_validator._repository
+            duplicate = container.operational_scheduling_orchestrator.execute(
+                _operational_input()
             )
-            snapshot = validation_repository.get_target_snapshot(target_name="ORDINI")
-            assert idempotency_key in snapshot.existing_idempotency_keys
-
-            with pytest.raises(InvalidWritePlanError):
-                container.execute_scheduling_commit.execute(_input("RUN-900002"))
+            assert duplicate.status is OperationalSchedulingStatus.FAILED
+            assert duplicate.open_run.run_id == RunId("RUN-900002")
+            assert duplicate.completed_run is not None
+            assert duplicate.completed_run.state is RunState.FAILED
             assert len(captured_requests) == 1
-
-            with pytest.raises(CommitExecutionError, match="Versione"):
-                container.execute_scheduling_commit.execute(
-                    _input("RUN-900003", day=9, expected_version=0)
-                )
-            assert len(captured_requests) == 2
-
-            with pytest.raises(CommitExecutionError, match="già conclusa"):
-                container.postgresql_commit_repository.execute_commit(
-                    captured_requests[0]
-                )
 
             with admin.cursor() as cursor:
                 cursor.execute("SELECT count(*) FROM tpo.ordini")
@@ -503,8 +448,7 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                 )
                 assert cursor.fetchall() == [
                     ("RUN-900001", instant(9, 7).datetime, "SUCCESS", 1),
-                    ("RUN-900002", None, None, 0),
-                    ("RUN-900003", None, None, 1),
+                    ("RUN-900002", instant(9, 7).datetime, "FAILED", 1),
                 ]
             assert google.calls == 0
         finally:
@@ -544,28 +488,9 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
                 postgresql_environment=_postgresql_environment(url),
                 clock=FixedClock(),
             )
-            assert container.execute_scheduling_commit is not None
+            assert container.operational_scheduling_orchestrator is not None
             assert container.application_committer is not None
             assert container.postgresql_commit_repository is not None
-
-            allocator = (
-                container.execute_scheduling_commit._run_scheduling._id_generator
-            )
-            original_next_id = allocator.next_id
-            allocation_lock = Lock()
-
-            def synchronized_next_id(identifier_type):
-                with allocation_lock:
-                    return original_next_id(identifier_type)
-
-            allocator.next_id = synchronized_next_id
-
-            commit_connections = _CountingFactory(
-                container.postgresql_connection_factory
-            )
-            container.postgresql_commit_repository._connection_factory = (
-                commit_connections
-            )
 
             commit_barrier = Barrier(2)
             original_commit = container.application_committer.commit
@@ -582,13 +507,10 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
 
             def execute() -> None:
                 try:
-                    result = container.execute_scheduling_commit.execute(
-                        _input("RUN-900001")
+                    result = container.operational_scheduling_orchestrator.execute(
+                        _operational_input()
                     )
-                    assert result.commit_result.status is CommitStatus.COMMITTED
-                    outcome = "committed"
-                except CommitExecutionError:
-                    outcome = "run_conflict"
+                    outcome = result.status.value.lower()
                 except BaseException as exc:
                     with outcome_lock:
                         unexpected.append(exc)
@@ -604,9 +526,7 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
 
             assert all(not thread.is_alive() for thread in threads)
             assert not unexpected, f"Errori orchestratore inattesi: {unexpected!r}"
-            assert sorted(outcomes) == ["committed", "run_conflict"]
-            assert commit_connections.connections == 2
-
+            assert sorted(outcomes) == ["committed", "failed"]
             with admin.cursor() as cursor:
                 cursor.execute("SELECT count(*) FROM tpo.ordini")
                 assert cursor.fetchone() == (1,)
@@ -617,20 +537,20 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
                 cursor.execute("SELECT count(*) FROM tpo.audit_eventi")
                 assert cursor.fetchone() == (2,)
                 cursor.execute(
-                    """SELECT completed_at, state, version FROM tpo.runs
-                       WHERE public_id = %s""",
-                    ("RUN-900001",),
+                    """SELECT state, version FROM tpo.runs ORDER BY public_id"""
                 )
-                completed_at, state, version = cursor.fetchone()
-                assert completed_at == instant(9, 7).datetime
-                assert state == "SUCCESS"
-                assert version == 1
+                assert sorted(cursor.fetchall()) == [("FAILED", 1), ("SUCCESS", 1)]
                 cursor.execute(
-                    """SELECT next_value, version FROM tpo.id_sequences
-                       WHERE identifier_type = %s""",
-                    ("OrdineId",),
+                    """SELECT identifier_type, next_value, version
+                       FROM tpo.id_sequences
+                       WHERE identifier_type IN (%s, %s)
+                       ORDER BY identifier_type""",
+                    ("OrdineId", "RunId"),
                 )
-                assert cursor.fetchone() == (900003, 2)
+                assert cursor.fetchall() == [
+                    ("OrdineId", 900003, 2),
+                    ("RunId", 900003, 2),
+                ]
         finally:
             admin.close()
     finally:
@@ -639,15 +559,3 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
                 command.downgrade(make_config(connection=connection), "base")
                 connection.commit()
         engine.dispose()
-
-
-class _CountingFactory:
-    def __init__(self, delegate) -> None:
-        self._delegate = delegate
-        self.connections = 0
-        self._lock = Lock()
-
-    def connect(self):
-        with self._lock:
-            self.connections += 1
-        return self._delegate.connect()

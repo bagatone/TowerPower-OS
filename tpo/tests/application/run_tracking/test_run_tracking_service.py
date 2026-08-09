@@ -103,6 +103,24 @@ def test_apertura_alloca_run_id_e_preserva_input() -> None:
     assert repository.get(run.run_id) is run
 
 
+def test_apertura_con_run_id_allocato_non_consuma_secondo_identificativo() -> None:
+    target, repository = service()
+    run = target.open_run(
+        run_id=RunId("RUN-000099"),
+        started_at=instant(),
+        simulation=False,
+    )
+    assert run.run_id == RunId("RUN-000099")
+    assert repository.get(run.run_id) is run
+    assert target._id_allocator.allocate(RunId).identifier == RunId("RUN-000001")
+
+
+def test_get_run_espone_stato_autorevole_del_repository() -> None:
+    target, _ = service()
+    opened = target.open_run(started_at=instant(), simulation=False)
+    assert target.get_run(opened.run_id) is opened
+
+
 def test_aperture_successive_usano_run_id_distinti() -> None:
     target, _ = service()
     assert target.open_run(started_at=instant(), simulation=False).run_id == RunId("RUN-000001")

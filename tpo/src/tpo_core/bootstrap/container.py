@@ -7,6 +7,9 @@ from typing import Any
 
 from ..application.committer.service import ApplicationCommitter
 from ..application.identity.service import PersistentIdAllocator
+from ..application.operational_scheduling.orchestrator import (
+    OperationalSchedulingOrchestrator,
+)
 from ..application.operational_scheduling.use_case import ExecuteSchedulingCommit
 from ..application.run_tracking.service import SchedulingRunService
 from ..application.scheduling.engine import SchedulingEngine
@@ -55,7 +58,7 @@ class ApplicationContainer:
     postgresql_health_check: PostgreSQLHealthCheck | None = None
     postgresql_commit_repository: PostgreSQLCommitRepository | None = None
     application_committer: ApplicationCommitter | None = None
-    execute_scheduling_commit: ExecuteSchedulingCommit | None = None
+    operational_scheduling_orchestrator: OperationalSchedulingOrchestrator | None = None
 
 
 def _build_container(
@@ -102,6 +105,7 @@ def _build_container(
     )
     application_committer = None
     execute_scheduling_commit = None
+    operational_scheduling_orchestrator = None
     if postgresql_connection_factory is not None:
         programmi_postgresql = PostgreSQLVersionedProgrammaFornituraRepository(
             postgresql_connection_factory
@@ -128,11 +132,17 @@ def _build_container(
         write_plan_validator = WritePlanValidator(validation_repository)
         application_committer = ApplicationCommitter(postgresql_commit_repository)
         execute_scheduling_commit = ExecuteSchedulingCommit(
-            operational_run_scheduling,
             run_service,
             write_plan_builder,
             write_plan_validator,
             application_committer,
+            clock,
+        )
+        operational_scheduling_orchestrator = OperationalSchedulingOrchestrator(
+            id_allocator,
+            run_service,
+            operational_run_scheduling,
+            execute_scheduling_commit,
             clock,
         )
     return ApplicationContainer(
@@ -148,5 +158,5 @@ def _build_container(
         postgresql_health_check=postgresql_health_check,
         postgresql_commit_repository=postgresql_commit_repository,
         application_committer=application_committer,
-        execute_scheduling_commit=execute_scheduling_commit,
+        operational_scheduling_orchestrator=operational_scheduling_orchestrator,
     )

@@ -7,7 +7,7 @@ from ..ports.clock import Clock
 from ..committer.models import CommitRequest, CommitStatus
 from ..committer.service import ApplicationCommitter
 from ..run_tracking.service import SchedulingRunService
-from ..scheduling.use_case import RunScheduling
+from ..scheduling.models import SchedulingResult
 from ..write_plan.service import WritePlanBuilder
 from ..write_plan.validation import (
     WRITE_SCHEMA_ORDINI,
@@ -27,14 +27,12 @@ class ExecuteSchedulingCommit:
 
     def __init__(
         self,
-        run_scheduling: RunScheduling,
         run_service: SchedulingRunService,
         write_plan_builder: WritePlanBuilder,
         write_plan_validator: WritePlanValidator,
         committer: ApplicationCommitter,
         clock: Clock,
     ) -> None:
-        self._run_scheduling = run_scheduling
         self._run_service = run_service
         self._write_plan_builder = write_plan_builder
         self._write_plan_validator = write_plan_validator
@@ -53,11 +51,19 @@ class ExecuteSchedulingCommit:
                 "Il commit operativo non accetta RUN in simulazione."
             )
 
-        scheduling_result = self._run_scheduling.execute(
-            run_id=request.open_run.run_id,
-            current_system_date=request.current_system_date,
-            simulation=False,
-        )
+        scheduling_result = request.scheduling_result
+        if not isinstance(scheduling_result, SchedulingResult):
+            raise OperationalSchedulingCommitError(
+                "scheduling_result deve essere un SchedulingResult."
+            )
+        if scheduling_result.run_id != request.open_run.run_id:
+            raise OperationalSchedulingCommitError(
+                "SchedulingResult appartiene a una RUN diversa."
+            )
+        if scheduling_result.simulation != request.open_run.simulation:
+            raise OperationalSchedulingCommitError(
+                "SchedulingResult e RUN hanno modalità diverse."
+            )
         if scheduling_result.esito is RunState.FAILED:
             raise OperationalSchedulingCommitError(
                 "Uno SchedulingResult FAILED non può essere committato."

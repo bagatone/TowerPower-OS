@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 
 from src.tpo_core.application.committer import ApplicationCommitter
-from src.tpo_core.application.operational_scheduling import ExecuteSchedulingCommit
+from src.tpo_core.application.operational_scheduling import (
+    ExecuteSchedulingCommit,
+    OperationalSchedulingOrchestrator,
+)
 from src.tpo_core.application.scheduling.engine import SchedulingEngine
 from src.tpo_core.application.scheduling.use_case import RunScheduling
 from src.tpo_core.bootstrap.container import ApplicationContainer
@@ -146,19 +149,34 @@ def test_build_postgresql_pigro_da_environment_esplicito(settings_file: Path) ->
         is container.postgresql_connection_factory
     )
     assert isinstance(container.application_committer, ApplicationCommitter)
-    assert isinstance(container.execute_scheduling_commit, ExecuteSchedulingCommit)
+    assert isinstance(
+        container.operational_scheduling_orchestrator,
+        OperationalSchedulingOrchestrator,
+    )
+    execute_scheduling_commit = (
+        container.operational_scheduling_orchestrator._execute_scheduling_commit
+    )
+    assert isinstance(execute_scheduling_commit, ExecuteSchedulingCommit)
     assert container.clock is clock
     assert container.postgresql_commit_repository._clock is clock
-    assert container.execute_scheduling_commit._clock is clock
+    assert execute_scheduling_commit._clock is clock
+    assert container.operational_scheduling_orchestrator._clock is clock
+    assert (
+        not hasattr(execute_scheduling_commit, "_run_scheduling")
+    )
+    assert (
+        container.operational_scheduling_orchestrator._id_allocator
+        is container.operational_scheduling_orchestrator._run_service._id_allocator
+    )
     assert (
         container.application_committer._repository
         is container.postgresql_commit_repository
     )
     assert (
-        container.execute_scheduling_commit._committer
+        execute_scheduling_commit._committer
         is container.application_committer
     )
-    operational = container.execute_scheduling_commit._run_scheduling
+    operational = container.operational_scheduling_orchestrator._run_scheduling
     assert isinstance(
         operational._programmi_repository,
         PostgreSQLVersionedProgrammaFornituraRepository,
@@ -169,19 +187,19 @@ def test_build_postgresql_pigro_da_environment_esplicito(settings_file: Path) ->
         is container.postgresql_connection_factory
     )
     assert (
-        container.execute_scheduling_commit
+        execute_scheduling_commit
         ._write_plan_validator
         ._repository
         ._connection_factory
         is container.postgresql_connection_factory
     )
     assert isinstance(
-        container.execute_scheduling_commit._write_plan_validator._repository,
+        execute_scheduling_commit._write_plan_validator._repository,
         PostgreSQLWritePlanValidationRepository,
     )
     assert not any(
         isinstance(value, GoogleSheetsOrdineRepository)
-        for value in vars(container.execute_scheduling_commit).values()
+        for value in vars(execute_scheduling_commit).values()
     )
     assert service.calls == 0
 
@@ -216,7 +234,10 @@ def test_build_postgresql_non_apre_connessioni(
 
     assert isinstance(container.postgresql_commit_repository, PostgreSQLCommitRepository)
     assert isinstance(container.application_committer, ApplicationCommitter)
-    assert isinstance(container.execute_scheduling_commit, ExecuteSchedulingCommit)
+    assert isinstance(
+        container.operational_scheduling_orchestrator,
+        OperationalSchedulingOrchestrator,
+    )
     assert connect_calls == []
 
 
@@ -228,7 +249,7 @@ def test_runtime_senza_postgresql_non_costruisce_commit_repository(
     assert container.postgresql_connection_factory is None
     assert container.postgresql_commit_repository is None
     assert container.application_committer is None
-    assert container.execute_scheduling_commit is None
+    assert container.operational_scheduling_orchestrator is None
     assert isinstance(container.run_scheduling, RunScheduling)
 
 
@@ -263,8 +284,8 @@ def test_build_ripetibile_senza_singleton(settings_file: Path) -> None:
     assert first.ordini_repository is not second.ordini_repository
     assert first.scheduling_engine is not second.scheduling_engine
     assert first.run_scheduling is not second.run_scheduling
-    assert first.execute_scheduling_commit is None
-    assert second.execute_scheduling_commit is None
+    assert first.operational_scheduling_orchestrator is None
+    assert second.operational_scheduling_orchestrator is None
 
 
 @pytest.mark.parametrize(

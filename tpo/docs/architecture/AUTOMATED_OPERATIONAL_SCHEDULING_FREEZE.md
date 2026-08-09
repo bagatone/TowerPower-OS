@@ -28,6 +28,7 @@ Il Freeze comprende:
 - piattaforma macOS V1;
 - frequenza e orario;
 - business date e business time;
+- path dei settings operativi;
 - identity unattended;
 - conferma non interattiva;
 - policy per esecuzioni mancate;
@@ -83,6 +84,42 @@ congelato e validato. Non importa né chiama direttamente:
 - PostgreSQL.
 
 Il Core non diventa un daemon. Non esiste un runtime scheduler-only.
+
+### Operational settings path
+
+Il path ufficiale dei settings operativi V1 è:
+
+```text
+config/settings.yaml
+```
+
+Il path è risolto rispetto alla root applicativa Tower Power OS. Il launcher
+determina la root applicativa e passa esplicitamente alla CLI:
+
+```text
+--settings <ROOT>/config/settings.yaml
+```
+
+`config/settings.yaml` è un file locale, non versionato e ignorato da Git. Non
+viene creato, generato, materializzato o copiato automaticamente dal launcher,
+dall'installer, dal Bootstrap o da qualsiasi componente Runtime.
+
+`config/settings.example.yaml` resta esclusivamente un template e documento di
+riferimento. L'operatore può usarlo come base per creare manualmente
+`config/settings.yaml`; nessun percorso operativo lo copia implicitamente.
+
+Se `<ROOT>/config/settings.yaml` non esiste o non è un file utilizzabile, il
+launcher:
+
+- non invoca la CLI;
+- non apre una RUN;
+- non alloca RunId;
+- registra un errore di configurazione sanitizzato;
+- termina senza retry;
+- non crea o corregge il file.
+
+Non sono ammessi path alternativi impliciti, ricerca automatica di settings o
+fallback verso `settings.example.yaml`.
 
 ## 4. Platform
 
@@ -306,6 +343,10 @@ deployment.
 Il contratto congela:
 
 - uso esclusivo delle configurazioni PostgreSQL già definite dal Runtime;
+- `config/settings.yaml` locale, non versionato e separato dal provisioning
+  dei segreti;
+- `config/settings.example.yaml` esclusivamente come template privo di valori
+  operativi locali;
 - nessuna lettura implicita di `.env.local`;
 - nessun segreto hardcoded nel repository;
 - nessun segreto negli argomenti del comando;
@@ -317,7 +358,9 @@ Il contratto congela:
 Il valore segreto concreto e il provisioning locale non vengono versionati.
 Il deployment fornisce i valori al processo con permessi coerenti con il
 contesto utente del LaunchAgent. Il contratto di configurazione resta separato
-dai dati locali segreti.
+dai dati locali segreti. La natura locale di `config/settings.yaml` non
+autorizza a inserire credenziali, password o DSN nel repository, nel plist
+versionato o nei log.
 
 ## 15. Escalation
 
@@ -364,6 +407,12 @@ Il futuro adapter automatico deve dimostrare almeno:
 - una sola pianificazione giornaliera alle `06:00 Atlantic/Canary`;
 - business date locale corretta;
 - `--business-time 06:00`;
+- risoluzione di `<ROOT>/config/settings.yaml` dalla root applicativa;
+- passaggio esplicito di `--settings <ROOT>/config/settings.yaml`;
+- file settings assente: nessuna invocazione CLI, errore registrato e nessun
+  retry;
+- nessuna creazione o copia implicita di `config/settings.yaml`;
+- nessun fallback a `config/settings.example.yaml`;
 - `--identity towerpower-scheduler`;
 - presenza esplicita di `--confirm`;
 - una sola invocazione della CLI ufficiale;
@@ -420,6 +469,10 @@ Restano esplicitamente fuori scope:
 | seconda RUN ordinaria | vietata nella stessa giornata |
 | business date | data locale `Atlantic/Canary` dell'esecuzione pianificata |
 | business time | `06:00` esplicito |
+| settings path | `<ROOT>/config/settings.yaml` |
+| settings ownership | locale, non versionato, ignorato da Git e creato manualmente dall'operatore |
+| settings example | solo template; nessuna copia o lettura implicita |
+| settings assente | nessuna CLI, errore di configurazione, nessun retry e nessuna creazione automatica |
 | identity | `towerpower-scheduler` |
 | confirmation | `--confirm` esplicito, nessun prompt |
 | comando | esclusivamente `tpo schedule execute` |
@@ -437,9 +490,10 @@ Restano esplicitamente fuori scope:
 ## 20. Regola di modifica futura
 
 Ogni modifica a piattaforma, modalità LaunchAgent, frequenza, orario, timezone,
-identity, conferma, missed execution, overlap protection, retry, outcome
-policy, logging, retention, secret boundary, escalation, comando ufficiale o
-compatibilità manuale richiede una nuova Architecture Review.
+settings path o ownership, identity, conferma, missed execution, overlap
+protection, retry, outcome policy, logging, retention, secret boundary,
+escalation, comando ufficiale o compatibilità manuale richiede una nuova
+Architecture Review.
 
 L'implementazione puramente meccanica dell'adapter, della plist e dei test può
 procedere senza modificare questo Freeze soltanto se ne rispetta integralmente
@@ -455,8 +509,8 @@ L'architettura dell'Automated Operational Scheduling V1 è congelata.
 
 Un solo LaunchAgent macOS avvia una sola esecuzione giornaliera alle
 `06:00 Atlantic/Canary`, usando esclusivamente `tpo schedule execute` con
-business date locale esplicita, business time `06:00`, identity
-`towerpower-scheduler` e `--confirm`.
+`--settings <ROOT>/config/settings.yaml`, business date locale esplicita,
+business time `06:00`, identity `towerpower-scheduler` e `--confirm`.
 
 Il sistema non introduce daemon nel Core, catch-up, retry, secondo runtime,
 secondo writer o fallback. Logging locale sanitizzato, retention di 30 giorni,

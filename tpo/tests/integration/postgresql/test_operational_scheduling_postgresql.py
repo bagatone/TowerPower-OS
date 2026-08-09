@@ -19,6 +19,7 @@ from src.tpo_core.application.committer import (
     CommitExecutionContext,
     CommitStatus,
 )
+from src.tpo_core.application.identity import PersistentIdAllocator
 from src.tpo_core.application.operational_scheduling import (
     OperationalSchedulingInput,
     OperationalSchedulingResult,
@@ -466,7 +467,9 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
     not DATABASE_URL,
     reason="TPO_TEST_DATABASE_URL non configurata: PostgreSQL reale non eseguito.",
 )
-def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
+def test_operational_commit_concurrency_postgresql(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     url = _validated_database_url()
     engine = sa.create_engine(_sqlalchemy_psycopg_url(url))
     migrated = False
@@ -492,10 +495,32 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
             assert container.application_committer is not None
             assert container.postgresql_commit_repository is not None
 
+            run_id_allocation_lock = Lock()
+            allocated_run_ids: list[RunId] = []
+            original_allocate = PersistentIdAllocator.allocate
+
+            def serialized_run_id_allocate(self, identifier_type):
+                if identifier_type is not RunId:
+                    return original_allocate(self, identifier_type)
+                with run_id_allocation_lock:
+                    allocated = original_allocate(self, identifier_type)
+                    allocated_run_ids.append(allocated.identifier)
+                    return allocated
+
+            monkeypatch.setattr(
+                PersistentIdAllocator,
+                "allocate",
+                serialized_run_id_allocate,
+            )
+
             commit_barrier = Barrier(2)
             original_commit = container.application_committer.commit
+            commit_attempts = []
+            commit_attempts_lock = Lock()
 
             def synchronized_commit(request):
+                with commit_attempts_lock:
+                    commit_attempts.append(request)
                 commit_barrier.wait(timeout=10)
                 return original_commit(request)
 
@@ -527,6 +552,9 @@ def test_operational_commit_concurrency_postgresql(tmp_path: Path) -> None:
             assert all(not thread.is_alive() for thread in threads)
             assert not unexpected, f"Errori orchestratore inattesi: {unexpected!r}"
             assert sorted(outcomes) == ["committed", "failed"]
+            assert len(allocated_run_ids) == 2
+            assert len(set(allocated_run_ids)) == 2
+            assert len(commit_attempts) == 2
             with admin.cursor() as cursor:
                 cursor.execute("SELECT count(*) FROM tpo.ordini")
                 assert cursor.fetchone() == (1,)

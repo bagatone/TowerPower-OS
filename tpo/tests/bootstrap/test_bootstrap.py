@@ -10,6 +10,9 @@ from src.tpo_core.application.operational_scheduling import (
     ExecuteSchedulingCommit,
     OperationalSchedulingOrchestrator,
 )
+from src.tpo_core.application.operational_entrypoint import (
+    OperationalSchedulingEntryPoint,
+)
 from src.tpo_core.application.scheduling.engine import SchedulingEngine
 from src.tpo_core.application.scheduling.use_case import RunScheduling
 from src.tpo_core.bootstrap.container import ApplicationContainer
@@ -153,6 +156,14 @@ def test_build_postgresql_pigro_da_environment_esplicito(settings_file: Path) ->
         container.operational_scheduling_orchestrator,
         OperationalSchedulingOrchestrator,
     )
+    assert isinstance(
+        container.operational_scheduling_entry_point,
+        OperationalSchedulingEntryPoint,
+    )
+    assert (
+        container.operational_scheduling_entry_point._orchestrator
+        is container.operational_scheduling_orchestrator
+    )
     execute_scheduling_commit = (
         container.operational_scheduling_orchestrator._execute_scheduling_commit
     )
@@ -238,6 +249,10 @@ def test_build_postgresql_non_apre_connessioni(
         container.operational_scheduling_orchestrator,
         OperationalSchedulingOrchestrator,
     )
+    assert isinstance(
+        container.operational_scheduling_entry_point,
+        OperationalSchedulingEntryPoint,
+    )
     assert connect_calls == []
 
 
@@ -250,6 +265,7 @@ def test_runtime_senza_postgresql_non_costruisce_commit_repository(
     assert container.postgresql_commit_repository is None
     assert container.application_committer is None
     assert container.operational_scheduling_orchestrator is None
+    assert container.operational_scheduling_entry_point is None
     assert isinstance(container.run_scheduling, RunScheduling)
 
 
@@ -286,6 +302,8 @@ def test_build_ripetibile_senza_singleton(settings_file: Path) -> None:
     assert first.run_scheduling is not second.run_scheduling
     assert first.operational_scheduling_orchestrator is None
     assert second.operational_scheduling_orchestrator is None
+    assert first.operational_scheduling_entry_point is None
+    assert second.operational_scheduling_entry_point is None
 
 
 @pytest.mark.parametrize(

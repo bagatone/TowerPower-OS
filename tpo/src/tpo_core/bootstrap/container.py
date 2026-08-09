@@ -7,6 +7,11 @@ from typing import Any
 
 from ..application.committer.service import ApplicationCommitter
 from ..application.identity.service import PersistentIdAllocator
+from ..application.operational_entrypoint.context import (
+    OperationalExecutionContextFactory,
+    UuidCorrelationIdGenerator,
+)
+from ..application.operational_entrypoint.service import OperationalSchedulingEntryPoint
 from ..application.operational_scheduling.orchestrator import (
     OperationalSchedulingOrchestrator,
 )
@@ -59,6 +64,7 @@ class ApplicationContainer:
     postgresql_commit_repository: PostgreSQLCommitRepository | None = None
     application_committer: ApplicationCommitter | None = None
     operational_scheduling_orchestrator: OperationalSchedulingOrchestrator | None = None
+    operational_scheduling_entry_point: OperationalSchedulingEntryPoint | None = None
 
 
 def _build_container(
@@ -106,6 +112,7 @@ def _build_container(
     application_committer = None
     execute_scheduling_commit = None
     operational_scheduling_orchestrator = None
+    operational_scheduling_entry_point = None
     if postgresql_connection_factory is not None:
         programmi_postgresql = PostgreSQLVersionedProgrammaFornituraRepository(
             postgresql_connection_factory
@@ -145,6 +152,10 @@ def _build_container(
             execute_scheduling_commit,
             clock,
         )
+        operational_scheduling_entry_point = OperationalSchedulingEntryPoint(
+            OperationalExecutionContextFactory(UuidCorrelationIdGenerator()),
+            operational_scheduling_orchestrator,
+        )
     return ApplicationContainer(
         settings=settings,
         google_gateway=google_gateway,
@@ -159,4 +170,5 @@ def _build_container(
         postgresql_commit_repository=postgresql_commit_repository,
         application_committer=application_committer,
         operational_scheduling_orchestrator=operational_scheduling_orchestrator,
+        operational_scheduling_entry_point=operational_scheduling_entry_point,
     )

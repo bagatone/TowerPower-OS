@@ -336,9 +336,92 @@ il periodo consentito.
 
 ## 14. Secrets
 
-Il processo LaunchAgent riceve configurazione PostgreSQL e segreti mediante
-environment esplicito del servizio o meccanismo equivalente approvato dal
-deployment.
+Il path locale ufficiale del provisioning V1 è:
+
+```text
+<ROOT>/runtime/secrets/operational-scheduler.env
+```
+
+Il file è locale, non versionato, ignorato da Git e creato manualmente
+dall'operatore. Non viene creato dall'installer, copiato da template, scritto
+dal launcher o inserito nel plist. Deve appartenere all'utente operativo ed
+essere accessibile esclusivamente dal proprietario con permessi `0600`.
+
+Il launcher carica esplicitamente il file prima di invocare la CLI mediante un
+parser minimale `KEY=VALUE`. Sono autorizzate esclusivamente le variabili
+PostgreSQL già richieste dal Runtime Operativo:
+
+- `TPO_DATABASE_HOST`;
+- `TPO_DATABASE_PORT`;
+- `TPO_DATABASE_NAME`;
+- `TPO_DATABASE_USER`;
+- `TPO_DATABASE_PASSWORD`;
+- `TPO_DATABASE_SSLMODE`;
+- `TPO_DATABASE_CONNECT_TIMEOUT`.
+
+Il file è la sorgente autoritativa ed esclusiva di tutte e sette queste
+variabili per l'Operational Scheduler automatico. Le sette chiavi sono tutte
+obbligatorie e non esistono variabili PostgreSQL opzionali nel Secret Boundary
+V1. Una chiave obbligatoria mancante o con valore vuoto rende invalido l'intero
+file. Ogni altra chiave è vietata.
+
+Prima di leggere e analizzare il file, il launcher rimuove dall'environment
+ereditato tutte e sette le variabili autorizzate. Nessuna variabile PostgreSQL
+ereditata può prevalere sul file, integrare una chiave mancante, fungere da
+fallback o sopravvivere come configurazione implicita. Questo vincolo riguarda
+esclusivamente lo scheduler automatico e non modifica il contratto della CLI
+manuale.
+
+Il formato non esegue comandi e non interpreta `source`, direttive `export`,
+variable expansion, command substitution, espressioni shell o inclusioni. Non
+ammette chiavi arbitrarie. I valori vengono esportati letteralmente nel solo
+processo del launcher e nella CLI figlia.
+
+### Parser Contract — Architecture Addendum
+
+Il formato canonico di ogni riga di configurazione è esclusivamente:
+
+```text
+KEY=value
+```
+
+La chiave inizia dal primo carattere della riga e termina immediatamente prima
+del primo `=`. Non è consentito whitespace sintattico prima della chiave o
+adiacente al delimitatore `=`. Sono quindi invalide, fra le altre, le forme
+` KEY=value`, `KEY =value`, `KEY= value` e `KEY = value`. Il parser non esegue
+trimming automatico. Il valore deve essere non vuoto e il suo primo carattere
+deve essere non-whitespace; dopo questa validazione, tutti gli altri caratteri
+del valore sono letterali e non vengono interpretati.
+
+Sono ammesse righe vuote e commenti esclusivamente a riga intera. Una riga di
+commento deve avere `#` come primo carattere. Non esistono commenti inline;
+qualunque `#` successivo al primo `=` appartiene al valore letterale.
+
+Il parser non interpreta alcun carattere speciale. Non usa `source`, `eval`,
+variable expansion, command substitution o shell execution. Caratteri quali
+`$`, backtick, `(`, `)`, `{`, `}`, `#`, `&`, `!` e `*` sono esclusivamente
+parte del valore e non attivano alcuna semantica shell.
+
+Ogni chiave può comparire una sola volta. Qualunque chiave duplicata rende
+l'intero file non valido: il parser termina in fail-closed e la CLI non viene
+invocata.
+
+Il parsing è atomico rispetto all'environment destinato alla CLI. Le coppie
+`KEY=value` vengono raccolte e validate completamente prima di qualsiasi
+export. Il parser non muta progressivamente l'environment destinato alla CLI;
+se parsing o validazione falliscono, nessun mapping PostgreSQL parziale viene
+passato alla CLI.
+
+Il file deve esistere, essere un regular file, essere leggibile dall'utente
+operativo, appartenere all'utente operativo e avere esattamente mode `0600`.
+Qualunque violazione rende invalido l'intero file e produce fail-closed.
+L'installer può validare questi requisiti, ma non crea, corregge, esegue
+`chmod` o `chown`, popola o sostituisce il file.
+
+Qualunque errore del Secret Boundary termina il launcher prima
+dell'invocazione CLI, prima dell'allocazione di una RUN e prima di qualsiasi
+attività database. Il launcher registra un errore sanitizzato e non esegue
+retry, fallback o correzioni automatiche.
 
 Il contratto congela:
 
@@ -484,8 +567,146 @@ Restano esplicitamente fuori scope:
 | logging | locale in `runtime/logs/`, sanitizzato |
 | retention | 30 giorni |
 | escalation V1 | logging locale obbligatorio; notifiche automatiche fuori scope |
-| secret provisioning | environment esplicito del servizio o equivalente deployment; valori locali non versionati |
+| secret provisioning | `<ROOT>/runtime/secrets/operational-scheduler.env`, locale, non versionato, manuale e `0600` |
+| secret parser | `KEY=VALUE`, whitelist PostgreSQL, valori letterali, nessuna esecuzione shell |
+| secrets assenti o non sicuri | nessuna CLI, errore sanitizzato, nessun retry o fallback |
 | CLI manuale | invariata e sul medesimo percorso |
+
+## Architecture Addendum — Conservative macOS LaunchAgent Reinstallation
+
+### Conservative Reinstallation Policy
+
+La politica ufficiale di reinstallazione conservativa V1 è **Full State
+Restoration**. Se si verifica un errore dopo l'inizio della mutation phase,
+l'installer ripristina il plist precedente e ripristina lo stato loaded
+precedente esclusivamente quando il job era loaded prima della
+reinstallazione. Un job precedentemente unloaded non viene bootstrapato
+automaticamente. Lo stato operativo precedente viene preservato integralmente.
+
+### Validation Phase
+
+Ogni validazione eseguibile senza modificare lo stato installato viene
+completata prima del primo `launchctl bootout`. La validation phase comprende
+almeno:
+
+- launcher;
+- Python;
+- template;
+- settings;
+- Secret Boundary;
+- materializzazione del nuovo plist;
+- validazione `plutil`;
+- determinazione dello stato precedente;
+- preparazione del backup richiesto.
+
+Qualunque errore nella validation phase produce zero `bootout`, zero
+`bootstrap` e zero sostituzioni del plist installato.
+
+### First Install
+
+Una first install non possiede uno stato precedente. Se il primo
+`launchctl bootstrap` fallisce, l'installer effettua un solo tentativo di
+rimuovere il plist appena installato.
+
+Se la rimozione riesce, lo stato finale è **Not Installed**. L'installazione
+resta fallita e l'installer restituisce exit non-zero.
+
+Se la rimozione fallisce, l'installer:
+
+- non esegue retry;
+- non effettua ulteriori mutazioni automatiche;
+- restituisce exit non-zero;
+- riporta `CLEANUP FAILED`;
+- riporta `MANUAL RECOVERY REQUIRED`;
+- lascia lo stato residuo disponibile per il recovery manuale.
+
+La cleanup è una singola azione compensativa dell'installer e non costituisce
+un retry operativo dello scheduler. L'output usa l'identificativo già
+congelato `com.towerpower.operational-scheduler`, non introduce logging
+persistente e non congela codici exit numerici specifici.
+
+### Reinstall
+
+La reinstallazione distingue obbligatoriamente lo stato previous loaded dallo
+stato previous unloaded:
+
+- previous loaded: il rollback ripristina il plist precedente e tenta il
+  re-bootstrap del precedente LaunchAgent;
+- previous unloaded: il rollback ripristina soltanto il plist precedente e
+  non esegue bootstrap.
+
+Il rollback non crea uno stato loaded che non esisteva prima della
+reinstallazione.
+
+### Mutation Order
+
+La mutation phase inizia soltanto dopo il completamento della validation phase
+e segue questo ordine normativo:
+
+1. `launchctl bootout` del job precedente soltanto se era loaded;
+2. sostituzione del plist installato con il nuovo plist già materializzato e
+   validato;
+3. un singolo `launchctl bootstrap` del nuovo LaunchAgent;
+4. conclusione della reinstallazione dopo il successo del bootstrap;
+5. eliminazione del backup precedente soltanto dopo il successo completo.
+
+Una failure di `bootout` interrompe la mutation senza sostituire il plist. Una
+failure di sostituzione o di bootstrap attiva il rollback conservativo.
+
+### Rollback
+
+Il rollback non costituisce un retry operativo dello scheduler. È una singola
+operazione compensativa dell'installer ed è consentito un solo tentativo. Non
+sono ammessi retry multipli, loop o recovery automatica ripetuta.
+
+Il rollback tenta di ripristinare il plist precedente. Soltanto quando il job
+era previously loaded tenta inoltre un singolo re-bootstrap del precedente
+LaunchAgent. La failure originaria della reinstallazione resta una failure e
+produce exit non-zero anche quando il rollback termina con successo.
+
+### Rollback Failure
+
+Se il ripristino del plist o, quando richiesto, il re-bootstrap del precedente
+job fallisce, l'installer:
+
+- termina immediatamente;
+- restituisce exit non-zero;
+- riporta `ROLLBACK FAILED`;
+- riporta `MANUAL RECOVERY REQUIRED`;
+- conserva il backup necessario al recupero manuale;
+- non effettua ulteriori modifiche.
+
+### Backup
+
+Il backup del plist precedente esiste soltanto quando necessario, appartiene
+all'utente operativo e non diventa un secondo LaunchAgent attivo. Viene
+eliminato automaticamente soltanto dopo una reinstallazione completata con
+successo. Nome e percorso del file temporaneo sono dettagli implementativi e
+non appartengono al contratto congelato.
+
+### Installer Output
+
+L'installer non introduce un nuovo sistema di logging persistente. Gli eventi
+di installazione, reinstallazione e rollback vengono riportati esclusivamente
+tramite l'output dell'installer e usano l'identificativo:
+
+```text
+com.towerpower.operational-scheduler
+```
+
+I messaggi non contengono secret, DSN o altre informazioni sensibili.
+
+### Exit Status
+
+L'installer restituisce `0` esclusivamente quando l'intera installazione o
+reinstallazione termina con successo. Ogni altro esito restituisce un valore
+non-zero. Il contratto non congela codici numerici specifici per le failure.
+
+### Bootstrap Verification
+
+In V1 il successo del LaunchAgent coincide con il successo di
+`launchctl bootstrap`. L'installer non introduce polling, health check, retry o
+verifiche runtime aggiuntive.
 
 ## 20. Regola di modifica futura
 

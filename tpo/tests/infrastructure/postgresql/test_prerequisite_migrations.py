@@ -125,9 +125,9 @@ def test_pk_fk_unique_check_e_indici_principali(upgraded) -> None:
     assert {"ix_semine_stato_data_avvio", "ix_semine_protocollo_versione_id"} <= indexes
 
 
-def test_base_semine_non_anticipa_version_planning(upgraded) -> None:
+def test_head_estende_semine_con_version_planning(upgraded) -> None:
     columns = {item["name"] for item in sa.inspect(upgraded).get_columns("semine", schema="tpo")}
-    assert "version" not in columns
+    assert "version" in columns
 
 
 def test_tipi_numeric_nullability_e_default_critici(upgraded) -> None:

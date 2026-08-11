@@ -584,6 +584,8 @@ piano/revisione/riga/SEMINA/RACCOLTA/CONSEGNA quando applicabili, stato
 sorgente, varietà/cultivar/uso, quantità/UOM, data consegna e provenance.
 `event_at` è `timestamptz NOT NULL`: ogni riga possiede un istante autorevole o
 già deterministicamente calcolato e persistito nella sorgente.
+`event_date` è sempre `(event_at AT TIME ZONE 'Atlantic/Canary')::date`.
+`source_state` è nullable perché RACCOLTE non possiede uno stato autonomo.
 
 Fonti: righe piano/revisioni, link e SEMINE, RACCOLTE e CONSEGNE. PROBLEMI entra
 solo dopo una relazione fisica approvata. La view unisce eventi
@@ -593,6 +595,24 @@ della RPS espongono `righe_piano_semina.data_consegna`, snapshot della data
 commerciale autorevole `ordini.data_consegna_prevista`, esclusivamente come
 colonna contestuale `data_consegna`: tale DATE non genera una riga calendario
 autonoma.
+
+Le quattro branch RPS espongono `r.stato`, i public ID di piano, revisione e
+riga, `r.quantita_produttiva_autorizzata` con UOM `SET`, e provenance della
+colonna timestamp sorgente. `IDRATAZIONE_PIANIFICATA` è omessa quando
+`hydration_at = sowing_at`, mediante il filtro strutturale
+`r.hydration_at < r.sowing_at`; non si emettono eventi di idratazione a durata
+zero.
+
+Tutte le SEMINE reali sono incluse. Il LEFT JOIN al link, unico per
+`semina_id`, arricchisce la riga con i riferimenti di piano, quantità/UOM del
+link e `data_consegna`; per una SEMINA non collegata tali campi sono NULL. Tutte
+le RACCOLTE reali sono incluse attraverso la SEMINA proprietaria e lo stesso
+LEFT JOIN al link; espongono quantità/UOM della RACCOLTA, `source_state = NULL`
+e non dipendono dalle allocazioni. Ogni sorgente produce al massimo una riga
+per event type; la composizione usa `UNION ALL` nell'ordine
+`IDRATAZIONE_PIANIFICATA`, `SEMINA_PIANIFICATA`, `LUCE_PIANIFICATA`,
+`RACCOLTA_TARGET`, `SEMINA_REALE`, `RACCOLTA_REALE`,
+`CONSEGNA_EFFETTIVA`, senza `ORDER BY` nella view.
 
 È vietato convertire automaticamente `consegne.data_prevista` da DATE a
 `timestamptz`: non sono ammessi mezzanotte convenzionale, timezone injection
@@ -604,11 +624,13 @@ in V1.
 
 Per l'acceptance La Jaira, prima della consegna del 2026-08-15 tale DATE appare
 come `data_consegna` degli eventi pianificati e non produce un `event_at`
-artificiale. Dopo una consegna reale, `data_effettiva` produce
-`CONSEGNA_EFFETTIVA`, `data_prevista` resta la `data_consegna` associata ed
-`event_date` deriva da `data_effettiva` in Atlantic/Canary. Gli indici sono
-quelli sulle sorgenti. Materializzazione futura richiede review di refresh e
-staleness.
+artificiale. Possono comparire `IDRATAZIONE_PIANIFICATA` salvo hydration zero,
+`SEMINA_PIANIFICATA`, `LUCE_PIANIFICATA`, `RACCOLTA_TARGET`, una o più
+`SEMINA_REALE`, una o più `RACCOLTA_REALE` e, dopo il fatto reale,
+`CONSEGNA_EFFETTIVA`. In quest'ultima `data_prevista` resta la
+`data_consegna` associata ed `event_date` deriva da `data_effettiva` in
+Atlantic/Canary. Gli indici sono quelli sulle sorgenti. Materializzazione futura
+richiede review di refresh e staleness.
 
 ## 13. Strategia staged di migration e commissioning
 
@@ -1838,9 +1860,9 @@ Planning writer esclusivamente per eventi Planning.
 `event_type text NOT NULL`; `planned boolean NOT NULL`; `piano_public_id text
 NULL`; `revision_public_id text NULL`; `riga_piano_public_id text NULL`;
 `semina_public_id text NULL`; `raccolta_public_id text NULL`;
-`consegna_public_id text NULL`; `source_state text NOT NULL`; `varieta_id bigint
+`consegna_public_id text NULL`; `source_state text NULL`; `varieta_id bigint
 NULL`; `cultivar_id bigint NULL`; `cultivar_uso_id bigint NULL`; `quantita
-numeric(20,6) NULL`; `unita_misura unit_of_measure NULL`; `data_consegna date
+numeric(20,6) NULL`; `unita_misura tpo.unit_of_measure NULL`; `data_consegna date
 NULL`; `provenance text NOT NULL`. **SOURCES:** righe/revisioni piano, link,
 SEMINE, RACCOLTE e CONSEGNE mediante `UNION ALL`. **PK/FK/UNIQUE/CHECK/VERSION/
 AUDIT/DELETE/WRITER:** non applicabili: è read-only e ricostruibile. Quantità e
@@ -1855,9 +1877,166 @@ persistito nella sorgente. Gli eventi RPS `IDRATAZIONE_PIANIFICATA`,
 in `timestamptz` e senza creare un evento autonomo di consegna futura. Gli event
 type `CONSEGNA_PIANIFICATA` e `CONSEGNA_PREVISTA` non esistono in V1.
 
-**BRANCH CONSEGNE NORMATIVA:**
+**CREATE VIEW NORMATIVO:**
 
 ```sql
+CREATE VIEW tpo.v_calendario_produzione AS
+SELECT
+    r.hydration_at AS event_at,
+    (r.hydration_at AT TIME ZONE 'Atlantic/Canary')::date AS event_date,
+    'IDRATAZIONE_PIANIFICATA'::text AS event_type,
+    true AS planned,
+    p.public_id AS piano_public_id,
+    rev.public_id AS revision_public_id,
+    r.public_id AS riga_piano_public_id,
+    NULL::text AS semina_public_id,
+    NULL::text AS raccolta_public_id,
+    NULL::text AS consegna_public_id,
+    r.stato::text AS source_state,
+    r.varieta_id,
+    r.cultivar_id,
+    r.cultivar_uso_id,
+    r.quantita_produttiva_autorizzata AS quantita,
+    'SET'::tpo.unit_of_measure AS unita_misura,
+    r.data_consegna,
+    'tpo.righe_piano_semina.hydration_at'::text AS provenance
+FROM tpo.righe_piano_semina AS r
+JOIN tpo.piano_produzione_revisioni AS rev ON rev.id = r.piano_revisione_id
+JOIN tpo.piani_produzione AS p ON p.id = rev.piano_produzione_id
+WHERE r.hydration_at < r.sowing_at
+
+UNION ALL
+
+SELECT
+    r.sowing_at AS event_at,
+    (r.sowing_at AT TIME ZONE 'Atlantic/Canary')::date AS event_date,
+    'SEMINA_PIANIFICATA'::text AS event_type,
+    true AS planned,
+    p.public_id AS piano_public_id,
+    rev.public_id AS revision_public_id,
+    r.public_id AS riga_piano_public_id,
+    NULL::text AS semina_public_id,
+    NULL::text AS raccolta_public_id,
+    NULL::text AS consegna_public_id,
+    r.stato::text AS source_state,
+    r.varieta_id,
+    r.cultivar_id,
+    r.cultivar_uso_id,
+    r.quantita_produttiva_autorizzata AS quantita,
+    'SET'::tpo.unit_of_measure AS unita_misura,
+    r.data_consegna,
+    'tpo.righe_piano_semina.sowing_at'::text AS provenance
+FROM tpo.righe_piano_semina AS r
+JOIN tpo.piano_produzione_revisioni AS rev ON rev.id = r.piano_revisione_id
+JOIN tpo.piani_produzione AS p ON p.id = rev.piano_produzione_id
+
+UNION ALL
+
+SELECT
+    r.light_at AS event_at,
+    (r.light_at AT TIME ZONE 'Atlantic/Canary')::date AS event_date,
+    'LUCE_PIANIFICATA'::text AS event_type,
+    true AS planned,
+    p.public_id AS piano_public_id,
+    rev.public_id AS revision_public_id,
+    r.public_id AS riga_piano_public_id,
+    NULL::text AS semina_public_id,
+    NULL::text AS raccolta_public_id,
+    NULL::text AS consegna_public_id,
+    r.stato::text AS source_state,
+    r.varieta_id,
+    r.cultivar_id,
+    r.cultivar_uso_id,
+    r.quantita_produttiva_autorizzata AS quantita,
+    'SET'::tpo.unit_of_measure AS unita_misura,
+    r.data_consegna,
+    'tpo.righe_piano_semina.light_at'::text AS provenance
+FROM tpo.righe_piano_semina AS r
+JOIN tpo.piano_produzione_revisioni AS rev ON rev.id = r.piano_revisione_id
+JOIN tpo.piani_produzione AS p ON p.id = rev.piano_produzione_id
+
+UNION ALL
+
+SELECT
+    r.harvest_target_at AS event_at,
+    (r.harvest_target_at AT TIME ZONE 'Atlantic/Canary')::date AS event_date,
+    'RACCOLTA_TARGET'::text AS event_type,
+    true AS planned,
+    p.public_id AS piano_public_id,
+    rev.public_id AS revision_public_id,
+    r.public_id AS riga_piano_public_id,
+    NULL::text AS semina_public_id,
+    NULL::text AS raccolta_public_id,
+    NULL::text AS consegna_public_id,
+    r.stato::text AS source_state,
+    r.varieta_id,
+    r.cultivar_id,
+    r.cultivar_uso_id,
+    r.quantita_produttiva_autorizzata AS quantita,
+    'SET'::tpo.unit_of_measure AS unita_misura,
+    r.data_consegna,
+    'tpo.righe_piano_semina.harvest_target_at'::text AS provenance
+FROM tpo.righe_piano_semina AS r
+JOIN tpo.piano_produzione_revisioni AS rev ON rev.id = r.piano_revisione_id
+JOIN tpo.piani_produzione AS p ON p.id = rev.piano_produzione_id
+
+UNION ALL
+
+SELECT
+    s.data_avvio AS event_at,
+    (s.data_avvio AT TIME ZONE 'Atlantic/Canary')::date AS event_date,
+    'SEMINA_REALE'::text AS event_type,
+    false AS planned,
+    p.public_id AS piano_public_id,
+    rev.public_id AS revision_public_id,
+    r.public_id AS riga_piano_public_id,
+    s.public_id AS semina_public_id,
+    NULL::text AS raccolta_public_id,
+    NULL::text AS consegna_public_id,
+    s.stato::text AS source_state,
+    s.varieta_id,
+    s.cultivar_id,
+    s.cultivar_uso_id,
+    link.quantita_avviata AS quantita,
+    link.unita_misura,
+    r.data_consegna,
+    'tpo.semine.data_avvio'::text AS provenance
+FROM tpo.semine AS s
+LEFT JOIN tpo.righe_piano_semina_semine AS link ON link.semina_id = s.id
+LEFT JOIN tpo.righe_piano_semina AS r ON r.id = link.riga_piano_semina_id
+LEFT JOIN tpo.piano_produzione_revisioni AS rev ON rev.id = r.piano_revisione_id
+LEFT JOIN tpo.piani_produzione AS p ON p.id = rev.piano_produzione_id
+
+UNION ALL
+
+SELECT
+    ra.data_raccolta AS event_at,
+    (ra.data_raccolta AT TIME ZONE 'Atlantic/Canary')::date AS event_date,
+    'RACCOLTA_REALE'::text AS event_type,
+    false AS planned,
+    p.public_id AS piano_public_id,
+    rev.public_id AS revision_public_id,
+    r.public_id AS riga_piano_public_id,
+    s.public_id AS semina_public_id,
+    ra.public_id AS raccolta_public_id,
+    NULL::text AS consegna_public_id,
+    NULL::text AS source_state,
+    s.varieta_id,
+    s.cultivar_id,
+    s.cultivar_uso_id,
+    ra.quantita,
+    ra.unita_misura,
+    r.data_consegna,
+    'tpo.raccolte.data_raccolta'::text AS provenance
+FROM tpo.raccolte AS ra
+JOIN tpo.semine AS s ON s.id = ra.semina_id
+LEFT JOIN tpo.righe_piano_semina_semine AS link ON link.semina_id = s.id
+LEFT JOIN tpo.righe_piano_semina AS r ON r.id = link.riga_piano_semina_id
+LEFT JOIN tpo.piano_produzione_revisioni AS rev ON rev.id = r.piano_revisione_id
+LEFT JOIN tpo.piani_produzione AS p ON p.id = rev.piano_produzione_id
+
+UNION ALL
+
 SELECT
     c.data_effettiva AS event_at,
     (c.data_effettiva AT TIME ZONE 'Atlantic/Canary')::date AS event_date,
@@ -1879,8 +2058,9 @@ SELECT
     'tpo.consegne.data_effettiva'::text AS provenance
 FROM tpo.consegne AS c
 WHERE c.stato = 'CONSEGNATA'
-  AND c.data_effettiva IS NOT NULL
+  AND c.data_effettiva IS NOT NULL;
 ```
 
-La branch non promuove `data_prevista` a timestamp e non modifica il Register
-`tpo.consegne`.
+Le branch sono concatenate esclusivamente nell'ordine normativo mostrato e la
+view non contiene `ORDER BY`. La branch CONSEGNA non promuove `data_prevista` a
+timestamp e non modifica il Register `tpo.consegne`.

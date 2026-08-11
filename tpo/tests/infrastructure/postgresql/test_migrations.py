@@ -24,7 +24,12 @@ ORDER_COMMIT_TABLES = {
     "origini_righe_ordine",
     "audit_eventi",
 }
-EXPECTED_TABLES = FOUNDATION_TABLES | ORDER_COMMIT_TABLES
+PREREQUISITE_TABLES = {
+    "cultivar", "usi_produttivi", "cultivar_usi", "protocolli",
+    "protocollo_versioni", "sementi", "semente_impieghi", "lotti_seme",
+    "semine", "raccolte", "consegne", "stock", "movimenti_magazzino",
+}
+EXPECTED_TABLES = FOUNDATION_TABLES | ORDER_COMMIT_TABLES | PREREQUISITE_TABLES
 
 
 def _temporary_database(tmp_path: Path):
@@ -87,11 +92,15 @@ def test_migration_non_contiene_tabelle_vietate() -> None:
 def test_revision_chain_valida_e_lineare() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
     assert [revision.revision for revision in revisions] == [
+        "20260810_0004",
+        "20260810_0003",
         "20260806_0002",
         "20260804_0001",
     ]
-    assert revisions[0].down_revision == "20260804_0001"
-    assert revisions[1].down_revision is None
+    assert revisions[0].down_revision == "20260810_0003"
+    assert revisions[1].down_revision == "20260806_0002"
+    assert revisions[2].down_revision == "20260804_0001"
+    assert revisions[3].down_revision is None
 
 
 def test_migration_url_non_espone_password() -> None:

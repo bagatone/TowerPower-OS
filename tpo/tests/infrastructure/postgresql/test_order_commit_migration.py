@@ -41,7 +41,7 @@ def _database(tmp_path: Path):
 @pytest.fixture
 def upgraded(tmp_path: Path):
     engine, connection = _database(tmp_path)
-    command.upgrade(make_config(connection=connection), "head")
+    command.upgrade(make_config(connection=connection), "20260806_0002")
     try:
         yield connection
     finally:
@@ -265,7 +265,7 @@ def test_downgrade_0002_conserva_solo_foundation(tmp_path: Path) -> None:
     engine, connection = _database(tmp_path)
     try:
         config = make_config(connection=connection)
-        command.upgrade(config, "head")
+        command.upgrade(config, "20260806_0002")
         command.downgrade(config, "20260804_0001")
         assert set(sa.inspect(connection).get_table_names(schema="tpo")) == FOUNDATION_TABLES
         command.downgrade(config, "base")

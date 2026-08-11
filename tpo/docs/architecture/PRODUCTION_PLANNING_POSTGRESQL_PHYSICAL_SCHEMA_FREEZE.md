@@ -194,12 +194,16 @@ APPROVATA. Restano `UNIQUE(protocollo_id,numero_versione)` e
 `UNIQUE(versione_precedente_id)`.
 
 Lifecycle CHECK: BOZZA non ha approvazione/ritiro; APPROVATA ha approvazione e
-non ritiro; RITIRATA conserva ritiro e, se proveniente da APPROVATA, anche
-approvazione. Transizioni esclusive BOZZA→APPROVATA, BOZZA→RITIRATA,
-APPROVATA→RITIRATA. Parametri, provenance ed evidenze sono immutabili dopo
-approvazione. Dopo il primo uso sono immutabili anche identità, numero,
-genealogia e `valida_dal`; sono ammesse soltanto chiusura auditata `valida_al` e
-ritiro. Nessun hard delete dopo approvazione.
+non ritiro; RITIRATA conserva sempre ritiro e conserva approvazione soltanto se
+proveniente da APPROVATA. Per RITIRATA `approvata_at` e `approvata_by` sono
+quindi entrambi NULL dopo BOZZA→RITIRATA oppure entrambi NOT NULL dopo
+APPROVATA→RITIRATA; una coppia parzialmente valorizzata è vietata. Transizioni
+esclusive BOZZA→APPROVATA, BOZZA→RITIRATA, APPROVATA→RITIRATA; il writer vieta
+APPROVATA→BOZZA e qualunque transizione in uscita da RITIRATA. Parametri,
+provenance ed evidenze sono immutabili dopo approvazione. Dopo il primo uso sono
+immutabili anche identità, numero, genealogia e `valida_dal`; sono ammesse
+soltanto chiusura auditata `valida_al` e ritiro. Nessun hard delete dopo
+approvazione.
 
 Indici: UK public ID; FK protocollo; (`protocollo_id`,`stato_approvazione`,
 `valida_dal`,`valida_al`); versione precedente. Writer: knowledge writer, mai
@@ -767,8 +771,9 @@ btrim(created_by) <> '')`; `CONSTRAINT ck_protocollo_versioni_lifecycle CHECK
 AND ritirata_at IS NULL AND ritirata_by IS NULL) OR
 (stato_approvazione='APPROVATA' AND approvata_at IS NOT NULL AND approvata_by IS
 NOT NULL AND ritirata_at IS NULL AND ritirata_by IS NULL) OR
-(stato_approvazione='RITIRATA' AND approvata_at IS NOT NULL AND approvata_by IS
-NOT NULL AND ritirata_at IS NOT NULL AND ritirata_by IS NOT NULL))`. **OTHER
+(stato_approvazione='RITIRATA' AND ritirata_at IS NOT NULL AND ritirata_by IS
+NOT NULL AND ((approvata_at IS NULL AND approvata_by IS NULL) OR
+(approvata_at IS NOT NULL AND approvata_by IS NOT NULL))))`. **OTHER
 STRUCTURAL CONSTRAINTS:** `CONSTRAINT ex_protocollo_versioni_approvate_validita
 EXCLUDE USING gist (protocollo_id WITH =, daterange(valida_dal,valida_al,'[)')
 WITH &&) WHERE (stato_approvazione='APPROVATA')`. **INDEXES:** `CREATE INDEX

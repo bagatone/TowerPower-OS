@@ -578,14 +578,35 @@ Scheduling conserva il proprio lock order e non acquisisce risorse Planning.
 
 ## 12. `tpo.v_calendario_produzione`
 
-View ricostruibile, non tabella né writer. Espone almeno event timestamp/date
-Atlantic/Canary, tipo, planned flag, public ID piano/revisione/riga/SEMINA/
-RACCOLTA/CONSEGNA quando applicabili, stato sorgente, varietà/cultivar/uso,
-quantità/UOM, data consegna e provenance.
+View ricostruibile, non tabella, writer o authority. Espone almeno event
+timestamp/date Atlantic/Canary, tipo, planned flag, public ID
+piano/revisione/riga/SEMINA/RACCOLTA/CONSEGNA quando applicabili, stato
+sorgente, varietà/cultivar/uso, quantità/UOM, data consegna e provenance.
+`event_at` è `timestamptz NOT NULL`: ogni riga possiede un istante autorevole o
+già deterministicamente calcolato e persistito nella sorgente.
 
 Fonti: righe piano/revisioni, link e SEMINE, RACCOLTE e CONSEGNE. PROBLEMI entra
-solo dopo una relazione fisica approvata. La view unisce eventi di idratazione,
-semina, luce, raccolta target e fatti reali senza stato autonomo. Gli indici sono
+solo dopo una relazione fisica approvata. La view unisce eventi
+`IDRATAZIONE_PIANIFICATA`, `SEMINA_PIANIFICATA`, `LUCE_PIANIFICATA`,
+`RACCOLTA_TARGET` e fatti reali senza stato autonomo. Gli eventi pianificati
+della RPS espongono `righe_piano_semina.data_consegna`, snapshot della data
+commerciale autorevole `ordini.data_consegna_prevista`, esclusivamente come
+colonna contestuale `data_consegna`: tale DATE non genera una riga calendario
+autonoma.
+
+È vietato convertire automaticamente `consegne.data_prevista` da DATE a
+`timestamptz`: non sono ammessi mezzanotte convenzionale, timezone injection
+implicita, orari hardcoded o conversioni provider-specific arbitrarie.
+`tpo.consegne` contribuisce esclusivamente con `stato = 'CONSEGNATA'` e
+`data_effettiva IS NOT NULL`; l'unico event type logistico V1 è
+`CONSEGNA_EFFETTIVA`. `CONSEGNA_PIANIFICATA` e `CONSEGNA_PREVISTA` non esistono
+in V1.
+
+Per l'acceptance La Jaira, prima della consegna del 2026-08-15 tale DATE appare
+come `data_consegna` degli eventi pianificati e non produce un `event_at`
+artificiale. Dopo una consegna reale, `data_effettiva` produce
+`CONSEGNA_EFFETTIVA`, `data_prevista` resta la `data_consegna` associata ed
+`event_date` deriva da `data_effettiva` in Atlantic/Canary. Gli indici sono
 quelli sulle sorgenti. Materializzazione futura richiede review di refresh e
 staleness.
 
@@ -1826,3 +1847,40 @@ AUDIT/DELETE/WRITER:** non applicabili: è read-only e ricostruibile. Quantità 
 UOM sono entrambe NULL o entrambe valorizzate. PROBLEMI resta escluso finché non
 esiste una FK approvata. Indici richiesti esclusivamente sulle sorgenti come
 definiti nelle rispettive tabelle.
+
+`event_at` è sempre un istante autorevole o già deterministicamente calcolato e
+persistito nella sorgente. Gli eventi RPS `IDRATAZIONE_PIANIFICATA`,
+`SEMINA_PIANIFICATA`, `LUCE_PIANIFICATA` e `RACCOLTA_TARGET` espongono
+`righe_piano_semina.data_consegna` come contesto commerciale, senza convertirla
+in `timestamptz` e senza creare un evento autonomo di consegna futura. Gli event
+type `CONSEGNA_PIANIFICATA` e `CONSEGNA_PREVISTA` non esistono in V1.
+
+**BRANCH CONSEGNE NORMATIVA:**
+
+```sql
+SELECT
+    c.data_effettiva AS event_at,
+    (c.data_effettiva AT TIME ZONE 'Atlantic/Canary')::date AS event_date,
+    'CONSEGNA_EFFETTIVA'::text AS event_type,
+    false AS planned,
+    NULL::text AS piano_public_id,
+    NULL::text AS revision_public_id,
+    NULL::text AS riga_piano_public_id,
+    NULL::text AS semina_public_id,
+    NULL::text AS raccolta_public_id,
+    c.public_id AS consegna_public_id,
+    c.stato::text AS source_state,
+    NULL::bigint AS varieta_id,
+    NULL::bigint AS cultivar_id,
+    NULL::bigint AS cultivar_uso_id,
+    NULL::numeric(20,6) AS quantita,
+    NULL::tpo.unit_of_measure AS unita_misura,
+    c.data_prevista AS data_consegna,
+    'tpo.consegne.data_effettiva'::text AS provenance
+FROM tpo.consegne AS c
+WHERE c.stato = 'CONSEGNATA'
+  AND c.data_effettiva IS NOT NULL
+```
+
+La branch non promuove `data_prevista` a timestamp e non modifica il Register
+`tpo.consegne`.

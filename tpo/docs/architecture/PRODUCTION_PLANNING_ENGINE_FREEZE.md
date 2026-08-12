@@ -117,6 +117,14 @@ domanda_residua_commerciale =
 0 ≤ domanda_residua_commerciale ≤ quantita_ordinata
 ```
 
+L'autorità V1 è esclusivamente `tpo.righe_consegna`: la quantità consegnata è
+`COALESCE(SUM(rc.quantita) FILTER (WHERE c.stato = 'CONSEGNATA'), 0)` per
+`rc.riga_ordine_id`. Le quantità correttive sono delta signed append-only.
+Production Planning non legge un saldo consegnato da RIGHE_ORDINE e non deriva
+il fulfilment da MOVIMENTI_MAGAZZINO, STOCK, RACCOLTE, allocazioni o AUDIT.
+L'UOM e la VARIETÀ della riga consegna coincidono obbligatoriamente con la
+RIGA_ORDINE; V1 non ammette conversione implicita né overdelivery.
+
 Le allocazioni produttive non riducono la domanda commerciale residua. Determinano invece:
 
 ```text
@@ -130,6 +138,14 @@ domanda_residua_da_coprire =
 La PRENOTAZIONE LOGICA dell'ORDINE resta distinta dall'ALLOCAZIONE FISICA di Production Planning.
 
 Prima del commit, stato ORDINE, quantità consegnata e versione attesa vengono riverificati sotto il confine concorrente. Se l'ORDINE diventa `EVASO` o `ANNULLATO`, oppure cambia la domanda residua, lo snapshot è obsoleto: rollback completo, outcome provider-neutral di input/concurrency changed e nessun retry cieco.
+
+La revalidazione acquisisce prima gli ORDINI e poi le RIGHE_ORDINE, in ordine di
+PK crescente, confronta `ordini.version` e `righe_ordine.version`, quindi
+ricalcola quantità consegnata e residuo sotto gli stessi lock. Il Delivery
+Fulfilment Writer deve acquisire gli stessi lock prima di pubblicare fulfilment
+e incrementare atomicamente entrambe le versioni. Per questo Planning non deve
+bloccare le singole RIGHE_CONSEGNA. Una divergenza produce
+`CONCURRENCY_CONFLICT` e rollback completo.
 
 ## 6. Conoscenza produttiva
 

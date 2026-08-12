@@ -634,6 +634,71 @@ richiede review di refresh e staleness.
 
 ## 13. Strategia staged di migration e commissioning
 
+### 13.0 Authority fisica del delivery fulfilment
+
+Prima dell'attivazione del Planning applicativo deve essere materializzato il
+contratto DELIVERY FULFILMENT. `tpo.righe_consegna` è l'unica authority V1 della
+quantità consegnata per RIGA_ORDINE; non viene aggiunto un saldo a
+`tpo.righe_ordine` e non si derivano quantità da STOCK, MOVIMENTI_MAGAZZINO,
+RACCOLTE, allocazioni o AUDIT.
+
+La relazione N:M usa `tpo.consegne_ordini(consegna_id, ordine_id, posizione)`
+con PK `(consegna_id, ordine_id)`, UNIQUE `(consegna_id, posizione)`, posizione
+positiva e FK RESTRICT verso CONSEGNE e ORDINI. `tpo.righe_consegna` contiene
+PK identity interna, `consegna_id`, `ordine_id`, `riga_ordine_id`, posizione,
+VARIETÀ, quantità `numeric(20,6)`, UOM, eventuale riferimento alla riga ordinaria
+rettificata e audit created. Non possiede public ID, state, version o campi
+updated; è append-only e usa CONSEGNA public ID + posizione come identità
+operativa.
+
+La candidate key
+`tpo.righe_ordine(id, ordine_id, varieta_id, unita_misura)` e la FK composita
+della RIGA_CONSEGNA rendono strutturali appartenenza, VARIETÀ e UOM. Una riga
+ordinaria è positiva; una riga correttiva è signed, appartiene a una nuova
+CONSEGNA e riferisce direttamente una riga ordinaria con gli stessi attributi.
+V1 vieta rettifiche di rettifiche, cicli, conversioni implicite, saldo negativo
+e overdelivery.
+
+Solo `consegne.stato = 'CONSEGNATA'` partecipa alla somma. PROGRAMMATA,
+IN_PREPARAZIONE e ANNULLATA contribuiscono zero. La pubblicazione incrementa
+atomicamente la version di ogni RIGA_ORDINE interessata e una sola volta la
+version di ogni ORDINE interessato. Una rettifica negativa può riaprire EVASO a
+PARZIALMENTE_EVASO o APERTO.
+
+La query concettuale autorevole usa `LEFT JOIN` da `righe_ordine` a
+`righe_consegna` e `consegne`, raggruppa per `ro.id, ro.quantita` e calcola:
+
+```sql
+COALESCE(
+    SUM(rc.quantita) FILTER (WHERE c.stato = 'CONSEGNATA'),
+    0::numeric
+)::numeric(20,6) AS quantita_consegnata
+```
+
+Il residuo è `ro.quantita - quantita_consegnata`, cast a `numeric(20,6)`. Questa
+è l'unica fonte ammessa per snapshot, canonical key e revalidazione Planning.
+
+`movimenti_magazzino.riga_consegna_id bigint NULL` usa una FK composita con
+`consegna_id` verso `righe_consegna(id, consegna_id)`. Per origine CONSEGNA
+entrambi sono obbligatori e coerenti; per le altre origini la matrice esistente
+resta invariata. RIGHE_CONSEGNA è authority commerciale, MOVIMENTI_MAGAZZINO è
+fatto fisico e STOCK è saldo fisico.
+
+L'ordine di attivazione è obbligatorio:
+
+```text
+SCHEMA EXPANSION
+-> HISTORICAL FULFILMENT COMMISSIONING CHECK
+-> CONSTRAINT VALIDATION
+-> WRITER ACTIVATION
+-> PLANNING ACTIVATION
+```
+
+Le migration non eseguono business DML, non creano consegne sintetiche, non
+assumono delivered zero, non inseriscono Identity seed e non inventano dati.
+Se esistono CONSEGNE storiche effettive, l'attivazione resta fail-closed fino a
+commissioning esplicito.
+
 **FASE A — Schema expansion/pre-validation.** Precheck schema/Alembic/dati;
 creazione enum ed estensioni; nuove tabelle; aggiunta inizialmente nullable delle
 colonne destinate a dati preesistenti; `semine.version` può essere valorizzata a

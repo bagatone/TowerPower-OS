@@ -118,6 +118,52 @@ Uno stesso ORDINE può essere evaso mediante una o più CONSEGNE.
 
 L'ORDINE costituisce il riferimento operativo per la pianificazione delle CONSEGNE.
 
+### Fulfilment commerciale per RIGA_ORDINE
+
+`tpo.righe_consegna` è l'unica authority V1 della quantità commercialmente
+consegnata per una RIGA_ORDINE. Non esiste e non deve essere introdotto un saldo
+persistito `righe_ordine.quantita_consegnata`. STOCK, MOVIMENTI_MAGAZZINO,
+RACCOLTE, allocazioni e AUDIT non sono fonti alternative del fulfilment.
+
+Per ogni RIGA_ORDINE:
+
+```text
+quantita_consegnata =
+    COALESCE(SUM(righe_consegna.quantita), 0)
+    limitata alle CONSEGNE con stato CONSEGNATA
+
+domanda_residua_commerciale =
+    righe_ordine.quantita - quantita_consegnata
+
+0 <= quantita_consegnata <= righe_ordine.quantita
+```
+
+La quantità usa `numeric(20,6)` e la stessa `unit_of_measure` della RIGA_ORDINE;
+V1 non ammette conversioni implicite né overdelivery. Una CONSEGNA può includere
+più ORDINI dello stesso CLIENTE mediante `tpo.consegne_ordini`; ogni
+RIGA_CONSEGNA appartiene però a una sola RIGA_ORDINE.
+
+`PROGRAMMATA`, `IN_PREPARAZIONE` e `ANNULLATA` contribuiscono zero. Soltanto
+`CONSEGNATA` rende le righe autorevoli e congela testata, collegamenti e righe.
+
+Le correzioni sono nuovi fatti append-only: una nuova CONSEGNA correttiva
+contiene una RIGA_CONSEGNA signed che riferisce direttamente una riga ordinaria
+storica. In V1 una rettifica non può riferire un'altra rettifica. Originale e
+rettifica devono avere la stessa RIGA_ORDINE, VARIETÀ e UOM; la riga originale
+non viene modificata o cancellata.
+
+Lo stato è derivato dal fulfilment netto: `APERTO` quando tutte le righe hanno
+consegnato zero; `PARZIALMENTE_EVASO` quando esiste quantità netta consegnata e
+almeno una riga ha residuo positivo; `EVASO` quando tutte le righe hanno residuo
+zero. `ANNULLATO` è terminale e vieta nuovo fulfilment. Una rettifica negativa
+può produrre `EVASO -> PARZIALMENTE_EVASO` e, se tutto il netto torna zero,
+`-> APERTO`, preservando la storia append-only.
+
+Ogni variazione autorevole incrementa atomicamente `righe_ordine.version` per
+ogni riga interessata e `ordini.version` una sola volta per ORDINE nella
+transazione. La sola preparazione di una CONSEGNA non modifica le versioni
+commerciali.
+
 ## Dati Minimi Obbligatori
 
 Ogni ORDINE deve poter essere identificato e rappresentato attraverso almeno i seguenti dati:

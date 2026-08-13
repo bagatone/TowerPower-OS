@@ -29,10 +29,10 @@ Lo STOCK non rappresenta:
 - Lo STOCK non appartiene ad una SEMINA.
 - Una stessa VARIETÀ può essere alimentata da più RACCOLTE.
 - Lo STOCK non nasce autonomamente.
-- Lo STOCK può aumentare esclusivamente attraverso processi autorizzati che rendono disponibile prodotto realmente raccolto.
+- Lo STOCK può aumentare esclusivamente attraverso processi autorizzati che rendono disponibile prodotto fisicamente accertato, inclusi prodotto realmente raccolto o rientro fisico reale esplicitamente registrato.
 - La RACCOLTA non modifica automaticamente lo STOCK.
 - Lo STOCK può diminuire esclusivamente tramite operazioni autorizzate.
-- Le CONSEGNE, gli SCARTI, le rettifiche autorizzate e le future operazioni definite dall'architettura possono diminuire lo STOCK esclusivamente tramite operazioni autorizzate.
+- Le CONSEGNE ordinarie effettive, gli SCARTI, le rettifiche fisiche autorizzate e le future operazioni definite dall'architettura possono diminuire lo STOCK esclusivamente tramite operazioni autorizzate.
 - Ogni modifica dello STOCK deve essere tracciabile.
 - Le prenotazioni non modificano la disponibilità fisica.
 - DISPONIBILE e PRENOTATO rappresentano concetti distinti.
@@ -73,15 +73,31 @@ processo autorizzato
 STOCK
 ```
 
-### CONSEGNE, SCARTI E RETTIFICHE
+### CONSEGNE, SCARTI E RETTIFICHE FISICHE
 
 ```text
 CONSEGNE
 SCARTI
-RETTIFICHE
+RETTIFICHE FISICHE ESPLICITE
 ↓
-riduzione dello STOCK
+variazione autorizzata dello STOCK
 ```
+
+CONSEGNE ordinarie e SCARTI determinano una riduzione. Una rettifica fisica
+esplicita applica la direzione del fatto fisico realmente accertato e non quella
+della rettifica commerciale eventualmente correlata.
+
+Una rettifica commerciale signed registrata in `tpo.righe_consegna` non è una
+rettifica fisica e non modifica automaticamente lo STOCK. Il suo segno non
+dimostra restituzione, rientro, nuova uscita o scarto. Se esiste anche una
+variazione fisica, questa viene registrata come fatto STOCK esplicito mediante
+il vocabolario vigente, senza introdurre automaticamente nuovi movement type.
+
+La CONSEGNA ordinaria effettiva è la sola relazione automatica V1: produce nello
+stesso commit il movimento di uscita origine CONSEGNA e la riduzione coerente
+dello STOCK. Le CONSEGNE correttive producono per default soltanto effetti
+commerciali; un fatto fisico correlato appartiene all'authority STOCK e deve
+essere richiesto esplicitamente.
 
 ## Dati Minimi Obbligatori
 

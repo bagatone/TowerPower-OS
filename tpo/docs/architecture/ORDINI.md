@@ -152,6 +152,23 @@ storica. In V1 una rettifica non può riferire un'altra rettifica. Originale e
 rettifica devono avere la stessa RIGA_ORDINE, VARIETÀ e UOM; la riga originale
 non viene modificata o cancellata.
 
+Il segno della RIGA_CONSEGNA correttiva modifica esclusivamente il fulfilment
+commerciale. Una rettifica negativa non prova un rientro fisico e non genera
+automaticamente CARICO, movimento positivo o ripristino dello STOCK; una
+rettifica positiva non genera automaticamente un ulteriore SCARICO o una
+riduzione dello STOCK. Un'eventuale restituzione, nuova uscita, rettifica fisica
+o altra variazione della disponibilità è un fatto distinto, registrato
+esplicitamente dall'authority STOCK senza derivarlo da
+`rettifica_riga_consegna_id` o dal segno di `righe_consegna.quantita`.
+
+La CONSEGNA ordinaria effettiva costituisce la sola relazione automatica V1 fra
+fulfilment commerciale e disponibilità fisica: la riga positiva è pubblicata
+atomicamente con il movimento di uscita origine CONSEGNA, i riferimenti
+`consegna_id`/`riga_consegna_id` coerenti e la corrispondente riduzione dello
+STOCK. Per una CONSEGNA correttiva il transaction boundary obbligatorio include
+fulfilment commerciale, stato ORDINE, versioni e audit, ma non include
+automaticamente movimento o STOCK.
+
 Lo stato è derivato dal fulfilment netto: `APERTO` quando tutte le righe hanno
 consegnato zero; `PARZIALMENTE_EVASO` quando esiste quantità netta consegnata e
 almeno una riga ha residuo positivo; `EVASO` quando tutte le righe hanno residuo

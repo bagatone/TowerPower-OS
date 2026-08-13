@@ -659,6 +659,14 @@ La riga è append-only. Prima di `CONSEGNATA` il writer può sostituire la bozza
 dopo `CONSEGNATA` testata, collegamenti e righe sono immutabili e non
 cancellabili. Writer unico: Delivery Fulfilment Writer.
 
+`righe_consegna` determina esclusivamente il fulfilment commerciale e non il
+saldo fisico. Per una CONSEGNA ordinaria effettiva, il Delivery Fulfilment
+Writer pubblica atomicamente la riga positiva, il movimento di uscita origine
+CONSEGNA e la riduzione STOCK. Per una CONSEGNA correttiva, il writer pubblica
+per default soltanto la riga signed, il nuovo stato ORDINE, gli incrementi di
+versione e l'audit: non deriva alcun effetto fisico dal segno della quantità o
+dalla presenza di `rettifica_riga_consegna_id`.
+
 ### 5.21 `provenienze_righe_consegna`
 
 **Responsabilità:** tracciabilità facoltativa del prodotto di una riga CONSEGNA verso una o più RACCOLTE.
@@ -786,6 +794,55 @@ ridondante.
 
 Indici: UK public ID; (`varieta_id`, `data_movimento`); tipo; origine; raccolta;
 consegna; `ix_movimenti_magazzino_riga_consegna_id (riga_consegna_id ASC)`; RUN.
+
+### Separazione fulfilment commerciale e variazione fisica
+
+Le authority V1 sono separate:
+
+- `righe_consegna` è l'unica authority del fulfilment commerciale;
+- `movimenti_magazzino` è l'authority append-only dei fatti fisici;
+- `stock` è il saldo fisico corrente e non determina il fulfilment.
+
+Il collegamento `consegna_id`/`riga_consegna_id` nei MOVIMENTI serve alla
+correlazione strutturale e non trasforma il movimento in authority commerciale.
+MOVIMENTI e STOCK non partecipano alla formula della quantità consegnata.
+
+Una riga ordinaria positiva resa effettiva produce nello stesso commit atomico
+un movimento di uscita origine CONSEGNA, con `consegna_id` e
+`riga_consegna_id` coerenti, e la riduzione dello STOCK. Questa è la sola
+derivazione fisica automatica V1 dal fulfilment.
+
+Una riga correttiva signed modifica invece soltanto il fulfilment commerciale:
+
+- un delta negativo non genera automaticamente CARICO, movimento positivo o
+  ripristino dello STOCK;
+- un delta positivo non genera automaticamente SCARICO aggiuntivo, movimento
+  RETTIFICA o riduzione dello STOCK.
+
+Restituzione fisica, rientro, nuova uscita, scarto o rettifica fisica sono fatti
+distinti e devono essere registrati esplicitamente dall'authority STOCK usando
+il vocabolario vigente. Tipo, direzione e quantità del fatto fisico non vengono
+dedotti da `rettifica_riga_consegna_id` né dal segno di
+`righe_consegna.quantita`.
+
+Il transaction boundary del Delivery Fulfilment Writer comprende, per una
+CONSEGNA ordinaria, effetto commerciale e fisico, stato ORDINE, versioni e
+audit. Per una CONSEGNA correttiva comprende obbligatoriamente effetto
+commerciale, stato ORDINE, versioni e audit, ma nessun movimento o aggiornamento
+STOCK automatico. Un eventuale fatto fisico correlato deve essere esplicito e
+appartenere al contratto STOCK.
+
+Scenari normativi V1:
+
+1. ORDINE 1 SET, CONSEGNA ordinaria `+1`: delivered commerciale 1, SCARICO
+   fisico 1, ORDINE `EVASO`.
+2. Rettifica commerciale `-0.25`: delivered 0.75 e ORDINE
+   `PARZIALMENTE_EVASO`; STOCK invariato in assenza di un fatto fisico.
+3. Rettifica commerciale `-0.25` con restituzione reale 0.25: la riga correttiva
+   governa il commerciale e un fatto STOCK esplicito distinto governa il
+   rientro fisico.
+4. Rettifica commerciale `+0.10`: delivered aumenta di 0.10 e STOCK resta
+   invariato; un'eventuale nuova uscita è registrata separatamente.
 
 Delete/update: Fact immutabile, RESTRICT.
 

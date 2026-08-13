@@ -332,12 +332,12 @@ def upgraded(tmp_path: Path):
 
 def test_revision_chain_e_nuovo_head() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
-    assert [item.revision for item in revisions[:5]] == [
-        "20260811_0008", "20260811_0007", "20260811_0006",
+    assert [item.revision for item in revisions[:6]] == [
+        "20260812_0009", "20260811_0008", "20260811_0007", "20260811_0006",
         "20260811_0005", "20260810_0004",
     ]
-    assert [item.down_revision for item in revisions[:4]] == [
-        "20260811_0007", "20260811_0006", "20260811_0005", "20260810_0004",
+    assert [item.down_revision for item in revisions[:5]] == [
+        "20260811_0008", "20260811_0007", "20260811_0006", "20260811_0005", "20260810_0004",
     ]
 
 
@@ -348,7 +348,7 @@ def test_upgrade_0004_downgrade_e_reupgrade(tmp_path: Path) -> None:
         command.upgrade(config, "20260810_0004")
         baseline = set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.upgrade(config, "head")
-        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260811_0008"
+        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260812_0009"
         assert PLANNING_TABLES <= set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.downgrade(config, "20260810_0004")
         assert set(sa.inspect(connection).get_table_names(schema="tpo")) == baseline
@@ -509,7 +509,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     config = make_config(connection=connection)
     command.upgrade(config, "20260810_0004")
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260811_0008"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260812_0009"
     connection.commit()
 
     functions = set(connection.exec_driver_sql("""
@@ -545,7 +545,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     command.downgrade(config, "20260810_0004")
     assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260810_0004"
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260811_0008"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260812_0009"
     connection.commit()
 
 

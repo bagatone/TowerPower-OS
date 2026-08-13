@@ -102,6 +102,7 @@ def test_migration_non_contiene_tabelle_vietate() -> None:
 def test_revision_chain_valida_e_lineare() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
     assert [revision.revision for revision in revisions] == [
+        "20260812_0009",
         "20260811_0008",
         "20260811_0007",
         "20260811_0006",
@@ -111,14 +112,15 @@ def test_revision_chain_valida_e_lineare() -> None:
         "20260806_0002",
         "20260804_0001",
     ]
-    assert revisions[0].down_revision == "20260811_0007"
-    assert revisions[1].down_revision == "20260811_0006"
-    assert revisions[2].down_revision == "20260811_0005"
-    assert revisions[3].down_revision == "20260810_0004"
-    assert revisions[4].down_revision == "20260810_0003"
-    assert revisions[5].down_revision == "20260806_0002"
-    assert revisions[6].down_revision == "20260804_0001"
-    assert revisions[7].down_revision is None
+    assert revisions[0].down_revision == "20260811_0008"
+    assert revisions[1].down_revision == "20260811_0007"
+    assert revisions[2].down_revision == "20260811_0006"
+    assert revisions[3].down_revision == "20260811_0005"
+    assert revisions[4].down_revision == "20260810_0004"
+    assert revisions[5].down_revision == "20260810_0003"
+    assert revisions[6].down_revision == "20260806_0002"
+    assert revisions[7].down_revision == "20260804_0001"
+    assert revisions[8].down_revision is None
 
 
 def test_migration_url_non_espone_password() -> None:

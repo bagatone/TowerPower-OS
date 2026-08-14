@@ -929,6 +929,14 @@ Delete: RESTRICT in produzione; retention futura tramite policy approvata.
 
 ### 5.30 `audit_eventi`
 
+La colonna `provenance text NULL` conserva la provenance specifica dell'audit.
+È priva di default e soddisfa `CHECK (provenance IS NULL OR
+btrim(provenance) <> '')`. La nullability è intenzionale per preservare audit
+storici e writer legacy senza inventare backfill. Il writer Production Planning
+deve invece valorizzarla sempre con la provenance non vuota ricevuta dal proprio
+`AuditDraft`; il valore non è authority quantitativa e non viene derivato da
+`before_data` o `after_data`.
+
 **Responsabilità:** traccia append-only delle modifiche amministrative e delle transizioni persistenti rilevanti.
 
 Colonne:

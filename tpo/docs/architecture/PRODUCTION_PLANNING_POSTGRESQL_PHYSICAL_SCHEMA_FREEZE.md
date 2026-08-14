@@ -216,6 +216,13 @@ Aggiunge `planning_run_id bigint NULL` FK a `production_planning_runs(id)`
 `run_id` resta esclusivamente Scheduling RUN; sono ammessi audit senza RUN.
 Indici: `planning_run_id` e (`planning_run_id`,`occurred_at`).
 
+Aggiunge inoltre `provenance text NULL`, senza default e senza backfill, con
+`CHECK (provenance IS NULL OR btrim(provenance) <> '')`. `NULL` preserva gli
+audit storici e la compatibilità dei writer legacy. Il Production Planning
+applica il contratto più forte: scrive sempre la provenance non-NULL e non vuota
+ricevuta da `AuditDraft`. La provenance è evidenza audit specifica, non authority
+quantitativa, non sostituisce before/after e non viene derivata dai payload.
+
 ### 4.5 `tpo.semine`
 
 **CURRENT COLUMNS PRESERVED:** `id`, `public_id`, `varieta_id`, `cultivar_id`,

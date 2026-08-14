@@ -26,6 +26,7 @@ PATHS = [
     VERSIONS / "20260811_0008_production_calendar_view.py",
     VERSIONS / "20260814_0010_allocation_quantitative_lifecycle.py",
     VERSIONS / "20260814_0011_replanning_allocation_snapshot_balances.py",
+    VERSIONS / "20260814_0012_audit_provenance.py",
 ]
 PLANNING_TABLES = {
     "production_planning_policy_versions", "production_planning_runs",
@@ -392,13 +393,103 @@ def upgraded(tmp_path: Path):
 
 def test_revision_chain_e_nuovo_head() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
-    assert [item.revision for item in revisions[:6]] == [
+    assert [item.revision for item in revisions[:7]] == [
+        "20260814_0012", "20260814_0011", "20260814_0010", "20260812_0009",
+        "20260811_0008", "20260811_0007", "20260811_0006",
+    ]
+    assert [item.down_revision for item in revisions[:6]] == [
         "20260814_0011", "20260814_0010", "20260812_0009", "20260811_0008",
         "20260811_0007", "20260811_0006",
     ]
-    assert [item.down_revision for item in revisions[:5]] == [
-        "20260814_0010", "20260812_0009", "20260811_0008", "20260811_0007", "20260811_0006",
+
+
+def test_audit_provenance_migration_contract() -> None:
+    migration = _module(VERSIONS / "20260814_0012_audit_provenance.py")
+    assert migration.revision == "20260814_0012"
+    assert migration.down_revision == "20260814_0011"
+    source = (VERSIONS / "20260814_0012_audit_provenance.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'sa.Column("provenance", sa.Text(), nullable=True)' in source
+    assert "provenance IS NULL OR btrim(provenance) <> ''" in source
+    assert "server_default" not in source
+    assert re.search(r"\b(INSERT|UPDATE|DELETE)\b", source) is None
+
+
+def _insert_test_audit(connection, discriminator: str, provenance_marker="OMIT") -> int:
+    columns = [
+        "id", "occurred_at", "actor", "entity_type", "entity_public_id",
+        "operation", "reason", "after_data", "correlation_id",
     ]
+    values = [
+        str(9_900_000 + sum((index + 1) * ord(char) for index, char in enumerate(discriminator))),
+        "CURRENT_TIMESTAMP", "'test-suite'", "'TEST_ENTITY'",
+        f"'TEST-{discriminator}'", "'INSERT'", "'test-only'", "'{}'", "'test-correlation'",
+    ]
+    if provenance_marker != "OMIT":
+        columns.append("provenance")
+        values.append("NULL" if provenance_marker is None else f"'{provenance_marker}'")
+    return connection.exec_driver_sql(
+        f"INSERT INTO tpo.audit_eventi ({','.join(columns)}) "
+        f"VALUES ({','.join(values)}) RETURNING id"
+    ).scalar_one()
+
+
+def test_audit_provenance_catalog_nullable_no_default_and_legacy_insert(upgraded) -> None:
+    columns = {
+        item["name"]: item
+        for item in sa.inspect(upgraded).get_columns("audit_eventi", schema="tpo")
+    }
+    assert columns["provenance"]["nullable"] is True
+    assert columns["provenance"]["default"] is None
+    legacy_id = _insert_test_audit(upgraded, "LEGACY")
+    explicit_id = _insert_test_audit(upgraded, "PROVENANCE", "planning:test")
+    rows = upgraded.execute(
+        sa.text(
+            "SELECT id,provenance FROM tpo.audit_eventi "
+            "WHERE id IN (:legacy_id,:explicit_id) ORDER BY id"
+        ),
+        {"legacy_id": legacy_id, "explicit_id": explicit_id},
+    ).all()
+    assert rows == [(legacy_id, None), (explicit_id, "planning:test")]
+
+
+@pytest.mark.parametrize("invalid", ["", "   "])
+def test_audit_provenance_rejects_blank(upgraded, invalid: str) -> None:
+    with pytest.raises(sa.exc.IntegrityError), upgraded.begin_nested():
+        _insert_test_audit(upgraded, f"INVALID-{len(invalid)}", invalid)
+    assert upgraded.exec_driver_sql("SELECT 1").scalar_one() == 1
+
+
+def test_audit_provenance_historical_roundtrip(tmp_path: Path) -> None:
+    engine, connection = _database(tmp_path)
+    try:
+        config = make_config(connection=connection)
+        command.upgrade(config, "20260814_0011")
+        historical_id = _insert_test_audit(connection, "HISTORICAL")
+        command.upgrade(config, "20260814_0012")
+        assert connection.exec_driver_sql(
+            f"SELECT provenance FROM tpo.audit_eventi WHERE id={historical_id}"
+        ).scalar_one() is None
+        command.downgrade(config, "20260814_0011")
+        assert "provenance" not in {
+            item["name"]
+            for item in sa.inspect(connection).get_columns("audit_eventi", schema="tpo")
+        }
+        command.upgrade(config, "20260814_0012")
+        assert connection.exec_driver_sql(
+            f"SELECT provenance FROM tpo.audit_eventi WHERE id={historical_id}"
+        ).scalar_one() is None
+    finally:
+        connection.close()
+        engine.dispose()
+
+
+def test_audit_provenance_offline_postgresql_ddl_is_schema_only() -> None:
+    ddl = _postgresql_ddl("20260814_0011", "20260814_0012")
+    assert "add column provenance text" in ddl.lower()
+    assert "provenance is null or btrim(provenance) <> ''" in ddl.lower()
+    assert re.search(r"\b(insert into|update tpo\.|delete from)\b", ddl, re.I) is None
 
 
 def test_upgrade_0004_downgrade_e_reupgrade(tmp_path: Path) -> None:
@@ -408,7 +499,7 @@ def test_upgrade_0004_downgrade_e_reupgrade(tmp_path: Path) -> None:
         command.upgrade(config, "20260810_0004")
         baseline = set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.upgrade(config, "head")
-        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
+        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
         assert PLANNING_TABLES <= set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.downgrade(config, "20260810_0004")
         assert set(sa.inspect(connection).get_table_names(schema="tpo")) == baseline
@@ -645,7 +736,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     config = make_config(connection=connection)
     command.upgrade(config, "20260810_0004")
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
     connection.commit()
 
     functions = set(connection.exec_driver_sql("""
@@ -681,7 +772,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     command.downgrade(config, "20260810_0004")
     assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260810_0004"
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
     connection.commit()
 
 
@@ -1029,7 +1120,7 @@ def test_isolated_postgresql_allocation_transition_commissioning_and_roundtrip(i
     connection.execute(sa.text("UPDATE tpo.allocazioni SET state='ATTIVA' WHERE id=:parent"), {"parent": parent})
     connection.commit()
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
 
 
 def test_isolated_postgresql_replanning_snapshot_balance_catalog_and_checks(
@@ -1175,7 +1266,7 @@ def test_isolated_postgresql_replanning_snapshot_balance_roundtrip(
     connection = isolated_postgresql
     config = make_config(connection=connection)
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
     command.downgrade(config, "20260814_0010")
     columns = {
         item["name"]
@@ -1192,4 +1283,4 @@ def test_isolated_postgresql_replanning_snapshot_balance_roundtrip(
     }
     assert "allocated_quantity > 0" in checks["ck_replanning_snapshot_allocazioni_quantity"]
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"

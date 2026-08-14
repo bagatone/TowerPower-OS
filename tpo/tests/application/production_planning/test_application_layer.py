@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,10 @@ from src.tpo_core.application.production_planning.errors import (
 from src.tpo_core.application.production_planning.models import (
     ActiveAllocationSnapshot,
     AllocationDraft,
+    AuditDraft,
     CanonicalHash,
+    CanonicalReplanningSnapshot,
+    CurrentPlanningLineSnapshot,
     DemandSnapshot,
     ExactQuantity,
     InitialProductionPlanningCommand,
@@ -29,6 +33,7 @@ from src.tpo_core.application.production_planning.models import (
     ProductionKnowledgeSnapshot,
     ProductionPlanningCommit,
     ProductionPlanningResult,
+    ProductionPlanningRunCounters,
     ProductionPlanningRunSnapshot,
     PublicId,
     ReplanProductionPlanningCommand,
@@ -129,6 +134,7 @@ def snapshot() -> PlanningInputSnapshot:
         harvests=(),
         allocations=(),
         current_plans=(),
+        current_planning_lines=(),
     )
 
 
@@ -153,6 +159,18 @@ def write_set(run: ProductionPlanningRunSnapshot) -> ProductionPlanningCommit:
         planning_key=HASH,
         expected_order_version=0,
         expected_order_line_version=0,
+        stock_coverage=qty("0"),
+        in_progress_coverage=qty("0"),
+        allocated_harvest_coverage=qty("0"),
+        production_deficit=qty("1"),
+        quantitative_buffer_type="NONE",
+        quantitative_buffer_value=None,
+        calculated_quantitative_buffer=Decimal("0"),
+        pre_granularity_quantity=Decimal("1"),
+        authorized_productive_quantity=qty("1"),
+        remaining_to_start=qty("1"),
+        harvest_window_start=date(2026, 8, 12),
+        harvest_window_end=date(2026, 8, 14),
     )
     revision = PlanRevisionDraft(
         plan_public_id=pid("PP-000001"),
@@ -160,6 +178,7 @@ def write_set(run: ProductionPlanningRunSnapshot) -> ProductionPlanningCommit:
         revision_number=1,
         request_key=HASH,
         lines=(line,),
+        plan_state="APERTO",
     )
     return ProductionPlanningCommit(
         run=run,
@@ -179,6 +198,23 @@ def write_set(run: ProductionPlanningRunSnapshot) -> ProductionPlanningCommit:
             ),
         ),
         messages=(),
+        counters=ProductionPlanningRunCounters(1, 1, 0, 0, 1, 1, 0, 0, 0),
+        audits=(
+            AuditDraft(
+                entity_type="PIANO_PRODUZIONE",
+                entity_public_id=pid("PP-000001"),
+                operation="INSERT",
+                before_payload=(),
+                after_payload=(("current_revision_public_id", "RVP-000001"), ("state", "APERTO")),
+            ),
+            AuditDraft(
+                entity_type="PRODUCTION_PLANNING_RUN",
+                entity_public_id=run.public_id,
+                operation="STATE_TRANSITION",
+                before_payload=(("state", "OPEN"),),
+                after_payload=(("state", "COMMITTED"),),
+            ),
+        ),
         input_snapshot=snapshot(),
     )
 
@@ -276,9 +312,82 @@ def test_candidate_rappresenta_backplanning_senza_calcolarlo() -> None:
 def test_revisioni_iniziale_e_replanning_non_possono_mescolare_forme() -> None:
     line = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN")).revisions[0].lines
     with pytest.raises(InvalidProductionPlanningModelError):
-        PlanRevisionDraft(pid("PP-000001"), pid("RVP-000001"), 1, HASH, line, pid("RVP-000000"))
+        PlanRevisionDraft(
+            pid("PP-000001"), pid("RVP-000001"), 1, HASH, line, "APERTO",
+            previous_revision_public_id=pid("RVP-000000"),
+        )
     with pytest.raises(InvalidProductionPlanningModelError):
-        PlanRevisionDraft(pid("PP-000001"), pid("RVP-000002"), 2, HASH, line)
+        PlanRevisionDraft(pid("PP-000001"), pid("RVP-000002"), 2, HASH, line, "APERTO")
+
+
+def test_line_draft_espone_il_write_set_quantitativo_completo() -> None:
+    line = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN")).revisions[0].lines[0]
+    assert line.stock_coverage.value == Decimal("0")
+    assert line.production_deficit.value == Decimal("1")
+    assert line.authorized_productive_quantity == line.candidate.productive_quantity
+    assert line.harvest_window_start == date(2026, 8, 12)
+    with pytest.raises(InvalidProductionPlanningModelError):
+        PlanningLineDraft(**{**line.__dict__, "production_deficit": qty("0.5")})
+
+
+def test_replanning_snapshot_conserva_testo_hash_versioni_e_input_persistenti() -> None:
+    canonical_text = "TPO-REPLANNING-V1|ORDER=ORD-000001"
+    value = CanonicalReplanningSnapshot(
+        previous_revision_public_id=pid("RVP-000001"),
+        previous_plan_revision_version=2,
+        order_line_public_id=pid("RO-000001"),
+        order_public_id=pid("ORD-000001"),
+        order_state=OrdineState.APERTO,
+        order_version=3,
+        order_line_version=4,
+        ordered_quantity=qty("1"),
+        delivered_quantity=qty("0"),
+        commercial_residual_quantity=qty("1"),
+        delivery_date=date(2026, 8, 15),
+        variety_public_id=pid("VAR-000001"),
+        protocol_version_public_id=pid("PV-000001"),
+        protocol_version_number=1,
+        protocol_valid_from=date(2026, 1, 1),
+        protocol_valid_to=None,
+        reason_code="STOCK_CHANGED",
+        policy=PolicyVersionReference("DEFAULT", 1),
+        quantitative_buffer_type="NONE",
+        quantitative_buffer_value=None,
+        temporal_buffer_minutes=0,
+        production_granularity=Decimal("0.5"),
+        stock=(),
+        in_progress=(),
+        allocations=(),
+        canonical_text=canonical_text,
+        canonical_snapshot_hash=CanonicalHash(hashlib.sha256(canonical_text.encode("utf-8")).hexdigest()),
+        replanning_key_v1=CanonicalHash("b" * 64),
+    )
+    assert value.previous_plan_revision_version == 2
+    assert value.canonical_text.startswith("TPO-REPLANNING-V1")
+    with pytest.raises(InvalidProductionPlanningModelError):
+        CanonicalReplanningSnapshot(**{**value.__dict__, "canonical_snapshot_hash": HASH})
+
+
+def test_commit_richiede_contatori_e_audit_immutabili_e_ordinati() -> None:
+    value = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN"))
+    assert value.counters.planning_lines_generated == 1
+    assert value.audits[0].entity_type == "PIANO_PRODUZIONE"
+    with pytest.raises(FrozenInstanceError):
+        value.counters.orders_read = 2  # type: ignore[misc]
+    with pytest.raises(InvalidProductionPlanningModelError):
+        ProductionPlanningCommit(**{**value.__dict__, "audits": tuple(reversed(value.audits))})
+
+
+def test_snapshot_espone_expected_version_delle_righe_planning_correnti() -> None:
+    current = CurrentPlanningLineSnapshot(
+        planning_line_public_id=pid("RPS-000001"),
+        revision_public_id=pid("RVP-000001"),
+        order_line_public_id=pid("RO-000001"),
+        state="PIANIFICATA",
+        version=7,
+    )
+    value = PlanningInputSnapshot(**{**snapshot().__dict__, "current_planning_lines": (current,)})
+    assert value.current_planning_lines[0].version == 7
 
 
 def test_new_allocation_e_attiva_e_tipizzata() -> None:

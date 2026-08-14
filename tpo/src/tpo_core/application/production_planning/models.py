@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
+import hashlib
 import re
 
 from ...domain.identifiers import ActorId
@@ -25,6 +26,7 @@ PLANNING_LINE_STATES = frozenset(
 )
 BUFFER_TYPES = frozenset({"NONE", "PERCENTAGE", "ABSOLUTE_SET"})
 RUN_STATES = frozenset({"OPEN", "COMMITTED", "FAILED", "RECONCILIATION_REQUIRED"})
+AUDIT_OPERATIONS = frozenset({"INSERT", "UPDATE", "DELETE", "STATE_TRANSITION", "CORRECTION"})
 
 
 def _text(name: str, value: object, *, optional: bool = False) -> None:
@@ -329,6 +331,20 @@ class CurrentPlanSnapshot:
 
 
 @dataclass(frozen=True)
+class CurrentPlanningLineSnapshot:
+    planning_line_public_id: PublicId
+    revision_public_id: PublicId
+    order_line_public_id: PublicId
+    state: str
+    version: int
+
+    def __post_init__(self) -> None:
+        if self.state not in PLANNING_LINE_STATES:
+            raise InvalidProductionPlanningModelError("Stato riga Planning corrente non congelato.")
+        _version("planning line version", self.version)
+
+
+@dataclass(frozen=True)
 class PlanningInputSnapshot:
     business_at: datetime
     policy: PlanningPolicySnapshot
@@ -339,10 +355,11 @@ class PlanningInputSnapshot:
     harvests: tuple[HarvestResourceSnapshot, ...]
     allocations: tuple[ActiveAllocationSnapshot, ...]
     current_plans: tuple[CurrentPlanSnapshot, ...]
+    current_planning_lines: tuple[CurrentPlanningLineSnapshot, ...]
 
     def __post_init__(self) -> None:
         _instant("business_at", self.business_at)
-        for name in ("demands", "knowledge", "stock", "in_progress", "harvests", "allocations", "current_plans"):
+        for name in ("demands", "knowledge", "stock", "in_progress", "harvests", "allocations", "current_plans", "current_planning_lines"):
             if not isinstance(getattr(self, name), tuple):
                 raise InvalidProductionPlanningModelError(f"{name} deve essere una tuple ordinata.")
         _unique_sorted(self.demands, lambda item: item.order_line_public_id.value, "demands")
@@ -350,6 +367,7 @@ class PlanningInputSnapshot:
         _unique_sorted(self.in_progress, lambda item: item.semina_public_id.value, "in_progress")
         _unique_sorted(self.harvests, lambda item: item.harvest_public_id.value, "harvests")
         _unique_sorted(self.allocations, lambda item: item.allocation_public_id.value, "allocations")
+        _unique_sorted(self.current_planning_lines, lambda item: item.planning_line_public_id.value, "current_planning_lines")
 
 
 @dataclass(frozen=True)
@@ -365,18 +383,63 @@ class CanonicalPlanningRequest:
 @dataclass(frozen=True)
 class CanonicalReplanningSnapshot:
     previous_revision_public_id: PublicId
+    previous_plan_revision_version: int
     order_line_public_id: PublicId
+    order_public_id: PublicId
+    order_state: OrdineState
+    order_version: int
+    order_line_version: int
+    ordered_quantity: ExactQuantity
+    delivered_quantity: ExactQuantity
+    commercial_residual_quantity: ExactQuantity
+    delivery_date: date
+    variety_public_id: PublicId
+    protocol_version_public_id: PublicId
+    protocol_version_number: int
+    protocol_valid_from: date
+    protocol_valid_to: date | None
     reason_code: str
     policy: PolicyVersionReference
+    quantitative_buffer_type: str
+    quantitative_buffer_value: Decimal | None
+    temporal_buffer_minutes: int
+    production_granularity: Decimal
     stock: tuple[StockResourceSnapshot, ...]
     in_progress: tuple[InProgressResourceSnapshot, ...]
     allocations: tuple[ActiveAllocationSnapshot, ...]
+    canonical_text: str
     canonical_snapshot_hash: CanonicalHash
     replanning_key_v1: CanonicalHash
 
     def __post_init__(self) -> None:
         if self.reason_code not in REPLANNING_REASONS:
             raise InvalidProductionPlanningModelError("Reason replanning non congelata.")
+        for name, value in (
+            ("previous_plan_revision_version", self.previous_plan_revision_version),
+            ("order_version", self.order_version),
+            ("order_line_version", self.order_line_version),
+        ):
+            _version(name, value)
+        _version("protocol_version_number", self.protocol_version_number, positive=True)
+        _version("temporal_buffer_minutes", self.temporal_buffer_minutes)
+        if self.order_state not in (OrdineState.APERTO, OrdineState.PARZIALMENTE_EVASO):
+            raise InvalidProductionPlanningModelError("Stato ORDINE replanning non eleggibile.")
+        quantities = (self.ordered_quantity, self.delivered_quantity, self.commercial_residual_quantity)
+        if len({item.unit for item in quantities}) != 1 or self.delivered_quantity.value + self.commercial_residual_quantity.value != self.ordered_quantity.value:
+            raise InvalidProductionPlanningModelError("Quantita replanning incoerenti.")
+        if self.protocol_valid_to is not None and self.protocol_valid_to <= self.protocol_valid_from:
+            raise InvalidProductionPlanningModelError("Validita protocollo replanning incoerente.")
+        if self.quantitative_buffer_type not in BUFFER_TYPES:
+            raise InvalidProductionPlanningModelError("Buffer replanning non congelato.")
+        if (self.quantitative_buffer_type == "NONE") != (self.quantitative_buffer_value is None):
+            raise InvalidProductionPlanningModelError("Valore buffer replanning incoerente.")
+        if self.quantitative_buffer_value is not None:
+            object.__setattr__(self, "quantitative_buffer_value", _decimal("quantitative_buffer_value", self.quantitative_buffer_value))
+        object.__setattr__(self, "production_granularity", _decimal("production_granularity", self.production_granularity, positive=True))
+        _text("canonical_text", self.canonical_text)
+        calculated_hash = hashlib.sha256(self.canonical_text.encode("utf-8")).hexdigest()
+        if self.canonical_snapshot_hash.value != calculated_hash:
+            raise InvalidProductionPlanningModelError("canonical_text e canonical_hash non coincidono.")
         _unique_sorted(self.stock, lambda item: item.resource_public_id.value, "stock")
         _unique_sorted(self.in_progress, lambda item: item.semina_public_id.value, "in_progress")
         _unique_sorted(self.allocations, lambda item: item.allocation_public_id.value, "allocations")
@@ -409,12 +472,50 @@ class PlanningLineDraft:
     planning_key: CanonicalHash
     expected_order_version: int
     expected_order_line_version: int
+    stock_coverage: ExactQuantity
+    in_progress_coverage: ExactQuantity
+    allocated_harvest_coverage: ExactQuantity
+    production_deficit: ExactQuantity
+    quantitative_buffer_type: str
+    quantitative_buffer_value: Decimal | None
+    calculated_quantitative_buffer: Decimal
+    pre_granularity_quantity: Decimal
+    authorized_productive_quantity: ExactQuantity
+    remaining_to_start: ExactQuantity
+    harvest_window_start: date
+    harvest_window_end: date
 
     def __post_init__(self) -> None:
         if self.state not in PLANNING_LINE_STATES:
             raise InvalidProductionPlanningModelError("Stato riga piano non congelato.")
         _version("expected_order_version", self.expected_order_version)
         _version("expected_order_line_version", self.expected_order_line_version)
+        quantities = (
+            self.candidate.demand.commercial_residual,
+            self.stock_coverage,
+            self.in_progress_coverage,
+            self.allocated_harvest_coverage,
+            self.production_deficit,
+            self.authorized_productive_quantity,
+            self.remaining_to_start,
+        )
+        if len({item.unit for item in quantities}) != 1:
+            raise InvalidProductionPlanningModelError("UOM riga piano incoerenti.")
+        covered = self.stock_coverage.value + self.in_progress_coverage.value + self.allocated_harvest_coverage.value
+        if covered + self.production_deficit.value != self.candidate.demand.commercial_residual.value:
+            raise InvalidProductionPlanningModelError("Coperture e deficit non bilanciano la domanda residua.")
+        if self.authorized_productive_quantity != self.candidate.productive_quantity or self.remaining_to_start != self.authorized_productive_quantity:
+            raise InvalidProductionPlanningModelError("Quantita produttiva draft incoerente.")
+        if self.quantitative_buffer_type not in BUFFER_TYPES:
+            raise InvalidProductionPlanningModelError("Buffer riga piano non congelato.")
+        if (self.quantitative_buffer_type == "NONE") != (self.quantitative_buffer_value is None):
+            raise InvalidProductionPlanningModelError("Valore buffer riga piano incoerente.")
+        for name in ("quantitative_buffer_value", "calculated_quantitative_buffer", "pre_granularity_quantity"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, _decimal(name, value))
+        if self.harvest_window_end < self.harvest_window_start:
+            raise InvalidProductionPlanningModelError("Finestra raccolta riga piano incoerente.")
 
 
 @dataclass(frozen=True)
@@ -452,12 +553,20 @@ class PlanRevisionDraft:
     revision_number: int
     request_key: CanonicalHash
     lines: tuple[PlanningLineDraft, ...]
+    plan_state: str
+    expected_plan_version: int | None = None
+    expected_current_revision_version: int | None = None
     previous_revision_public_id: PublicId | None = None
     replanning_reason_code: str | None = None
     canonical_replanning_snapshot: CanonicalReplanningSnapshot | None = None
 
     def __post_init__(self) -> None:
         _version("revision_number", self.revision_number, positive=True)
+        _text("plan_state", self.plan_state)
+        if self.expected_plan_version is not None:
+            _version("expected_plan_version", self.expected_plan_version)
+        if self.expected_current_revision_version is not None:
+            _version("expected_current_revision_version", self.expected_current_revision_version)
         if not isinstance(self.lines, tuple) or not self.lines:
             raise InvalidProductionPlanningModelError("Una revisione completa richiede righe.")
         is_initial = self.revision_number == 1
@@ -466,6 +575,57 @@ class PlanRevisionDraft:
             raise InvalidProductionPlanningModelError("La prima revisione vieta dati replanning.")
         if not is_initial and any(item is None for item in extras):
             raise InvalidProductionPlanningModelError("Il replanning richiede precedente, reason e snapshot.")
+        if is_initial and (self.expected_plan_version is not None or self.expected_current_revision_version is not None):
+            raise InvalidProductionPlanningModelError("La prima revisione non possiede versioni correnti attese.")
+        if not is_initial and (self.expected_plan_version is None or self.expected_current_revision_version is None):
+            raise InvalidProductionPlanningModelError("Il replanning richiede le versioni correnti attese.")
+
+
+@dataclass(frozen=True)
+class ProductionPlanningRunCounters:
+    orders_read: int
+    order_lines_evaluated: int
+    lines_fully_covered: int
+    lines_partially_covered: int
+    planning_lines_generated: int
+    allocations_generated: int
+    late_lines: int
+    non_producible_lines: int
+    skipped_items: int
+
+    def __post_init__(self) -> None:
+        for name, value in self.__dict__.items():
+            _version(name, value)
+
+
+@dataclass(frozen=True)
+class AuditDraft:
+    entity_type: str
+    entity_public_id: PublicId
+    operation: str
+    before_payload: tuple[tuple[str, str], ...]
+    after_payload: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        _text("entity_type", self.entity_type)
+        if self.operation not in AUDIT_OPERATIONS:
+            raise InvalidProductionPlanningModelError("Operazione audit non congelata.")
+        if not self.before_payload and not self.after_payload:
+            raise InvalidProductionPlanningModelError("Audit privo di payload.")
+        if self.operation == "INSERT" and not self.after_payload:
+            raise InvalidProductionPlanningModelError("Audit INSERT richiede after payload.")
+        if self.operation == "DELETE" and not self.before_payload:
+            raise InvalidProductionPlanningModelError("Audit DELETE richiede before payload.")
+        for name, payload in (("before_payload", self.before_payload), ("after_payload", self.after_payload)):
+            if not isinstance(payload, tuple):
+                raise InvalidProductionPlanningModelError(f"{name} deve essere una tuple canonica.")
+            keys = tuple(key for key, _ in payload)
+            if keys != tuple(sorted(keys)) or len(keys) != len(set(keys)):
+                raise InvalidProductionPlanningModelError(f"{name} deve essere unico e ordinato.")
+            for key, value in payload:
+                _text(f"{name}.key", key)
+                if not isinstance(value, str):
+                    raise InvalidProductionPlanningModelError(f"{name} contiene un valore non canonico.")
 
 
 @dataclass(frozen=True)
@@ -512,6 +672,8 @@ class ProductionPlanningCommit:
     seed_resources: tuple[SeedResourceDraft, ...]
     allocations: tuple[AllocationDraft, ...]
     messages: tuple[RunMessage, ...]
+    counters: ProductionPlanningRunCounters
+    audits: tuple[AuditDraft, ...]
     input_snapshot: PlanningInputSnapshot
 
     def __post_init__(self) -> None:
@@ -520,6 +682,18 @@ class ProductionPlanningCommit:
             raise InvalidProductionPlanningModelError("Write set privo di revisioni.")
         _unique_sorted(self.revisions, lambda item: item.plan_public_id.value, "revisions")
         _unique_sorted(self.allocations, lambda item: item.public_id.value, "allocations")
+        if not isinstance(self.counters, ProductionPlanningRunCounters):
+            raise InvalidProductionPlanningModelError("Contatori RUN mancanti.")
+        if not isinstance(self.audits, tuple) or not self.audits:
+            raise InvalidProductionPlanningModelError("Audit write set mancante.")
+        if self.business_at != self.input_snapshot.business_at or self.policy != self.input_snapshot.policy.reference:
+            raise InvalidProductionPlanningModelError("Scope commit non coerente con lo snapshot.")
+        generated_lines = sum(len(revision.lines) for revision in self.revisions)
+        if self.counters.planning_lines_generated != generated_lines or self.counters.allocations_generated != len(self.allocations):
+            raise InvalidProductionPlanningModelError("Contatori RUN non coerenti con il write set.")
+        audit_keys = tuple((item.entity_type, item.entity_public_id.value, item.operation) for item in self.audits)
+        if audit_keys != tuple(sorted(audit_keys)) or len(audit_keys) != len(set(audit_keys)):
+            raise InvalidProductionPlanningModelError("Audit devono essere unici e ordinati deterministicamente.")
         if tuple(message.position for message in self.messages) != tuple(range(1, len(self.messages) + 1)):
             raise InvalidProductionPlanningModelError("Messaggi non densamente ordinati.")
 

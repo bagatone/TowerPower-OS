@@ -127,7 +127,11 @@ Contiene l’esatta Policy Set Version richiesta e i soli parametri già congela
 
 `HarvestResourceSnapshot` contiene il fatto RACCOLTA effettivo, la quantità eleggibile e la provenance già congelata. Una previsione di raccolta non può essere trattata come fatto RACCOLTA.
 
-`ActiveAllocationSnapshot` contiene public ID, frozen `allocation_type`, source public ID, destination order-line public ID, quantità, UOM, frozen state e version. Le allocazioni `ATTIVA` e `CONSUMATA` partecipano ai limiti già congelati.
+`ActiveAllocationSnapshot` contiene public ID, frozen `allocation_type`, source
+public ID, destination order-line public ID, UOM, `allocated_quantity`,
+`consumed_quantity`, `released_quantity`, `transferred_quantity`,
+`invalidated_quantity`, `remaining_quantity`, frozen state e version. Il saldo
+è derivato dai fatti append-only; il modello non introduce una seconda authority.
 
 ### 3.7 ReplanningInputSnapshot
 
@@ -142,10 +146,14 @@ Il replanning include, nell’ordine e nel framing canonico congelati:
 - buffer e dati temporali congelati;
 - STOCK materialmente rilevante, ordinato deterministicamente;
 - SEMINE materialmente rilevanti, ordinate deterministicamente;
-- allocazioni attive materialmente rilevanti, ordinate per allocation public ID;
+- allocazioni materialmente rilevanti, ordinate per allocation public ID, con
+  allocated, consumed, released, transferred, invalidated, remaining, stato e
+  versione derivati dai fatti autorevoli;
 - ogni altro elemento esplicitamente incluso dal canonical encoding frozen.
 
 RUN, timestamp tecnico, caller, actor e correlation ID non entrano nella chiave di replanning.
+Il canonical encoding include tutti i saldi sopra elencati, con Decimal
+canonici e framing deterministico; non ricostruisce saldi da uno stato terminale.
 
 ## 4. Output contract
 
@@ -197,6 +205,7 @@ I modelli applicativi obbligatori sono:
 - `PlanningLineDraft`: timeline, target, quantità produttiva, stato frozen e planning key scope;
 - `SeedResourceDraft`: quantità seme e UOM derivati dal protocollo;
 - `AllocationDraft`: parent e child tipizzato coerente con il frozen `allocation_type`;
+- `AllocationTransitionDraft`: transizione quantitativa provider-neutral già determinata;
 - `RunMessage`: tipo già frozen, eventuale failure category frozen, codice, messaggio e posizione;
 - `ProductionPlanningCommit`: write set completo e deterministico;
 - `RevisionCommitResult`: esito idempotente univoco di una singola revisione;
@@ -230,6 +239,43 @@ Non modifica le authority di input e non esegue I/O esterno durante i lock.
 Fornisce soltanto istanti tecnici di apertura/completamento. `business_at` proviene dal command e non viene sostituito dal clock.
 
 Non sono richieste port Google, API, UI, event bus, stock writer, order writer, delivery writer, semina writer o harvest writer.
+
+### 6.6 AllocationTransitionDraft e commit
+
+`AllocationTransitionDraft` è immutabile e contiene:
+
+- `allocation_public_id` ed `expected_version` non negativa;
+- `current_state`, obbligatoriamente `ATTIVA`, e `target_state` frozen;
+- `consumed_quantity_delta`, `released_quantity_delta`,
+  `transferred_quantity_delta`, `invalidated_quantity_delta`, Decimal esatti
+  nella UOM osservata;
+- `replacement_allocation_public_id`, obbligatorio esclusivamente quando il
+  delta trasferito è positivo;
+- `reason` e `provenance` non vuoti e sanitizzati.
+
+Almeno un delta è positivo, nessun delta è negativo e release, transfer e
+invalidation sono mutuamente esclusivi. Il target deve essere la conseguenza
+esplicita dei saldi risultanti: `ATTIVA` se resta residuo, altrimenti
+`CONSUMATA`, `RILASCIATA`, `SOSTITUITA` o `INVALIDA` secondo l'unica conclusione
+ammessa. Il writer non sceglie quantità, replacement o target.
+
+`ProductionPlanningCommit` trasporta `allocation_transitions` ordinata per
+allocation public ID e univoca per parent. Nuove `AllocationDraft` e transizioni
+di allocazioni esistenti restano collezioni distinte. Gli `AuditDraft` associati
+contengono già before/after con stato, versione, allocated, consumed, released,
+transferred, invalidated, remaining, delta, replacement, actor, reason,
+correlation ID e provenance; l'adapter non inventa payload business.
+
+`expected_version` è l'epoch idempotente del batch per il parent. Un replay
+rilegge tutte le transizioni della coppia allocation/version e confronta
+integralmente l'insieme canonico ordinato di tipo, quantità, replacement, reason
+e provenance. Payload identico è riuso compatibile; qualunque differenza è
+conflict. `ON CONFLICT DO NOTHING` non prova idempotenza.
+
+Sotto lock per allocation public ID crescente il writer verifica stato
+`ATTIVA`, expected version, fatti esistenti e residuo, valida il batch, inserisce
+i fatti, aggiorna stato/audit e incrementa la versione una sola volta. Due writer
+sulla stessa versione producono un solo commit; nessun retry automatico.
 
 ## 7. Service responsibilities
 
@@ -436,7 +482,7 @@ Dopo rollback fisicamente certo, una transazione distinta porta con CAS la RUN a
 | A06 | unit/integration | quantità oltre disponibilità | `ALLOCATION_CONFLICT` |
 | A07 | PostgreSQL | parent senza child/più child/child errato | constraint deferred rifiuta |
 | A08 | PostgreSQL | parent con esattamente un child tipizzato | commit ammesso |
-| A09 | unit | stati `ATTIVA`/`CONSUMATA` | conteggiati nei limiti frozen |
+| A09 | unit | lifecycle quantitativo | limite calcolato da consumed + remaining; quote disposte escluse |
 | A10 | unit | previsione usata come fatto fisico | rifiutata |
 | A11 | integration | pianificazione completa | nessuna modifica a STOCK/MOVIMENTI/SEMINE/RACCOLTE |
 

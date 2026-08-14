@@ -1485,6 +1485,29 @@ Richiedono una nuova Architecture Review:
 
 ## 23. Conclusioni
 
+### 23.1 Addendum Production Planning — lifecycle quantitativo allocazioni
+
+Il Physical Schema Production Planning estende questo Freeze con
+`tpo.allocation_transition_type` (`CONSUMATA`, `RILASCIATA`, `SOSTITUITA`,
+`INVALIDA`) e con `tpo.transizioni_allocazione`, registro append-only delle
+variazioni quantitative. `tpo.allocazioni.quantity` resta immutabile e nessun
+saldo mutabile è una seconda authority.
+
+I saldi `consumed`, `released`, `transferred`, `invalidated` sono somme dei fatti
+per tipo; `remaining` è la quantità originaria meno tali somme. Il totale dei
+delta non supera mai l'originario. Il parent resta `ATTIVA` finché il residuo è
+positivo e diventa terminale soltanto a residuo zero. Release, transfer e
+invalidation sono disposizioni mutuamente esclusive; il consumo può precederle.
+
+La tabella fisica, i nomi di PK/FK/check/unique/index, la replacement 1:1, il
+batch idempotente per expected allocation version, CAS, audit, canonical
+snapshot, commissioning fail-closed e migration schema-only successiva a
+`20260812_0009` sono congelati integralmente in
+`PRODUCTION_PLANNING_POSTGRESQL_PHYSICAL_SCHEMA_FREEZE.md`. Queste transizioni
+non modificano STOCK, SEMINE, RACCOLTE o MOVIMENTI_MAGAZZINO; l'impegno logico
+della risorsa originaria è `consumed_quantity + remaining_quantity` e la
+replacement conta autonomamente con la propria quantità.
+
 Il modello fisico PostgreSQL v1.0 preserva i Register congelati, normalizza aggregati e relazioni, rende atomiche Identity, RUN, idempotenza e variazioni STOCK e mantiene il Core indipendente dal provider.
 
 Le fonti autorevoli sono le tabelle PostgreSQL governate da questo documento. Le viste e Google Sheets restano rappresentazioni derivate.

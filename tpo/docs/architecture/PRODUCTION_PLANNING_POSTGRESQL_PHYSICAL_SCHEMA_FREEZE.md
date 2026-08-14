@@ -421,14 +421,17 @@ CHECK formato `public_id ~ '^ALL-[0-9]{6,}$'`, `quantity > 0`, `version >= 0`,
 `allocation_type`, `riga_piano_semina_id`, `quantity` e `unita_misura` sono
 immutabili. Soltanto `state`, `updated_at`, `updated_by` e `version` mutano con
 CAS durante il lifecycle. `created_at` e `created_by` restano immutabili;
-`updated_at` e `updated_by` descrivono l'ultima transizione, mentre la storia
-completa delle transizioni è conservata dagli audit event autorevoli.
+`updated_at` e `updated_by` descrivono l'ultimo batch; la storia quantitativa
+autorevole è `tpo.transizioni_allocazione`. Gli audit event ne costituiscono la
+traccia atomica, ma non un'autorità quantitativa alternativa.
 
 Indici: `ix_allocazioni_riga_piano_state` (`riga_piano_semina_id`,`state`) e
 `ix_allocazioni_type_state` (`allocation_type`,`state`). `allocation_type` è
-enum `DOMANDA|STOCK|PRODUZIONE_IN_CORSO|RACCOLTA`. Lifecycle esclusivo
-ATTIVA→CONSUMATA|RILASCIATA|SOSTITUITA|INVALIDA; gli stati terminali non sono
-riattivabili. Nessun hard delete. Writer: Production Planning allocation writer.
+enum `DOMANDA|STOCK|PRODUZIONE_IN_CORSO|RACCOLTA`. Il parent resta `ATTIVA`
+durante ogni transizione quantitativa parziale e assume `CONSUMATA`,
+`RILASCIATA`, `SOSTITUITA` o `INVALIDA` soltanto quando il residuo raggiunge
+zero; gli stati terminali non sono riattivabili. Nessun hard delete. Writer:
+Production Planning allocation writer.
 
 Ogni parent possiede esattamente una child dello stesso tipo. Il constraint
 trigger `ct_allocazioni_exactly_one_child`, DEFERRABLE INITIALLY DEFERRED e
@@ -459,23 +462,25 @@ Aggiunge `allocation_id bigint NOT NULL` PK/FK parent RESTRICT e
 `stock_varieta_id bigint NOT NULL` FK → `tpo.stock(varieta_id)` RESTRICT.
 Nessun'altra colonna, version o audit. Indice `stock_varieta_id`. Parent tipo
 STOCK. Append-only; writer allocation. Writer blocca STOCK e
-garantisce ATTIVA+CONSUMATA entro disponibilità. Non modifica STOCK.
+garantisce `consumed_quantity + remaining_quantity` entro disponibilità. Non
+modifica STOCK.
 
 ### 7.3 `tpo.allocazioni_produzione_in_corso`
 
 Aggiunge `allocation_id bigint NOT NULL` PK/FK parent RESTRICT e `semina_id
 bigint NOT NULL` FK → `tpo.semine(id)` RESTRICT. Nessun'altra colonna, version o
 audit. Indice `semina_id`. Parent tipo PRODUZIONE_IN_CORSO. Append-only; writer
-allocation. Writer blocca SEMINA, confronta `semine.version` e garantisce ATTIVA+CONSUMATA
-entro resa allocabile. Non modifica SEMINA.
+allocation. Writer blocca SEMINA, confronta `semine.version` e garantisce
+`consumed_quantity + remaining_quantity` entro resa allocabile. Non modifica
+SEMINA.
 
 ### 7.4 `tpo.allocazioni_raccolta`
 
 Aggiunge `allocation_id bigint NOT NULL` PK/FK parent RESTRICT e `raccolta_id
 bigint NOT NULL` FK → `tpo.raccolte(id)` RESTRICT. Nessun'altra colonna, version
 o audit. Indice `raccolta_id`. Parent tipo RACCOLTA. Append-only; writer
-allocation. Writer blocca RACCOLTA e garantisce
-ATTIVA+CONSUMATA entro quantità reale. Non modifica RACCOLTA. SODDISFATTA è
+allocation. Writer blocca RACCOLTA e garantisce `consumed_quantity +
+remaining_quantity` entro quantità reale. Non modifica RACCOLTA. SODDISFATTA è
 ammessa solo quando allocazioni raccolta definitivamente CONSUMATE raggiungono
 la quantità autorizzata, nella stessa transazione.
 
@@ -1387,8 +1392,9 @@ quantitativa, lifecycle, eligibility o policy. **INDEXES:**
 `created_at` e `created_by` sono immutabili; soltanto `state`, `updated_at`,
 `updated_by` e `version` mutano con il lifecycle. `state` non ha DEFAULT e il
 writer fornisce esplicitamente `ATTIVA` all'INSERT. `updated_at` e `updated_by`
-descrivono l'ultima transizione; gli audit event autorevoli ne conservano la
-storia completa. Gli stati terminali non sono riattivabili. **OPTIMISTIC
+descrivono l'ultimo batch; la storia quantitativa autorevole è
+`tpo.transizioni_allocazione`, mentre gli audit event ne conservano la traccia
+non autoritativa. Gli stati terminali non sono riattivabili. **OPTIMISTIC
 CONCURRENCY:** UPDATE con `WHERE id=:id AND version=:expected_version`, modifica
 atomica di `state`, `updated_at`, `updated_by` e incremento di `version`.
 **DELETE POLICY:** nessun hard delete; RESTRICT dopo creazione. **WRITER
@@ -1525,6 +1531,74 @@ ix_righe_piano_semina_semine_riga_created ON tpo.righe_piano_semina_semine
 (riga_piano_semina_id ASC,created_at ASC)`. **MUTABILITY:** append-only.
 **OPTIMISTIC CONCURRENCY:** non applicabile. **DELETE POLICY:** RESTRICT.
 **WRITER AUTHORITY:** writer della transizione Piano→SEMINA.
+
+### TABLE: `tpo.transizioni_allocazione`
+
+**RESPONSIBILITY:** authority append-only delle variazioni quantitative di una
+allocazione. `tpo.allocazioni.quantity` resta il fatto originario immutabile;
+nessun saldo derivato è persistito nel parent.
+
+**ENUM:** `tpo.allocation_transition_type` contiene esclusivamente
+`CONSUMATA`, `RILASCIATA`, `SOSTITUITA`, `INVALIDA`.
+
+| column | PostgreSQL type | nullability | default | authority / meaning |
+|---|---|---|---|---|
+| `id` | `bigint GENERATED BY DEFAULT AS IDENTITY` | NOT NULL | identity | PK tecnica |
+| `allocation_id` | `bigint` | NOT NULL | NONE | parent originario |
+| `transition_type` | `tpo.allocation_transition_type` | NOT NULL | NONE | tipo fatto |
+| `quantity` | `numeric(20,6)` | NOT NULL | NONE | delta positivo |
+| `replacement_allocation_id` | `bigint` | NULL | NONE | replacement 1:1 per SOSTITUITA |
+| `expected_allocation_version` | `bigint` | NOT NULL | NONE | epoch idempotente/CAS |
+| `created_at` | `timestamptz` | NOT NULL | `CURRENT_TIMESTAMP` | istante tecnico |
+| `created_by` | `text` | NOT NULL | NONE | actor |
+| `reason` | `text` | NOT NULL | NONE | motivo applicativo |
+| `provenance` | `text` | NOT NULL | NONE | provenance sanitizzata |
+
+**PRIMARY KEY:** `transizioni_allocazione_pkey` (`id`). **FOREIGN KEYS:**
+`transizioni_allocazione_allocation_id_fkey` (`allocation_id`) →
+`tpo.allocazioni(id)` ON UPDATE RESTRICT ON DELETE RESTRICT;
+`transizioni_allocazione_replacement_allocation_id_fkey`
+(`replacement_allocation_id`) → `tpo.allocazioni(id)` ON UPDATE RESTRICT ON
+DELETE RESTRICT. **UNIQUE:** `uq_transizioni_allocazione_epoch_type`
+(`allocation_id`,`expected_allocation_version`,`transition_type`); indice unico
+parziale `uq_transizioni_allocazione_replacement`
+(`replacement_allocation_id`) WHERE `replacement_allocation_id IS NOT NULL`
+congela la cardinalità replacement 1:1.
+
+**CHECKS:** `ck_transizioni_allocazione_quantity` (`quantity > 0`),
+`ck_transizioni_allocazione_expected_version`
+(`expected_allocation_version >= 0`), `ck_transizioni_allocazione_texts`
+(`btrim(created_by) <> '' AND btrim(reason) <> '' AND btrim(provenance) <> ''`),
+`ck_transizioni_allocazione_replacement` richiede replacement soltanto per
+`SOSTITUITA`, e `ck_transizioni_allocazione_distinct_allocations` vieta
+replacement uguale al parent. **INDEXES:**
+`ix_transizioni_allocazione_allocation_epoch`
+(`allocation_id`,`expected_allocation_version`,`id`),
+`ix_transizioni_allocazione_allocation_created`
+(`allocation_id`,`created_at`,`id`) e
+`ix_transizioni_allocazione_replacement` (`replacement_allocation_id`) WHERE
+non NULL.
+
+**CROSS-ROW INVARIANTS:** sotto lock il writer calcola, usando `COALESCE`
+soltanto sulle somme, `remaining = allocazioni.quantity - SUM(CONSUMATA) -
+SUM(RILASCIATA) - SUM(SOSTITUITA) - SUM(INVALIDA)` e impone somma delta compresa
+fra zero e quantità originaria. RILASCIATA/SOSTITUITA/INVALIDA sono disposizioni
+mutuamente esclusive per l'intera vita; CONSUMATA può precederne una. Per
+SOSTITUITA, writer e constraint deferred verificano creazione atomica di una
+replacement nuova, distinta, non condivisa, con stessa UOM, child tipizzato
+coerente e quantità originaria esattamente pari al delta trasferito. Non sono
+ammessi trigger business che modifichino STOCK, SEMINE, RACCOLTE o movimenti.
+
+**MUTABILITY:** INSERT-only; UPDATE e DELETE autorevoli vietati. **CAS:** lock
+parent per public ID crescente, stato `ATTIVA`, expected version coincidente;
+una sola modifica parent e un solo incremento versione per batch. Il replay
+confronta l'intero batch della stessa allocation/version; payload diverso è
+conflict e `ON CONFLICT DO NOTHING` è vietato come prova di idempotenza.
+
+L'audit atomico sul parent registra before/after di stato, versione, allocated,
+consumed, released, transferred, invalidated e remaining, più delta del batch e
+replacement public ID. Include actor, reason, correlation ID e provenance
+sanitizzata. L'audit non è authority quantitativa.
 
 ### TABLE: `tpo.replanning_snapshots`
 
@@ -1697,6 +1771,11 @@ RESTRICT. **WRITER AUTHORITY:** Planning writer.
 | `source_public_id` | `text` | NOT NULL | NONE | sorgente canonica tipizzata |
 | `destination_order_line_public_id` | `text` | NOT NULL | NONE | riga ordine destinazione |
 | `allocated_quantity` | `numeric(20,6)` | NOT NULL | NONE | quantità allocata |
+| `consumed_quantity` | `numeric(20,6)` | NOT NULL | NONE | consumo derivato osservato |
+| `released_quantity` | `numeric(20,6)` | NOT NULL | NONE | rilascio derivato osservato |
+| `transferred_quantity` | `numeric(20,6)` | NOT NULL | NONE | trasferimento derivato osservato |
+| `invalidated_quantity` | `numeric(20,6)` | NOT NULL | NONE | invalidazione derivata osservata |
+| `remaining_quantity` | `numeric(20,6)` | NOT NULL | NONE | residuo derivato osservato |
 | `unita_misura` | `unit_of_measure` | NOT NULL | NONE | unità quantità |
 | `allocation_state` | `planning_allocation_state` | NOT NULL | NONE | stato osservato |
 | `allocation_version` | `bigint` | NOT NULL | NONE | versione osservata |
@@ -1714,7 +1793,10 @@ valore snapshot autorevole interpretato con `allocation_type`. **UNIQUE
 CONSTRAINTS:** `uq_replanning_snapshot_allocazioni_allocation`
 (`snapshot_id`,`allocation_public_id`). **CHECK CONSTRAINTS:**
 `ck_replanning_snapshot_allocazioni_posizione` (`posizione > 0`),
-`ck_replanning_snapshot_allocazioni_quantity` (`allocated_quantity > 0`),
+`ck_replanning_snapshot_allocazioni_quantity` (`allocated_quantity > 0`, tutti
+i saldi derivati >= 0 e `remaining_quantity = allocated_quantity -
+consumed_quantity - released_quantity - transferred_quantity -
+invalidated_quantity`),
 `ck_replanning_snapshot_allocazioni_version` (`allocation_version >= 0`),
 `ck_replanning_snapshot_allocazioni_source` (`btrim(source_public_id) <> ''`).
 **OTHER STRUCTURAL CONSTRAINTS:** constraint trigger
@@ -1725,6 +1807,25 @@ impone posizioni esattamente 1..N per snapshot. **INDEXES:**
 (`destination_order_line_public_id`). **MUTABILITY:** append-only.
 **OPTIMISTIC CONCURRENCY:** non applicabile. **DELETE POLICY:** RESTRICT.
 **WRITER AUTHORITY:** Planning writer.
+
+### Addendum — commissioning e migration del lifecycle quantitativo
+
+Una allocation storica `ATTIVA` priva di transizioni è compatibile e ha residuo
+uguale alla quantità originaria. Qualunque allocation storica terminale rende il
+commissioning fail-closed: lo stato non autorizza una deduzione quantitativa,
+una transizione sintetica o un backfill.
+
+La migration futura, schema-only e successiva a `20260812_0009`, crea enum,
+tabella, constraint, FK e indici sopra congelati ed estende lo snapshot con i
+saldi derivati. Non esegue business DML, seed o backfill; un historical
+commissioning gate precede l'attivazione del writer.
+
+Acceptance obbligatoria: (A) 1.0, consume 0.4, remaining 0.6, ATTIVA; (B)
+consume 1.0, CONSUMATA; (C) consume 0.4 + release 0.6, RILASCIATA; (D) consume
+0.4 + transfer 0.6, original SOSTITUITA e replacement 0.6; (E) invalidazione
+parziale, ATTIVA; (F) invalidazione intero residuo, INVALIDA; (G) delta oltre
+residuo, rollback totale; (H) due writer stessa versione, un commit/un conflict;
+(I) replay compatibile, riuso; (J) stesso epoch con payload diverso, conflict.
 
 ### TABLE: `tpo.ordini` (existing, extended)
 

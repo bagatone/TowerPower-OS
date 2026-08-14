@@ -389,30 +389,23 @@ La copertura parziale è ammessa. Stock o resa prevista non possono coprire più
 
 ### Lifecycle delle allocazioni
 
-Il lifecycle si applica separatamente alle allocazioni DOMANDA, STOCK e PRODUZIONE_IN_CORSO. Gli stati normativi sono:
+Il lifecycle si applica separatamente alle allocazioni DOMANDA, STOCK,
+PRODUZIONE_IN_CORSO e RACCOLTA. Gli stati normativi del parent sono:
 
 ```text
-ATTIVA
-→ CONSUMATA
-→ stato terminale
-
-ATTIVA
-→ RILASCIATA | SOSTITUITA | INVALIDA
+ATTIVA --transizioni quantitative parziali--> ATTIVA
+ATTIVA --remaining = 0--> CONSUMATA | RILASCIATA | SOSTITUITA | INVALIDA
 ```
 
 - `ATTIVA`: creata esclusivamente nel commit autorevole della revisione; riduce la quantità ancora allocabile;
-- `CONSUMATA`: quantità trasformata in SEMINA, raccolta o altrimenti consumata fisicamente e divenuta immutabile;
-- `RILASCIATA`: quantità non consumata restituita alla disponibilità allocabile;
-- `SOSTITUITA`: quantità non consumata trasferita o rimpiazzata da una revisione successiva con provenance esplicita;
-- `INVALIDA`: sorgente non più eleggibile prima del consumo; richiede nuova valutazione e non può essere usata come copertura.
+- `CONSUMATA`: l'intera quantità originaria è stata consumata;
+- `RILASCIATA`: dopo eventuale consumo, tutto il residuo è stato rilasciato;
+- `SOSTITUITA`: dopo eventuale consumo, tutto il residuo è stato trasferito;
+- `INVALIDA`: dopo eventuale consumo, tutto il residuo è stato invalidato.
 
-Transizioni ammesse:
-
-```text
-ATTIVA → CONSUMATA | RILASCIATA | SOSTITUITA | INVALIDA
-```
-
-Tutti gli stati diversi da `ATTIVA` sono terminali per quella registrazione. Sono vietate riattivazione, ritorno a uno stato precedente, cancellazione fisica ordinaria e rilascio di quantità `CONSUMATA`.
+Tutti gli stati diversi da `ATTIVA` sono terminali per quella registrazione.
+Sono vietate riattivazione, ritorno a uno stato precedente, cancellazione fisica
+ordinaria e disposizione di quantità già consumata.
 
 ANNULLAMENTO o SOSTITUZIONE di una parte non eseguita rilascia o trasferisce atomicamente soltanto la quantità non consumata. Quantità già trasformate in SEMINA, raccolte o consumate fisicamente non vengono liberate automaticamente.
 
@@ -430,7 +423,55 @@ La semantica per tipo è:
 - ALLOCAZIONE_STOCK: riserva stock eleggibile; diventa CONSUMATA quando un evento fisico autorevole utilizza o destina definitivamente la quantità; non modifica implicitamente STOCK e non sostituisce MOVIMENTI_MAGAZZINO;
 - ALLOCAZIONE_PRODUZIONE_IN_CORSO: riserva una quota della resa prevista di una SEMINA; diventa CONSUMATA soltanto quando una RACCOLTA autorevole rende quella quota utile e definitivamente allocata; se la SEMINA non è più eleggibile prima del consumo diventa INVALIDA.
 
-Per ogni risorsa, la somma delle allocazioni `ATTIVA` e `CONSUMATA` non può eccedere la quantità eleggibile. Il vincolo è verificato nel commit mediante lock e constraint; nessuna verifica preliminare lo sostituisce.
+Per ogni risorsa, l'impegno logico di ciascuna allocazione originaria è
+`consumed_quantity + remaining_quantity`; la somma degli impegni non può
+eccedere la quantità eleggibile. Le quote rilasciate, trasferite o invalidate non
+continuano a impegnare la risorsa originaria. Il vincolo è verificato nel commit
+mediante lock e constraint; nessuna verifica preliminare lo sostituisce.
+
+### Addendum — lifecycle quantitativo delle allocazioni
+
+`tpo.allocazioni.quantity` è il fatto quantitativo originario immutabile. Ogni
+variazione successiva è un fatto autorevole append-only in
+`tpo.transizioni_allocazione`; nessun saldo mutabile è aggiunto al parent.
+
+```text
+allocated  = allocazioni.quantity
+consumed   = SUM(CONSUMATA)
+released   = SUM(RILASCIATA)
+transferred = SUM(SOSTITUITA)
+invalidated = SUM(INVALIDA)
+remaining  = allocated - consumed - released - transferred - invalidated
+```
+
+`COALESCE(..., 0)` è applicabile soltanto alle somme aggregate. Tutti i delta
+sono positivi e la loro somma è compresa fra zero e `allocated`; `remaining` non
+può essere negativo. Finché `remaining > 0`, lo stato del parent resta `ATTIVA`.
+Quando `remaining = 0`, lo stato è `CONSUMATA` se tutto l'originario è consumato,
+oppure la sola disposizione finale `RILASCIATA`, `SOSTITUITA` o `INVALIDA`.
+Queste tre disposizioni sono mutuamente esclusive sull'intera vita
+dell'allocazione; il consumo può precederne una. Non esistono transizioni da uno
+stato terminale né riattivazione.
+
+Sono quindi rappresentabili consumo parziale o totale, consumo parziale seguito
+dal rilascio o trasferimento dell'intero residuo, invalidazione parziale con
+parent ancora `ATTIVA` e invalidazione dell'intero residuo. Nessun delta può
+eccedere il residuo osservato sotto lock.
+
+Una `SOSTITUITA` crea atomicamente una nuova allocation con public ID proprio:
+la replacement è obbligatoria, distinta dal parent, non condivisa (rapporto
+1:1), della stessa UOM, con child tipizzato coerente e quantità originaria
+esattamente uguale al delta trasferito. Non è ammessa aggregazione implicita di
+trasferimenti differenti.
+
+Il replanning snapshot materialmente rilevante include, per ogni allocazione,
+`allocated`, `consumed`, `released`, `transferred`, `invalidated`, `remaining`,
+stato e versione. Il canonical encoding ordina per allocation public ID e
+include tutti questi valori con framing deterministico.
+
+Le transizioni non aggiornano fisicamente STOCK, SEMINE, RACCOLTE o
+MOVIMENTI_MAGAZZINO. Una replacement partecipa autonomamente al resource
+accounting con la propria quantità.
 
 ## 12. Priorità deterministica
 

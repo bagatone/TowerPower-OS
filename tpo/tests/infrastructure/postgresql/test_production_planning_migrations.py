@@ -24,6 +24,7 @@ PATHS = [
     VERSIONS / "20260811_0006_production_planning_plan.py",
     VERSIONS / "20260811_0007_production_planning_allocations.py",
     VERSIONS / "20260811_0008_production_calendar_view.py",
+    VERSIONS / "20260814_0010_allocation_quantitative_lifecycle.py",
 ]
 PLANNING_TABLES = {
     "production_planning_policy_versions", "production_planning_runs",
@@ -34,6 +35,7 @@ PLANNING_TABLES = {
     "allocazioni_raccolta", "righe_piano_semina_semine",
     "replanning_snapshots", "replanning_snapshot_stock",
     "replanning_snapshot_semine", "replanning_snapshot_allocazioni",
+    "transizioni_allocazione",
 }
 
 
@@ -333,11 +335,11 @@ def upgraded(tmp_path: Path):
 def test_revision_chain_e_nuovo_head() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
     assert [item.revision for item in revisions[:6]] == [
-        "20260812_0009", "20260811_0008", "20260811_0007", "20260811_0006",
-        "20260811_0005", "20260810_0004",
+        "20260814_0010", "20260812_0009", "20260811_0008", "20260811_0007",
+        "20260811_0006", "20260811_0005",
     ]
     assert [item.down_revision for item in revisions[:5]] == [
-        "20260811_0008", "20260811_0007", "20260811_0006", "20260811_0005", "20260810_0004",
+        "20260812_0009", "20260811_0008", "20260811_0007", "20260811_0006", "20260811_0005",
     ]
 
 
@@ -348,7 +350,7 @@ def test_upgrade_0004_downgrade_e_reupgrade(tmp_path: Path) -> None:
         command.upgrade(config, "20260810_0004")
         baseline = set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.upgrade(config, "head")
-        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260812_0009"
+        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0010"
         assert PLANNING_TABLES <= set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.downgrade(config, "20260810_0004")
         assert set(sa.inspect(connection).get_table_names(schema="tpo")) == baseline
@@ -366,6 +368,52 @@ def test_enum_planning_esatti() -> None:
     assert foundation.protocollo_versione_approval_state.enums == ["BOZZA", "APPROVATA", "RITIRATA"]
     assert foundation.planning_allocation_state.enums == ["ATTIVA", "CONSUMATA", "RILASCIATA", "SOSTITUITA", "INVALIDA"]
     assert foundation.allocation_type.enums == ["DOMANDA", "STOCK", "PRODUZIONE_IN_CORSO", "RACCOLTA"]
+    transition = _module(PATHS[-1])
+    assert transition.allocation_transition_type.enums == [
+        "CONSUMATA", "RILASCIATA", "SOSTITUITA", "INVALIDA",
+    ]
+
+
+def test_allocation_transition_offline_ddl_e_schema_only() -> None:
+    ddl = _postgresql_ddl("20260812_0009")
+    assert "CREATE TYPE tpo.allocation_transition_type AS ENUM ('CONSUMATA', 'RILASCIATA', 'SOSTITUITA', 'INVALIDA')" in ddl
+    assert "CREATE TABLE tpo.transizioni_allocazione" in ddl
+    assert "historical allocation commissioning required" in ddl
+    assert "tr_transizioni_allocazione_append_only" in ddl
+    assert "fn_transizioni_allocazione_append_only" in ddl
+    source = PATHS[-1].read_text(encoding="utf-8")
+    assert not re.search(r"\b(?:INSERT|UPDATE|DELETE)\s+(?:INTO|tpo\.)", source, re.IGNORECASE)
+    assert "remaining_quantity" not in source
+    assert "consumed_quantity" not in source
+
+
+def test_allocation_transition_migration_contract_statico() -> None:
+    source = PATHS[-1].read_text(encoding="utf-8")
+    for name in (
+        "transizioni_allocazione_pkey",
+        "transizioni_allocazione_allocation_id_fkey",
+        "transizioni_allocazione_replacement_allocation_id_fkey",
+        "ck_transizioni_allocazione_quantity",
+        "ck_transizioni_allocazione_expected_version",
+        "ck_transizioni_allocazione_texts",
+        "ck_transizioni_allocazione_replacement",
+        "ck_transizioni_allocazione_distinct_allocations",
+        "uq_transizioni_allocazione_epoch_type",
+        "uq_transizioni_allocazione_replacement",
+        "ix_transizioni_allocazione_allocation_epoch",
+        "ix_transizioni_allocazione_allocation_created",
+        "ix_transizioni_allocazione_replacement",
+    ):
+        assert name in source
+    assert source.index("_historical_commissioning_gate(bind)") < source.index(
+        "allocation_transition_type.create"
+    )
+    downgrade = source[source.index("def downgrade()") :]
+    assert downgrade.index("DROP TRIGGER") < downgrade.index("op.drop_table")
+    assert downgrade.index("DROP FUNCTION") < downgrade.index("op.drop_table")
+    assert downgrade.index("op.drop_table") < downgrade.index(
+        "allocation_transition_type.drop"
+    )
 
 
 def test_estensioni_staged_senza_dati_inventati(upgraded) -> None:
@@ -509,7 +557,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     config = make_config(connection=connection)
     command.upgrade(config, "20260810_0004")
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260812_0009"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0010"
     connection.commit()
 
     functions = set(connection.exec_driver_sql("""
@@ -545,7 +593,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     command.downgrade(config, "20260810_0004")
     assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260810_0004"
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260812_0009"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0010"
     connection.commit()
 
 
@@ -788,3 +836,108 @@ def test_offline_postgresql_ddl_contiene_view_e_nessun_dml() -> None:
     assert ddl.count("UNION ALL") == 6
     assert "INSERT INTO" not in ddl.upper()
     assert "DROP EXTENSION" not in ddl.upper()
+
+
+def test_isolated_postgresql_allocation_transition_catalog_and_constraints(isolated_postgresql) -> None:
+    connection = isolated_postgresql
+    command.upgrade(make_config(connection=connection), "head")
+    inspector = sa.inspect(connection)
+    columns = {item["name"]: item for item in inspector.get_columns("transizioni_allocazione", schema="tpo")}
+    assert list(columns) == [
+        "id", "allocation_id", "transition_type", "quantity",
+        "replacement_allocation_id", "expected_allocation_version",
+        "created_at", "created_by", "reason", "provenance",
+    ]
+    assert inspector.get_pk_constraint("transizioni_allocazione", schema="tpo")["name"] == "transizioni_allocazione_pkey"
+    assert {item["name"] for item in inspector.get_foreign_keys("transizioni_allocazione", schema="tpo")} == {
+        "transizioni_allocazione_allocation_id_fkey",
+        "transizioni_allocazione_replacement_allocation_id_fkey",
+    }
+    assert {item["name"] for item in inspector.get_check_constraints("transizioni_allocazione", schema="tpo")} == {
+        "ck_transizioni_allocazione_quantity", "ck_transizioni_allocazione_expected_version",
+        "ck_transizioni_allocazione_texts", "ck_transizioni_allocazione_replacement",
+        "ck_transizioni_allocazione_distinct_allocations",
+    }
+    assert {item["name"] for item in inspector.get_unique_constraints("transizioni_allocazione", schema="tpo")} == {"uq_transizioni_allocazione_epoch_type"}
+    assert {item["name"] for item in inspector.get_indexes("transizioni_allocazione", schema="tpo")} == {
+        "uq_transizioni_allocazione_replacement", "ix_transizioni_allocazione_allocation_epoch",
+        "ix_transizioni_allocazione_allocation_created", "ix_transizioni_allocazione_replacement",
+    }
+
+    planning_row_id, order_line_id, _ = _insert_valid_planning_graph(connection)
+    parent = _setup_allocation(connection, 920001, "DOMANDA", planning_row_id)
+    replacement = _setup_allocation(connection, 920002, "DOMANDA", planning_row_id)
+    for allocation_id in (parent, replacement):
+        connection.execute(sa.text("INSERT INTO tpo.allocazioni_domanda (allocation_id, riga_ordine_id) VALUES (:allocation_id, :order_line_id)"), {"allocation_id": allocation_id, "order_line_id": order_line_id})
+    _set_constraints(connection, "IMMEDIATE")
+
+    def insert_transition(**overrides) -> None:
+        values = {
+            "allocation_id": parent, "transition_type": "CONSUMATA",
+            "quantity": Decimal("0.4"), "replacement_allocation_id": None,
+            "expected_allocation_version": 0, "created_by": "test-suite",
+            "reason": "test transition", "provenance": "test-only",
+        }
+        values.update(overrides)
+        connection.execute(sa.text("""
+            INSERT INTO tpo.transizioni_allocazione (
+              allocation_id, transition_type, quantity, replacement_allocation_id,
+              expected_allocation_version, created_by, reason, provenance
+            ) VALUES (
+              :allocation_id, CAST(:transition_type AS tpo.allocation_transition_type),
+              :quantity, :replacement_allocation_id, :expected_allocation_version,
+              :created_by, :reason, :provenance
+            )
+        """), values)
+
+    insert_transition()
+    insert_transition(transition_type="SOSTITUITA", quantity=Decimal("0.6"), replacement_allocation_id=replacement)
+    for overrides in (
+        {"quantity": Decimal("0"), "expected_allocation_version": 1},
+        {"expected_allocation_version": -1},
+        {"transition_type": "RILASCIATA", "replacement_allocation_id": replacement},
+        {"transition_type": "SOSTITUITA", "replacement_allocation_id": None},
+        {"transition_type": "SOSTITUITA", "replacement_allocation_id": parent},
+    ):
+        savepoint = connection.begin_nested()
+        with pytest.raises(sa.exc.DBAPIError):
+            insert_transition(**overrides)
+        savepoint.rollback()
+    for statement in (
+        "UPDATE tpo.transizioni_allocazione SET reason='changed' WHERE allocation_id=:parent",
+        "DELETE FROM tpo.transizioni_allocazione WHERE allocation_id=:parent",
+    ):
+        savepoint = connection.begin_nested()
+        with pytest.raises(sa.exc.DBAPIError, match="append-only"):
+            connection.execute(sa.text(statement), {"parent": parent})
+        savepoint.rollback()
+    connection.rollback()
+
+
+def test_isolated_postgresql_allocation_transition_commissioning_and_roundtrip(isolated_postgresql) -> None:
+    connection = isolated_postgresql
+    config = make_config(connection=connection)
+    command.upgrade(config, "head")
+    command.downgrade(config, "20260812_0009")
+    assert "transizioni_allocazione" not in sa.inspect(connection).get_table_names(schema="tpo")
+    command.upgrade(config, "head")
+    command.downgrade(config, "20260812_0009")
+
+    planning_row_id, order_line_id, _ = _insert_valid_planning_graph(connection)
+    parent = _setup_allocation(connection, 930001, "DOMANDA", planning_row_id)
+    connection.execute(sa.text("INSERT INTO tpo.allocazioni_domanda (allocation_id, riga_ordine_id) VALUES (:parent, :order_line_id)"), {"parent": parent, "order_line_id": order_line_id})
+    _set_constraints(connection, "IMMEDIATE")
+    connection.commit()
+
+    for state in ("CONSUMATA", "RILASCIATA", "SOSTITUITA", "INVALIDA"):
+        connection.execute(sa.text("UPDATE tpo.allocazioni SET state=:state WHERE id=:parent"), {"state": state, "parent": parent})
+        connection.commit()
+        with pytest.raises(RuntimeError, match="historical allocation commissioning required"):
+            command.upgrade(config, "head")
+        connection.rollback()
+        assert "transizioni_allocazione" not in sa.inspect(connection).get_table_names(schema="tpo")
+
+    connection.execute(sa.text("UPDATE tpo.allocazioni SET state='ATTIVA' WHERE id=:parent"), {"parent": parent})
+    connection.commit()
+    command.upgrade(config, "head")
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0010"

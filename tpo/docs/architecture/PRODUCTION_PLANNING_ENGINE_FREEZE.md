@@ -212,10 +212,12 @@ Ogni Planning RUN usa versioni esplicite e immutabili di:
 
 - protocollo produttivo;
 - policy di harvest target;
-- policy di buffer temporale;
 - policy di buffer quantitativo;
-- policy di granularità;
 - policy di allocazione e priorità.
+
+Il buffer temporale e la granularità produttiva appartengono alla versione del protocollo; readiness appartiene alle risorse e ai relativi snapshot. Il cutoff non è un input autorevole V1. La timezone proviene esclusivamente dall'autorità temporale globale TPO (`OFFICIAL_TIMEZONE_NAME` / `OFFICIAL_TIMEZONE`, `Atlantic/Canary`).
+
+Il vocabulary della Planning Policy V1 è chiuso: `priority_policy_code = DELIVERY_THEN_PUBLIC_ID`, `planning_algorithm_version = production-planning-v1` e `harvest_target_strategy = EARLIEST_APPROVED_WINDOW`. Il motore rifiuta ogni altro valore senza fallback. `planning_algorithm_version` è l'identificatore dell'algoritmo Planning e non deriva dalla versione del canonical encoding.
 
 Le versioni utilizzate sono conservate nella provenance. Una modifica successiva non riscrive piani, SEMINE o RUN precedenti. Nessun valore numerico globale di buffer, durata, resa o granularità è congelato dal presente Freeze.
 

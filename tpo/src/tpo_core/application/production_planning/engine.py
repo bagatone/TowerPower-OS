@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, ROUND_CEILING
-from zoneinfo import ZoneInfo
-
 from .errors import ProductionPlanningError
 from .models import (
+    HARVEST_TARGET_STRATEGY_V1,
+    PRODUCTION_PLANNING_ALGORITHM_VERSION_V1,
+    PRODUCTION_PLANNING_PRIORITY_POLICY_V1,
     DemandSnapshot,
     ExactQuantity,
     PlanningCandidate,
@@ -15,9 +16,8 @@ from .models import (
     PlanningPolicySnapshot,
     ProductionKnowledgeSnapshot,
 )
+from ...domain.time_reference import OFFICIAL_TIMEZONE
 
-
-_TIMEZONE = ZoneInfo("Atlantic/Canary")
 
 
 class ProductionPlanningEngine:
@@ -28,6 +28,7 @@ class ProductionPlanningEngine:
             raise ProductionPlanningError(
                 "PLANNING_INPUT_INVALID", "INVALID_SNAPSHOT", "Snapshot Planning non valido."
             )
+        _validate_policy(snapshot.policy)
         candidates = [self._candidate(demand, snapshot) for demand in snapshot.demands]
         return sorted(candidates, key=lambda item: _demand_order(item.demand))
 
@@ -41,7 +42,7 @@ class ProductionPlanningEngine:
             if knowledge.approval_state != "APPROVATA":
                 continue
             timeline = _timeline(demand.delivery_date, knowledge)
-            sowing_date = timeline.sowing_at.astimezone(_TIMEZONE).date()
+            sowing_date = timeline.sowing_at.astimezone(OFFICIAL_TIMEZONE).date()
             if knowledge.valid_from <= sowing_date and (
                 knowledge.valid_to is None or sowing_date < knowledge.valid_to
             ):
@@ -104,7 +105,7 @@ def _timeline(delivery_date: date, knowledge: ProductionKnowledgeSnapshot) -> _T
         days=knowledge.germination_days + knowledge.light_growth_days,
         minutes=knowledge.temporal_buffer_minutes,
     )
-    if sowing.astimezone(_TIMEZONE).time().replace(tzinfo=None) != knowledge.planned_sowing_time:
+    if sowing.astimezone(OFFICIAL_TIMEZONE).time().replace(tzinfo=None) != knowledge.planned_sowing_time:
         raise ProductionPlanningError(
             "PRODUCTION_KNOWLEDGE_INVALID",
             "PROTOCOL_TIMELINE_INCOHERENT",
@@ -137,8 +138,8 @@ def _strict_local_datetime(local_date: date, local_time) -> datetime:
     naive = datetime.combine(local_date, local_time)
     candidates = []
     for fold in (0, 1):
-        candidate = naive.replace(tzinfo=_TIMEZONE, fold=fold)
-        round_trip = candidate.astimezone(UTC).astimezone(_TIMEZONE).replace(tzinfo=None)
+        candidate = naive.replace(tzinfo=OFFICIAL_TIMEZONE, fold=fold)
+        round_trip = candidate.astimezone(UTC).astimezone(OFFICIAL_TIMEZONE).replace(tzinfo=None)
         if round_trip == naive:
             candidates.append(candidate)
     offsets = {candidate.utcoffset() for candidate in candidates}
@@ -166,6 +167,19 @@ def _productive_quantity(
     granularity = knowledge.production_granularity
     rounded = (value / granularity).to_integral_value(rounding=ROUND_CEILING) * granularity
     return ExactQuantity(rounded, residual.unit)
+
+
+def _validate_policy(policy: PlanningPolicySnapshot) -> None:
+    if (
+        policy.priority_policy_code != PRODUCTION_PLANNING_PRIORITY_POLICY_V1
+        or policy.algorithm_version != PRODUCTION_PLANNING_ALGORITHM_VERSION_V1
+        or policy.harvest_target_strategy != HARVEST_TARGET_STRATEGY_V1
+    ):
+        raise ProductionPlanningError(
+            "PLANNING_INPUT_INVALID",
+            "UNSUPPORTED_PLANNING_POLICY",
+            "Planning Policy V1 non supportata.",
+        )
 
 
 def _demand_order(demand: DemandSnapshot) -> tuple[object, ...]:

@@ -21,6 +21,7 @@ from src.tpo_core.application.production_planning.models import (
 )
 from src.tpo_core.domain.quantities import UnitOfMeasure
 from src.tpo_core.domain.states import OrdineState
+from src.tpo_core.domain.time_reference import OFFICIAL_TIMEZONE
 
 
 CANARY = ZoneInfo("Atlantic/Canary")
@@ -71,8 +72,9 @@ def snapshot(
     return PlanningInputSnapshot(
         business_at=datetime(2026, 8, 1, 6, tzinfo=CANARY),
         policy=PlanningPolicySnapshot(
-            PolicyVersionReference("DEFAULT", 1), "Atlantic/Canary", date(2026, 1, 1),
-            None, "NONE", None, "DELIVERY_PRIORITY_PUBLIC_ID", "planning-v1",
+            PolicyVersionReference("DEFAULT", 1), date(2026, 1, 1),
+            None, "NONE", None, "DELIVERY_THEN_PUBLIC_ID", "production-planning-v1",
+            "EARLIEST_APPROVED_WINDOW",
         ),
         demands=demands or (demand(),), knowledge=knowledge or (protocol(),), stock=(),
         in_progress=(), harvests=(), allocations=(), current_plans=(),
@@ -89,6 +91,37 @@ def test_singola_varieta_calcola_backplanning_completo() -> None:
     assert candidate.hydration_at == datetime(2026, 8, 3, 22, tzinfo=CANARY)
     assert candidate.productive_quantity.value == Decimal("1.0")
     assert candidate.provenance == "ORDINI|PROTOCOLLO_APPROVATO"
+
+
+def test_engine_usa_esclusivamente_timezone_ufficiale() -> None:
+    from src.tpo_core.application.production_planning import engine
+
+    assert engine.OFFICIAL_TIMEZONE is OFFICIAL_TIMEZONE
+    assert "_TIMEZONE" not in vars(engine)
+
+
+def test_engine_non_introduce_cutoff_o_readiness_nella_policy() -> None:
+    fields = PlanningPolicySnapshot.__dataclass_fields__
+    assert "cutoff" not in fields
+    assert "readiness" not in fields
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("priority_policy_code", "UNKNOWN_PRIORITY"),
+        ("algorithm_version", "unknown-algorithm"),
+        ("harvest_target_strategy", "LATEST_WINDOW"),
+    ),
+)
+def test_engine_rifiuta_policy_v1_non_supportata(field: str, value: str) -> None:
+    invalid = snapshot()
+    object.__setattr__(invalid.policy, field, value)
+
+    with pytest.raises(ProductionPlanningError) as raised:
+        ProductionPlanningEngine().calculate(invalid)
+
+    assert raised.value.code == "UNSUPPORTED_PLANNING_POLICY"
 
 
 def test_piu_varieta_e_ordine_jaira_producono_un_candidato_per_riga() -> None:

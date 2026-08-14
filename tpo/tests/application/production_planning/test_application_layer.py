@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
 import hashlib
@@ -157,14 +157,38 @@ def knowledge(approval_state: str = "APPROVATA") -> ProductionKnowledgeSnapshot:
 def policy() -> PlanningPolicySnapshot:
     return PlanningPolicySnapshot(
         reference=PolicyVersionReference("DEFAULT", 1),
-        timezone="Atlantic/Canary",
         valid_from=date(2026, 1, 1),
         valid_to=None,
         quantitative_buffer_type="NONE",
         quantitative_buffer_value=None,
         priority_policy_code="DELIVERY_THEN_PUBLIC_ID",
         algorithm_version="production-planning-v1",
+        harvest_target_strategy="EARLIEST_APPROVED_WINDOW",
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("priority_policy_code", "UNKNOWN_PRIORITY"),
+        ("algorithm_version", "unknown-algorithm"),
+        ("harvest_target_strategy", "LATEST_WINDOW"),
+    ),
+)
+def test_planning_policy_v1_rifiuta_vocabulary_sconosciuto(
+    field: str, value: str
+) -> None:
+    with pytest.raises(InvalidProductionPlanningModelError):
+        replace(policy(), **{field: value})
+
+
+def test_planning_policy_v1_non_contiene_authority_estranee() -> None:
+    fields = PlanningPolicySnapshot.__dataclass_fields__
+    assert "timezone" not in fields
+    assert "cutoff" not in fields
+    assert "temporal_buffer_minutes" not in fields
+    assert "production_granularity" not in fields
+    assert "readiness" not in fields
 
 
 def snapshot() -> PlanningInputSnapshot:

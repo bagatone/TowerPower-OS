@@ -117,7 +117,11 @@ Planning Engine.
 
 ### 3.5 PlanningPolicySnapshot
 
-Contiene l’esatta Policy Set Version richiesta e i soli parametri già congelati: timezone, cutoff, buffer temporali, quantitative buffer policy, granularità, readiness e regole di priorità. La versione deve essere valida al `business_at`; nessun default applicativo sostituisce un dato mancante.
+Contiene field-by-field: `reference` (`policy_set_code`, `version`), `valid_from`, `valid_to`, `quantitative_buffer_type`, `quantitative_buffer_value`, `priority_policy_code`, `algorithm_version` e `harvest_target_strategy`. La versione deve essere valida al `business_at`; nessun default applicativo sostituisce un dato mancante.
+
+Il vocabulary V1 è chiuso: `priority_policy_code = DELIVERY_THEN_PUBLIC_ID`, `algorithm_version = production-planning-v1` e `harvest_target_strategy = EARLIEST_APPROVED_WINDOW`. Valori differenti falliscono chiuso. `planning_algorithm_version` identifica l'algoritmo Planning e non deriva dalla versione del canonical encoding, anche quando il testo coincide.
+
+Timezone appartiene esclusivamente all'autorità temporale globale TPO (`OFFICIAL_TIMEZONE_NAME` / `OFFICIAL_TIMEZONE`, `Atlantic/Canary`). Il cutoff non è un input autorevole V1. Buffer temporale e granularità appartengono alla versione protocollo. Readiness appartiene agli snapshot autorevoli di STOCK, SEMINA, RACCOLTA, allocazioni rilevanti e protocollo quando previsto.
 
 ### 3.6 Resource snapshots
 
@@ -313,7 +317,7 @@ sulla stessa versione producono un solo commit; nessun retry automatico.
 5. validare eleggibilità, UOM, quantità, policy e conoscenza;
 6. calcolare domanda residua senza alterare ORDINI;
 7. selezionare deterministicamente protocollo e risorse;
-8. applicare priorità, backplanning, timezone, cutoff, buffer e granularità frozen;
+8. applicare priority policy, backplanning, autorità temporale globale, buffer quantitativo della policy e buffer temporale/granularità del protocollo;
 9. produrre revisioni complete, righe, risorse seme e allocazioni tipizzate;
 10. calcolare chiavi e hash con il canonical encoding frozen;
 11. costruire un write set completo e deterministicamente ordinato;
@@ -331,7 +335,7 @@ Il service non deve aggiornare stato o versioni delle authority lette, avviare S
 3. Soltanto domanda residua positiva di ORDINI eleggibili viene pianificata.
 4. Il consegnato proviene esclusivamente dal fulfilment commerciale congelato.
 5. Protocollo assente, ambiguo, non approvato, incompleto o fuori validità fallisce chiuso.
-6. Date e istanti seguono timezone, cutoff e DST frozen; una data non viene sintetizzata implicitamente in timestamp.
+6. Date e istanti seguono l'autorità temporale globale e le regole DST frozen; il cutoff non è un input V1 e una data non viene sintetizzata implicitamente in timestamp.
 7. Quantità, UOM, resa, granularità e buffer sono esatti e coerenti; nessuna conversione implicita.
 8. Priorità e tie-break non dipendono da PK interne, ordine di lettura o query plan.
 9. Una revisione è uno snapshot completo append-only; la precedente non viene riscritta.
@@ -482,7 +486,7 @@ Dopo rollback fisicamente certo, una transazione distinta porta con CAS la RUN a
 |---|---|---|---|
 | T01 | unit | acceptance scenario frozen | timeline e quantità esatte |
 | T02 | unit | backplanning ordinario | fase e harvest target coerenti |
-| T03 | unit | cutoff prima/dopo soglia | date frozen corrette |
+| T03 | unit | cutoff assente dal contratto V1 | nessun campo, default, fallback o algoritmo cutoff |
 | T04 | unit | transizione DST avanti/indietro | istanti deterministici, nessun naive datetime |
 | T05 | unit | deadline impossibile | `PLANNING_INFEASIBLE` |
 | T06 | unit | buffer temporale | applicato una volta nel punto frozen |

@@ -28,6 +28,9 @@ BUFFER_TYPES = frozenset({"NONE", "PERCENTAGE", "ABSOLUTE_SET"})
 RUN_STATES = frozenset({"OPEN", "COMMITTED", "FAILED", "RECONCILIATION_REQUIRED"})
 AUDIT_OPERATIONS = frozenset({"INSERT", "UPDATE", "DELETE", "STATE_TRANSITION", "CORRECTION"})
 PROTOCOL_APPROVAL_STATES = frozenset({"BOZZA", "APPROVATA", "RITIRATA"})
+PRODUCTION_PLANNING_PRIORITY_POLICY_V1 = "DELIVERY_THEN_PUBLIC_ID"
+PRODUCTION_PLANNING_ALGORITHM_VERSION_V1 = "production-planning-v1"
+HARVEST_TARGET_STRATEGY_V1 = "EARLIEST_APPROVED_WINDOW"
 
 
 def _text(name: str, value: object, *, optional: bool = False) -> None:
@@ -229,16 +232,16 @@ class ProductionKnowledgeSnapshot:
 @dataclass(frozen=True)
 class PlanningPolicySnapshot:
     reference: PolicyVersionReference
-    timezone: str
     valid_from: date
     valid_to: date | None
     quantitative_buffer_type: str
     quantitative_buffer_value: Decimal | None
     priority_policy_code: str
     algorithm_version: str
+    harvest_target_strategy: str
 
     def __post_init__(self) -> None:
-        if self.timezone != "Atlantic/Canary" or self.quantitative_buffer_type not in BUFFER_TYPES:
+        if self.quantitative_buffer_type not in BUFFER_TYPES:
             raise InvalidProductionPlanningModelError("Policy Planning non valida.")
         if self.quantitative_buffer_type == "NONE":
             if self.quantitative_buffer_value is not None:
@@ -247,8 +250,12 @@ class PlanningPolicySnapshot:
             raise InvalidProductionPlanningModelError("Policy buffer richiede un valore.")
         else:
             object.__setattr__(self, "quantitative_buffer_value", _decimal("buffer", self.quantitative_buffer_value))
-        _text("priority_policy_code", self.priority_policy_code)
-        _text("algorithm_version", self.algorithm_version)
+        if self.priority_policy_code != PRODUCTION_PLANNING_PRIORITY_POLICY_V1:
+            raise InvalidProductionPlanningModelError("Priority policy V1 non supportata.")
+        if self.algorithm_version != PRODUCTION_PLANNING_ALGORITHM_VERSION_V1:
+            raise InvalidProductionPlanningModelError("Planning algorithm version V1 non supportata.")
+        if self.harvest_target_strategy != HARVEST_TARGET_STRATEGY_V1:
+            raise InvalidProductionPlanningModelError("Harvest target strategy V1 non supportata.")
 
 
 @dataclass(frozen=True)

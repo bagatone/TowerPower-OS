@@ -312,13 +312,38 @@ class ActiveAllocationSnapshot:
     allocation_type: str
     source_public_id: PublicId
     destination_order_line_public_id: PublicId
-    quantity: ExactQuantity
+    allocated_quantity: ExactQuantity
+    consumed_quantity: ExactQuantity
+    released_quantity: ExactQuantity
+    transferred_quantity: ExactQuantity
+    invalidated_quantity: ExactQuantity
+    remaining_quantity: ExactQuantity
     state: str
     version: int
 
     def __post_init__(self) -> None:
         if self.allocation_type not in ALLOCATION_TYPES or self.state not in ALLOCATION_STATES:
             raise InvalidProductionPlanningModelError("Allocazione snapshot non valida.")
+        quantities = (
+            self.allocated_quantity,
+            self.consumed_quantity,
+            self.released_quantity,
+            self.transferred_quantity,
+            self.invalidated_quantity,
+            self.remaining_quantity,
+        )
+        if not all(isinstance(item, ExactQuantity) for item in quantities):
+            raise InvalidProductionPlanningModelError("Saldi allocazione snapshot non validi.")
+        if len({item.unit for item in quantities}) != 1:
+            raise InvalidProductionPlanningModelError("UOM saldi allocazione snapshot incoerenti.")
+        if self.allocated_quantity.value <= 0 or self.remaining_quantity.value != (
+            self.allocated_quantity.value
+            - self.consumed_quantity.value
+            - self.released_quantity.value
+            - self.transferred_quantity.value
+            - self.invalidated_quantity.value
+        ):
+            raise InvalidProductionPlanningModelError("Saldi allocazione snapshot incoerenti.")
         _version("allocation version", self.version)
 
 
@@ -553,6 +578,105 @@ class AllocationDraft:
 
 
 @dataclass(frozen=True)
+class AllocationTransitionDraft:
+    allocation_public_id: PublicId
+    expected_version: int
+    current_state: str
+    target_state: str
+    observed_allocated_quantity: Decimal
+    observed_consumed_quantity: Decimal
+    observed_released_quantity: Decimal
+    observed_transferred_quantity: Decimal
+    observed_invalidated_quantity: Decimal
+    observed_remaining_quantity: Decimal
+    consumed_quantity_delta: Decimal
+    released_quantity_delta: Decimal
+    transferred_quantity_delta: Decimal
+    invalidated_quantity_delta: Decimal
+    replacement_allocation_public_id: PublicId | None
+    reason: str
+    provenance: str
+
+    def __post_init__(self) -> None:
+        _version("expected_version", self.expected_version)
+        if self.current_state != "ATTIVA" or self.target_state not in ALLOCATION_STATES:
+            raise InvalidProductionPlanningModelError("Stato transizione allocazione non valido.")
+        observed_names = (
+            "observed_allocated_quantity",
+            "observed_consumed_quantity",
+            "observed_released_quantity",
+            "observed_transferred_quantity",
+            "observed_invalidated_quantity",
+            "observed_remaining_quantity",
+        )
+        delta_names = (
+            "consumed_quantity_delta",
+            "released_quantity_delta",
+            "transferred_quantity_delta",
+            "invalidated_quantity_delta",
+        )
+        for name in observed_names + delta_names:
+            object.__setattr__(self, name, _decimal(name, getattr(self, name)))
+        if self.observed_allocated_quantity <= 0:
+            raise InvalidProductionPlanningModelError("Quantità allocata observed deve essere positiva.")
+        expected_observed_remaining = (
+            self.observed_allocated_quantity
+            - self.observed_consumed_quantity
+            - self.observed_released_quantity
+            - self.observed_transferred_quantity
+            - self.observed_invalidated_quantity
+        )
+        if self.observed_remaining_quantity != expected_observed_remaining:
+            raise InvalidProductionPlanningModelError("Saldi observed allocazione incoerenti.")
+        deltas = (
+            self.consumed_quantity_delta,
+            self.released_quantity_delta,
+            self.transferred_quantity_delta,
+            self.invalidated_quantity_delta,
+        )
+        if not any(value > 0 for value in deltas):
+            raise InvalidProductionPlanningModelError("La transizione richiede almeno un delta positivo.")
+        disposition_deltas = (
+            self.released_quantity_delta,
+            self.transferred_quantity_delta,
+            self.invalidated_quantity_delta,
+        )
+        if sum(value > 0 for value in disposition_deltas) > 1:
+            raise InvalidProductionPlanningModelError("Disposizioni allocation mutuamente esclusive.")
+        if sum(deltas) > self.observed_remaining_quantity:
+            raise InvalidProductionPlanningModelError("Delta oltre il residuo observed.")
+        has_replacement = self.replacement_allocation_public_id is not None
+        if (self.transferred_quantity_delta > 0) != has_replacement:
+            raise InvalidProductionPlanningModelError("Replacement incoerente con il transfer.")
+        expected_remaining_after = self.observed_remaining_quantity - sum(deltas)
+        if expected_remaining_after > 0:
+            expected_target = "ATTIVA"
+        elif self.released_quantity_delta > 0:
+            expected_target = "RILASCIATA"
+        elif self.transferred_quantity_delta > 0:
+            expected_target = "SOSTITUITA"
+        elif self.invalidated_quantity_delta > 0:
+            expected_target = "INVALIDA"
+        elif self.observed_consumed_quantity + self.consumed_quantity_delta == self.observed_allocated_quantity:
+            expected_target = "CONSUMATA"
+        else:
+            raise InvalidProductionPlanningModelError("Conclusione quantitativa senza stato terminale coerente.")
+        if self.target_state != expected_target:
+            raise InvalidProductionPlanningModelError("target_state incoerente con i saldi risultanti.")
+        _text("reason", self.reason)
+        _text("provenance", self.provenance)
+
+    @property
+    def expected_remaining_after(self) -> Decimal:
+        return self.observed_remaining_quantity - (
+            self.consumed_quantity_delta
+            + self.released_quantity_delta
+            + self.transferred_quantity_delta
+            + self.invalidated_quantity_delta
+        )
+
+
+@dataclass(frozen=True)
 class PlanRevisionDraft:
     plan_public_id: PublicId
     revision_public_id: PublicId
@@ -677,6 +801,7 @@ class ProductionPlanningCommit:
     revisions: tuple[PlanRevisionDraft, ...]
     seed_resources: tuple[SeedResourceDraft, ...]
     allocations: tuple[AllocationDraft, ...]
+    allocation_transitions: tuple[AllocationTransitionDraft, ...]
     messages: tuple[RunMessage, ...]
     counters: ProductionPlanningRunCounters
     audits: tuple[AuditDraft, ...]
@@ -688,6 +813,13 @@ class ProductionPlanningCommit:
             raise InvalidProductionPlanningModelError("Write set privo di revisioni.")
         _unique_sorted(self.revisions, lambda item: item.plan_public_id.value, "revisions")
         _unique_sorted(self.allocations, lambda item: item.public_id.value, "allocations")
+        if not isinstance(self.allocation_transitions, tuple):
+            raise InvalidProductionPlanningModelError("allocation_transitions deve essere una tuple ordinata.")
+        _unique_sorted(
+            self.allocation_transitions,
+            lambda item: item.allocation_public_id.value,
+            "allocation_transitions",
+        )
         if not isinstance(self.counters, ProductionPlanningRunCounters):
             raise InvalidProductionPlanningModelError("Contatori RUN mancanti.")
         if not isinstance(self.audits, tuple) or not self.audits:

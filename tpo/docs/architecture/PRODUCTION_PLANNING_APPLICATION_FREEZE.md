@@ -246,6 +246,10 @@ Non sono richieste port Google, API, UI, event bus, stock writer, order writer, 
 
 - `allocation_public_id` ed `expected_version` non negativa;
 - `current_state`, obbligatoriamente `ATTIVA`, e `target_state` frozen;
+- i saldi snapshot-derived `observed_allocated_quantity`,
+  `observed_consumed_quantity`, `observed_released_quantity`,
+  `observed_transferred_quantity`, `observed_invalidated_quantity` e
+  `observed_remaining_quantity`;
 - `consumed_quantity_delta`, `released_quantity_delta`,
   `transferred_quantity_delta`, `invalidated_quantity_delta`, Decimal esatti
   nella UOM osservata;
@@ -258,6 +262,27 @@ invalidation sono mutuamente esclusivi. Il target deve essere la conseguenza
 esplicita dei saldi risultanti: `ATTIVA` se resta residuo, altrimenti
 `CONSUMATA`, `RILASCIATA`, `SOSTITUITA` o `INVALIDA` secondo l'unica conclusione
 ammessa. Il writer non sceglie quantità, replacement o target.
+
+I saldi observed sono derivati dall'`ActiveAllocationSnapshot` della stessa
+allocation e della stessa `expected_version`; non costituiscono authority.
+Devono essere Decimal esatti, non negativi, con allocated positivo e soddisfare:
+
+```text
+observed_remaining = observed_allocated - observed_consumed
+                     - observed_released - observed_transferred
+                     - observed_invalidated
+expected_remaining_after = observed_remaining - somma(delta)
+```
+
+La somma dei delta non supera il residuo observed. Se il residuo risultante è
+positivo il target è `ATTIVA`; a zero è `CONSUMATA` soltanto quando il consumo
+totale finale coincide con allocated, altrimenti la disposizione positiva
+determina rispettivamente `RILASCIATA`, `SOSTITUITA` o `INVALIDA`. Il writer
+rilegge e ricalcola sotto lock tutti i saldi e la version; ogni mismatch produce
+concurrency/allocation conflict.
+
+I saldi observed costituiscono il before payload applicativo; saldi e delta
+determinano senza inferenze l'after payload. L'audit resta non-authoritative.
 
 `ProductionPlanningCommit` trasporta `allocation_transitions` ordinata per
 allocation public ID e univoca per parent. Nuove `AllocationDraft` e transizioni

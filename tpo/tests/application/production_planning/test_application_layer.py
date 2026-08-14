@@ -16,6 +16,7 @@ from src.tpo_core.application.production_planning.errors import (
 from src.tpo_core.application.production_planning.models import (
     ActiveAllocationSnapshot,
     AllocationDraft,
+    AllocationTransitionDraft,
     AuditDraft,
     CanonicalHash,
     CanonicalReplanningSnapshot,
@@ -59,6 +60,47 @@ def pid(value: str) -> PublicId:
 
 def qty(value: str, unit: UnitOfMeasure = UnitOfMeasure.SET) -> ExactQuantity:
     return ExactQuantity(Decimal(value), unit)
+
+
+def allocation_snapshot() -> ActiveAllocationSnapshot:
+    return ActiveAllocationSnapshot(
+        allocation_public_id=pid("ALL-000001"),
+        allocation_type="DOMANDA",
+        source_public_id=pid("RO-000001"),
+        destination_order_line_public_id=pid("RO-000001"),
+        allocated_quantity=qty("1"),
+        consumed_quantity=qty("0"),
+        released_quantity=qty("0"),
+        transferred_quantity=qty("0"),
+        invalidated_quantity=qty("0"),
+        remaining_quantity=qty("1"),
+        state="ATTIVA",
+        version=0,
+    )
+
+
+def allocation_transition(**overrides) -> AllocationTransitionDraft:
+    values = {
+        "allocation_public_id": pid("ALL-000001"),
+        "expected_version": 0,
+        "current_state": "ATTIVA",
+        "target_state": "ATTIVA",
+        "observed_allocated_quantity": Decimal("1"),
+        "observed_consumed_quantity": Decimal("0"),
+        "observed_released_quantity": Decimal("0"),
+        "observed_transferred_quantity": Decimal("0"),
+        "observed_invalidated_quantity": Decimal("0"),
+        "observed_remaining_quantity": Decimal("1"),
+        "consumed_quantity_delta": Decimal("0.4"),
+        "released_quantity_delta": Decimal("0"),
+        "transferred_quantity_delta": Decimal("0"),
+        "invalidated_quantity_delta": Decimal("0"),
+        "replacement_allocation_public_id": None,
+        "reason": "allocation lifecycle",
+        "provenance": "planning snapshot",
+    }
+    values.update(overrides)
+    return AllocationTransitionDraft(**values)
 
 
 def command() -> InitialProductionPlanningCommand:
@@ -199,6 +241,7 @@ def write_set(run: ProductionPlanningRunSnapshot) -> ProductionPlanningCommit:
                 quantity=qty("1"),
             ),
         ),
+        allocation_transitions=(),
         messages=(),
         counters=ProductionPlanningRunCounters(1, 1, 0, 0, 1, 1, 0, 0, 0),
         audits=(
@@ -322,8 +365,103 @@ def test_stock_snapshot_impone_saldo_e_ordine_deterministico() -> None:
 
 def test_active_allocation_usa_solo_tipo_e_stato_congelati() -> None:
     with pytest.raises(InvalidProductionPlanningModelError):
-        ActiveAllocationSnapshot(
-            pid("ALL-000001"), "UNKNOWN", pid("VAR-000001"), pid("RO-000001"), qty("1"), "ATTIVA", 0
+        ActiveAllocationSnapshot(**{**allocation_snapshot().__dict__, "allocation_type": "UNKNOWN"})
+
+
+def test_active_allocation_snapshot_impone_formula_saldi_observed() -> None:
+    value = allocation_snapshot()
+    assert value.remaining_quantity.value == Decimal("1")
+    with pytest.raises(InvalidProductionPlanningModelError):
+        ActiveAllocationSnapshot(**{**value.__dict__, "remaining_quantity": qty("0.5")})
+
+
+def test_allocation_transition_partial_e_full_consume() -> None:
+    partial = allocation_transition()
+    assert partial.target_state == "ATTIVA"
+    assert partial.expected_remaining_after == Decimal("0.6")
+    full = allocation_transition(
+        target_state="CONSUMATA", consumed_quantity_delta=Decimal("1")
+    )
+    assert full.expected_remaining_after == Decimal("0")
+
+
+def test_allocation_transition_partial_e_full_invalidation() -> None:
+    partial = allocation_transition(
+        consumed_quantity_delta=Decimal("0"),
+        invalidated_quantity_delta=Decimal("0.2"),
+    )
+    assert partial.target_state == "ATTIVA"
+    full = allocation_transition(
+        target_state="INVALIDA",
+        consumed_quantity_delta=Decimal("0"),
+        invalidated_quantity_delta=Decimal("1"),
+    )
+    assert full.expected_remaining_after == Decimal("0")
+
+
+def test_allocation_transition_consume_e_disposizione_residuale() -> None:
+    released = allocation_transition(
+        target_state="RILASCIATA",
+        released_quantity_delta=Decimal("0.6"),
+    )
+    transferred = allocation_transition(
+        target_state="SOSTITUITA",
+        transferred_quantity_delta=Decimal("0.6"),
+        replacement_allocation_public_id=pid("ALL-000002"),
+    )
+    assert released.expected_remaining_after == transferred.expected_remaining_after == Decimal("0")
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"observed_remaining_quantity": Decimal("0.5")},
+        {"consumed_quantity_delta": Decimal("-0.1")},
+        {"consumed_quantity_delta": Decimal("0"), "released_quantity_delta": Decimal("0")},
+        {"released_quantity_delta": Decimal("0.3"), "transferred_quantity_delta": Decimal("0.3"), "replacement_allocation_public_id": pid("ALL-000002")},
+        {"transferred_quantity_delta": Decimal("0.6")},
+        {"replacement_allocation_public_id": pid("ALL-000002")},
+        {"current_state": "CONSUMATA"},
+        {"consumed_quantity_delta": Decimal("1.1")},
+        {"consumed_quantity_delta": 0.4},
+    ],
+)
+def test_allocation_transition_rifiuta_combinazioni_incoerenti(changes) -> None:
+    with pytest.raises(InvalidProductionPlanningModelError):
+        allocation_transition(**changes)
+
+
+def test_allocation_transition_target_state_deriva_dai_saldi() -> None:
+    with pytest.raises(InvalidProductionPlanningModelError):
+        allocation_transition(target_state="CONSUMATA")
+    with pytest.raises(InvalidProductionPlanningModelError):
+        allocation_transition(target_state="ATTIVA", consumed_quantity_delta=Decimal("1"))
+
+
+def test_allocation_transition_e_immutabile() -> None:
+    value = allocation_transition()
+    with pytest.raises(FrozenInstanceError):
+        value.target_state = "CONSUMATA"  # type: ignore[misc]
+
+
+def test_commit_allocation_transitions_uniche_e_ordinate() -> None:
+    base = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN"))
+    first = allocation_transition()
+    second = allocation_transition(
+        allocation_public_id=pid("ALL-000002"),
+        consumed_quantity_delta=Decimal("0.2"),
+    )
+    value = ProductionPlanningCommit(
+        **{**base.__dict__, "allocation_transitions": (first, second)}
+    )
+    assert value.allocation_transitions == (first, second)
+    with pytest.raises(InvalidProductionPlanningModelError):
+        ProductionPlanningCommit(
+            **{**base.__dict__, "allocation_transitions": (second, first)}
+        )
+    with pytest.raises(InvalidProductionPlanningModelError):
+        ProductionPlanningCommit(
+            **{**base.__dict__, "allocation_transitions": (first, first)}
         )
 
 

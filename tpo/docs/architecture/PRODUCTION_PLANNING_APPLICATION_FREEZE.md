@@ -290,10 +290,17 @@ determinano senza inferenze l'after payload. L'audit resta non-authoritative.
 
 `ProductionPlanningCommit` trasporta `allocation_transitions` ordinata per
 allocation public ID e univoca per parent. Nuove `AllocationDraft` e transizioni
-di allocazioni esistenti restano collezioni distinte. Gli `AuditDraft` associati
-contengono già before/after con stato, versione, allocated, consumed, released,
-transferred, invalidated, remaining, delta, replacement, actor, reason,
-correlation ID e provenance; l'adapter non inventa payload business.
+di allocazioni esistenti restano collezioni distinte. Ogni `AuditDraft`
+immutabile e provider-neutral contiene `entity_type`, `entity_public_id`,
+operation frozen, before/after canonici e una provenance specifica obbligatoria,
+normalizzata e non vuota. L'adapter non inventa né deduce provenance o payload
+business.
+
+Per tutti gli audit dello stesso commit, actor, reason e correlation ID
+provengono esclusivamente da `ProductionPlanningCommit.context` e non sono
+duplicati nei singoli `AuditDraft`. `occurred_at` proviene dal singolo persistence
+timestamp tecnico del writer. Il writer combina `AuditDraft`, execution context
+e persistence timestamp senza interpretare i business payload.
 
 `expected_version` è l'epoch idempotente del batch per il parent. Un replay
 rilegge tutte le transizioni della coppia allocation/version e confronta

@@ -742,6 +742,7 @@ class AuditDraft:
     operation: str
     before_payload: tuple[tuple[str, str], ...]
     after_payload: tuple[tuple[str, str], ...]
+    provenance: str
 
     def __post_init__(self) -> None:
         _text("entity_type", self.entity_type)
@@ -753,6 +754,7 @@ class AuditDraft:
             raise InvalidProductionPlanningModelError("Audit INSERT richiede after payload.")
         if self.operation == "DELETE" and not self.before_payload:
             raise InvalidProductionPlanningModelError("Audit DELETE richiede before payload.")
+        _text("provenance", self.provenance)
         for name, payload in (("before_payload", self.before_payload), ("after_payload", self.after_payload)):
             if not isinstance(payload, tuple):
                 raise InvalidProductionPlanningModelError(f"{name} deve essere una tuple canonica.")

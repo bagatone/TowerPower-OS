@@ -275,6 +275,7 @@ def write_set(run: ProductionPlanningRunSnapshot) -> ProductionPlanningCommit:
                 operation="INSERT",
                 before_payload=(),
                 after_payload=(("current_revision_public_id", "RVP-000001"), ("state", "APERTO")),
+                provenance="production-planning:piano",
             ),
             AuditDraft(
                 entity_type="PRODUCTION_PLANNING_RUN",
@@ -282,6 +283,7 @@ def write_set(run: ProductionPlanningRunSnapshot) -> ProductionPlanningCommit:
                 operation="STATE_TRANSITION",
                 before_payload=(("state", "OPEN"),),
                 after_payload=(("state", "COMMITTED"),),
+                provenance="production-planning:run",
             ),
         ),
         input_snapshot=snapshot(),
@@ -563,6 +565,30 @@ def test_commit_richiede_contatori_e_audit_immutabili_e_ordinati() -> None:
         value.counters.orders_read = 2  # type: ignore[misc]
     with pytest.raises(InvalidProductionPlanningModelError):
         ProductionPlanningCommit(**{**value.__dict__, "audits": tuple(reversed(value.audits))})
+
+
+def test_audit_draft_richiede_provenance_ed_e_immutabile() -> None:
+    audit = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN")).audits[0]
+    assert audit.provenance == "production-planning:piano"
+    with pytest.raises(FrozenInstanceError):
+        audit.provenance = "changed"  # type: ignore[misc]
+    with pytest.raises(InvalidProductionPlanningModelError):
+        replace(audit, provenance="")
+    with pytest.raises(InvalidProductionPlanningModelError):
+        replace(audit, provenance=" not-normalized")
+
+
+def test_audit_context_e_autorevole_e_non_duplicato_nei_draft() -> None:
+    value = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN"))
+    fields = AuditDraft.__dataclass_fields__
+    assert "actor" not in fields
+    assert "reason" not in fields
+    assert "correlation_id" not in fields
+    assert value.context == command().context
+    assert len({audit.provenance for audit in value.audits}) == len(value.audits)
+    for audit in value.audits:
+        payload_keys = {key for key, _ in audit.before_payload + audit.after_payload}
+        assert payload_keys.isdisjoint({"actor", "reason", "correlation_id", "provenance"})
 
 
 def test_revision_result_initial_associa_univocamente_la_chiave() -> None:

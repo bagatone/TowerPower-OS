@@ -25,6 +25,7 @@ PATHS = [
     VERSIONS / "20260811_0007_production_planning_allocations.py",
     VERSIONS / "20260811_0008_production_calendar_view.py",
     VERSIONS / "20260814_0010_allocation_quantitative_lifecycle.py",
+    VERSIONS / "20260814_0011_replanning_allocation_snapshot_balances.py",
 ]
 PLANNING_TABLES = {
     "production_planning_policy_versions", "production_planning_runs",
@@ -236,6 +237,63 @@ def _insert_valid_planning_graph(connection) -> tuple[int, int, int]:
     return planning_row_id, order_line_id, variety_id
 
 
+def _resolve_valid_planning_graph(connection) -> tuple[int, int, int]:
+    existing = connection.execute(sa.text("""
+        SELECT rps.id, ro.id, v.id
+        FROM tpo.clienti AS c
+        JOIN tpo.ordini AS o ON o.cliente_id=c.id
+        JOIN tpo.righe_ordine AS ro ON ro.ordine_id=o.id
+        JOIN tpo.varieta AS v ON v.id=ro.varieta_id
+        JOIN tpo.stock AS s ON s.varieta_id=v.id
+        JOIN tpo.righe_piano_semina AS rps ON rps.riga_ordine_id=ro.id
+        JOIN tpo.piano_produzione_revisioni AS r
+          ON r.id=rps.piano_revisione_id
+        JOIN tpo.piani_produzione AS p ON p.id=r.piano_produzione_id
+        JOIN tpo.production_planning_runs AS pr ON pr.id=r.planning_run_id
+        JOIN tpo.production_planning_policy_versions AS pv
+          ON pv.id=pr.policy_version_id AND pv.id=r.policy_version_id
+        WHERE c.public_id='CLI-990001'
+          AND c.denominazione='Test-only planning client'
+          AND o.public_id='ORD-990001'
+          AND o.stato='APERTO'
+          AND ro.public_id='RO-990001'
+          AND ro.posizione=1
+          AND ro.quantita=1
+          AND ro.unita_misura='SET'
+          AND v.public_id='VAR-990001'
+          AND v.denominazione='Test-only planning variety'
+          AND v.stato='ATTIVA'
+          AND s.disponibile=10
+          AND s.unita_misura='SET'
+          AND rps.public_id='RPS-990001'
+          AND rps.stato='PIANIFICATA'
+          AND r.public_id='RVP-990001'
+          AND r.numero_revisione=1
+          AND p.public_id='PP-990001'
+          AND pr.public_id='RPP-990001'
+          AND pv.policy_set_code='TEST-PLANNING'
+          AND pv.numero_versione=1
+    """)).one_or_none()
+    if existing is not None:
+        return existing
+    seed_identifiers_exist = connection.execute(sa.text("""
+        SELECT EXISTS (
+          SELECT 1 FROM tpo.clienti WHERE public_id='CLI-990001'
+          UNION ALL SELECT 1 FROM tpo.varieta WHERE public_id='VAR-990001'
+          UNION ALL SELECT 1 FROM tpo.ordini WHERE public_id='ORD-990001'
+          UNION ALL SELECT 1 FROM tpo.righe_ordine WHERE public_id='RO-990001'
+          UNION ALL SELECT 1 FROM tpo.production_planning_runs WHERE public_id='RPP-990001'
+          UNION ALL SELECT 1 FROM tpo.piani_produzione WHERE public_id='PP-990001'
+          UNION ALL SELECT 1 FROM tpo.piano_produzione_revisioni WHERE public_id='RVP-990001'
+          UNION ALL SELECT 1 FROM tpo.righe_piano_semina WHERE public_id='RPS-990001'
+        )
+    """)).scalar_one()
+    assert not seed_identifiers_exist, (
+        "Seed test-only CLI-990001 presente ma semanticamente incompatibile"
+    )
+    return _insert_valid_planning_graph(connection)
+
+
 def _setup_allocation(
     connection, public_number: int, allocation_type: str, planning_row_id: int
 ) -> int:
@@ -335,11 +393,11 @@ def upgraded(tmp_path: Path):
 def test_revision_chain_e_nuovo_head() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
     assert [item.revision for item in revisions[:6]] == [
-        "20260814_0010", "20260812_0009", "20260811_0008", "20260811_0007",
-        "20260811_0006", "20260811_0005",
+        "20260814_0011", "20260814_0010", "20260812_0009", "20260811_0008",
+        "20260811_0007", "20260811_0006",
     ]
     assert [item.down_revision for item in revisions[:5]] == [
-        "20260812_0009", "20260811_0008", "20260811_0007", "20260811_0006", "20260811_0005",
+        "20260814_0010", "20260812_0009", "20260811_0008", "20260811_0007", "20260811_0006",
     ]
 
 
@@ -350,7 +408,7 @@ def test_upgrade_0004_downgrade_e_reupgrade(tmp_path: Path) -> None:
         command.upgrade(config, "20260810_0004")
         baseline = set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.upgrade(config, "head")
-        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0010"
+        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
         assert PLANNING_TABLES <= set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.downgrade(config, "20260810_0004")
         assert set(sa.inspect(connection).get_table_names(schema="tpo")) == baseline
@@ -368,7 +426,7 @@ def test_enum_planning_esatti() -> None:
     assert foundation.protocollo_versione_approval_state.enums == ["BOZZA", "APPROVATA", "RITIRATA"]
     assert foundation.planning_allocation_state.enums == ["ATTIVA", "CONSUMATA", "RILASCIATA", "SOSTITUITA", "INVALIDA"]
     assert foundation.allocation_type.enums == ["DOMANDA", "STOCK", "PRODUZIONE_IN_CORSO", "RACCOLTA"]
-    transition = _module(PATHS[-1])
+    transition = _module(PATHS[4])
     assert transition.allocation_transition_type.enums == [
         "CONSUMATA", "RILASCIATA", "SOSTITUITA", "INVALIDA",
     ]
@@ -381,14 +439,14 @@ def test_allocation_transition_offline_ddl_e_schema_only() -> None:
     assert "historical allocation commissioning required" in ddl
     assert "tr_transizioni_allocazione_append_only" in ddl
     assert "fn_transizioni_allocazione_append_only" in ddl
-    source = PATHS[-1].read_text(encoding="utf-8")
+    source = PATHS[4].read_text(encoding="utf-8")
     assert not re.search(r"\b(?:INSERT|UPDATE|DELETE)\s+(?:INTO|tpo\.)", source, re.IGNORECASE)
     assert "remaining_quantity" not in source
     assert "consumed_quantity" not in source
 
 
 def test_allocation_transition_migration_contract_statico() -> None:
-    source = PATHS[-1].read_text(encoding="utf-8")
+    source = PATHS[4].read_text(encoding="utf-8")
     for name in (
         "transizioni_allocazione_pkey",
         "transizioni_allocazione_allocation_id_fkey",
@@ -534,6 +592,36 @@ def test_plpgsql_function_bodies_have_valid_terminators() -> None:
     assert all(re.search(r"\bBEGIN\b.*\bEND;\s*$", body, re.DOTALL) for body in bodies)
 
 
+def test_replanning_allocation_snapshot_balance_migration_static_contract() -> None:
+    migration = _module(PATHS[5])
+    source = PATHS[5].read_text(encoding="utf-8")
+    assert migration.revision == "20260814_0011"
+    assert migration.down_revision == "20260814_0010"
+    assert "historical replanning allocation snapshot commissioning required" in source
+    for name in (
+        "consumed_quantity", "released_quantity", "transferred_quantity",
+        "invalidated_quantity", "remaining_quantity",
+    ):
+        assert f'"{name}"' in source
+        assert name in migration.NEW_CHECK
+    assert "remaining_quantity = allocated_quantity" in migration.NEW_CHECK
+    assert not re.search(r"\b(?:INSERT|UPDATE|DELETE)\b", source, re.IGNORECASE)
+    assert "server_default" not in source
+
+
+def test_replanning_allocation_snapshot_offline_ddl() -> None:
+    ddl = _postgresql_ddl("20260814_0010")
+    assert "historical replanning allocation snapshot commissioning required" in ddl
+    for name in (
+        "consumed_quantity", "released_quantity", "transferred_quantity",
+        "invalidated_quantity", "remaining_quantity",
+    ):
+        assert f"ADD COLUMN {name} NUMERIC(20, 6) NOT NULL" in ddl
+    assert "remaining_quantity = allocated_quantity" in ddl
+    assert "INSERT INTO" not in ddl.upper()
+    assert "UPDATE tpo.replanning_snapshot_allocazioni" not in ddl
+
+
 def test_postgresql_ddl_contains_functions_and_constraint_triggers() -> None:
     ddl = _postgresql_ddl("20260810_0004")
     function_names = (
@@ -557,7 +645,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     config = make_config(connection=connection)
     command.upgrade(config, "20260810_0004")
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0010"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
     connection.commit()
 
     functions = set(connection.exec_driver_sql("""
@@ -593,7 +681,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     command.downgrade(config, "20260810_0004")
     assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260810_0004"
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0010"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
     connection.commit()
 
 
@@ -860,6 +948,7 @@ def test_isolated_postgresql_allocation_transition_catalog_and_constraints(isola
     }
     assert {item["name"] for item in inspector.get_unique_constraints("transizioni_allocazione", schema="tpo")} == {"uq_transizioni_allocazione_epoch_type"}
     assert {item["name"] for item in inspector.get_indexes("transizioni_allocazione", schema="tpo")} == {
+        "uq_transizioni_allocazione_epoch_type",
         "uq_transizioni_allocazione_replacement", "ix_transizioni_allocazione_allocation_epoch",
         "ix_transizioni_allocazione_allocation_created", "ix_transizioni_allocazione_replacement",
     }
@@ -940,4 +1029,167 @@ def test_isolated_postgresql_allocation_transition_commissioning_and_roundtrip(i
     connection.execute(sa.text("UPDATE tpo.allocazioni SET state='ATTIVA' WHERE id=:parent"), {"parent": parent})
     connection.commit()
     command.upgrade(config, "head")
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
+
+
+def test_isolated_postgresql_replanning_snapshot_balance_catalog_and_checks(
+    isolated_postgresql,
+) -> None:
+    connection = isolated_postgresql
+    command.upgrade(make_config(connection=connection), "head")
+    inspector = sa.inspect(connection)
+    columns = {
+        item["name"]: item
+        for item in inspector.get_columns("replanning_snapshot_allocazioni", schema="tpo")
+    }
+    for name in (
+        "consumed_quantity", "released_quantity", "transferred_quantity",
+        "invalidated_quantity", "remaining_quantity",
+    ):
+        column = columns[name]
+        assert column["nullable"] is False
+        assert isinstance(column["type"], sa.Numeric)
+        assert (column["type"].precision, column["type"].scale) == (20, 6)
+        assert column["default"] is None
+    checks = {
+        item["name"]: item["sqltext"]
+        for item in inspector.get_check_constraints(
+            "replanning_snapshot_allocazioni", schema="tpo"
+        )
+    }
+    quantitative = checks["ck_replanning_snapshot_allocazioni_quantity"]
+    assert re.search(
+        r"remaining_quantity\s*=\s*\(*\s*allocated_quantity"
+        r"\s*-\s*consumed_quantity"
+        r"\s*-\s*released_quantity"
+        r"\s*-\s*transferred_quantity"
+        r"\s*-\s*invalidated_quantity\s*\)*",
+        quantitative,
+    )
+
+    planning_row_id, order_line_id, _ = _resolve_valid_planning_graph(connection)
+    allocation_id = _setup_allocation(connection, 940001, "DOMANDA", planning_row_id)
+    connection.execute(sa.text(
+        "INSERT INTO tpo.allocazioni_domanda (allocation_id,riga_ordine_id) "
+        "VALUES (:allocation_id,:order_line_id)"
+    ), {"allocation_id": allocation_id, "order_line_id": order_line_id})
+    snapshot_id = _insert_replanning_snapshot(connection, 940001)
+
+    def insert_snapshot(*, consumed=Decimal("0.2"), remaining=Decimal("0.8")) -> None:
+        connection.execute(sa.text("""
+            INSERT INTO tpo.replanning_snapshot_allocazioni (
+              snapshot_id,posizione,allocation_public_id,allocation_type,
+              source_public_id,destination_order_line_public_id,
+              allocated_quantity,consumed_quantity,released_quantity,
+              transferred_quantity,invalidated_quantity,remaining_quantity,
+              unita_misura,allocation_state,allocation_version
+            ) VALUES (
+              :snapshot_id,1,'ALL-940001','DOMANDA','RO-990001','RO-990001',
+              1,:consumed,0,0,0,:remaining,'SET','ATTIVA',0
+            )
+        """), {"snapshot_id": snapshot_id, "consumed": consumed, "remaining": remaining})
+
+    insert_snapshot()
+    _set_constraints(connection, "IMMEDIATE")
+    connection.rollback()
+
+    for consumed, remaining in ((Decimal("-0.1"), Decimal("1.1")),
+                                (Decimal("0.2"), Decimal("0.7"))):
+        planning_row_id, order_line_id, _ = _resolve_valid_planning_graph(connection)
+        allocation_id = _setup_allocation(connection, 940001, "DOMANDA", planning_row_id)
+        connection.execute(sa.text(
+            "INSERT INTO tpo.allocazioni_domanda (allocation_id,riga_ordine_id) "
+            "VALUES (:allocation_id,:order_line_id)"
+        ), {"allocation_id": allocation_id, "order_line_id": order_line_id})
+        snapshot_id = _insert_replanning_snapshot(connection, 940001)
+        with pytest.raises(sa.exc.DBAPIError):
+            insert_snapshot(consumed=consumed, remaining=remaining)
+        connection.rollback()
+        assert connection.exec_driver_sql("SELECT 1").scalar_one() == 1
+        connection.rollback()
+
+
+def test_isolated_postgresql_replanning_snapshot_historical_gate_atomic(
+    isolated_postgresql,
+) -> None:
+    connection = isolated_postgresql
+    config = make_config(connection=connection)
+    command.upgrade(config, "head")
+    planning_row_id, order_line_id, _ = _resolve_valid_planning_graph(connection)
+    allocation_id = _setup_allocation(connection, 950001, "DOMANDA", planning_row_id)
+    connection.execute(sa.text(
+        "INSERT INTO tpo.allocazioni_domanda (allocation_id,riga_ordine_id) "
+        "VALUES (:allocation_id,:order_line_id)"
+    ), {"allocation_id": allocation_id, "order_line_id": order_line_id})
+    snapshot_id = _insert_replanning_snapshot(connection, 950001)
+    connection.execute(sa.text("""
+        INSERT INTO tpo.replanning_snapshot_allocazioni (
+          snapshot_id,posizione,allocation_public_id,allocation_type,
+          source_public_id,destination_order_line_public_id,allocated_quantity,
+          consumed_quantity,released_quantity,transferred_quantity,
+          invalidated_quantity,remaining_quantity,
+          unita_misura,allocation_state,allocation_version
+        ) VALUES (
+          :snapshot_id,1,'ALL-950001','DOMANDA','RO-990001','RO-990001',
+          1,0,0,0,0,1,'SET','ATTIVA',0
+        )
+    """), {"snapshot_id": snapshot_id})
+    _set_constraints(connection, "IMMEDIATE")
+    connection.commit()
+    command.downgrade(config, "20260814_0010")
+    assert connection.exec_driver_sql(
+        "SELECT version_num FROM alembic_version"
+    ).scalar_one() == "20260814_0010"
+    connection.commit()
+
+    with pytest.raises(
+        RuntimeError,
+        match="historical replanning allocation snapshot commissioning required",
+    ):
+        command.upgrade(config, "head")
+    connection.rollback()
     assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0010"
+    columns = {
+        item["name"]
+        for item in sa.inspect(connection).get_columns(
+            "replanning_snapshot_allocazioni", schema="tpo"
+        )
+    }
+    assert "remaining_quantity" not in columns
+    connection.execute(sa.text("""
+        DELETE FROM tpo.replanning_snapshot_allocazioni
+        WHERE allocation_public_id='ALL-950001'
+    """))
+    _set_constraints(connection, "IMMEDIATE")
+    assert connection.exec_driver_sql("""
+        SELECT count(*) FROM tpo.replanning_snapshot_allocazioni
+    """).scalar_one() == 0
+    connection.commit()
+    assert connection.exec_driver_sql("SELECT 1").scalar_one() == 1
+    connection.rollback()
+
+
+def test_isolated_postgresql_replanning_snapshot_balance_roundtrip(
+    isolated_postgresql,
+) -> None:
+    connection = isolated_postgresql
+    config = make_config(connection=connection)
+    command.upgrade(config, "head")
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"
+    command.downgrade(config, "20260814_0010")
+    columns = {
+        item["name"]
+        for item in sa.inspect(connection).get_columns(
+            "replanning_snapshot_allocazioni", schema="tpo"
+        )
+    }
+    assert "remaining_quantity" not in columns
+    checks = {
+        item["name"]: item["sqltext"]
+        for item in sa.inspect(connection).get_check_constraints(
+            "replanning_snapshot_allocazioni", schema="tpo"
+        )
+    }
+    assert "allocated_quantity > 0" in checks["ck_replanning_snapshot_allocazioni_quantity"]
+    command.upgrade(config, "head")
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0011"

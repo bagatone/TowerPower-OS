@@ -103,12 +103,17 @@ Per ogni protocollo candidato:
 
 - public ID e versioni strutturali;
 - VARIETÀ;
-- approval state congelato;
+- `approval_state`, con esclusivamente i valori già congelati `BOZZA`,
+  `APPROVATA`, `RITIRATA`;
 - intervallo di validità;
 - durata fasi, resa, granularità, quantità seme e altre risorse congelate;
 - readiness e dati necessari al backplanning.
 
 Il motore usa una sola versione approvata, completa e valida. Assenza, ambiguità, sovrapposizione o incompletezza sono fail-closed; `contenuto` legacy non è authority Planning.
+
+Lo snapshot rappresenta fedelmente anche versioni `BOZZA` e `RITIRATA`; il
+modello non le filtra. La selezione delle sole versioni `APPROVATA` appartiene al
+Planning Engine.
 
 ### 3.5 PlanningPolicySnapshot
 

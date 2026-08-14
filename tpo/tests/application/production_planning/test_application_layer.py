@@ -87,10 +87,11 @@ def demand() -> DemandSnapshot:
     )
 
 
-def knowledge() -> ProductionKnowledgeSnapshot:
+def knowledge(approval_state: str = "APPROVATA") -> ProductionKnowledgeSnapshot:
     return ProductionKnowledgeSnapshot(
         protocol_version_public_id=pid("PV-000001"),
         protocol_version_number=1,
+        approval_state=approval_state,
         variety_public_id=pid("VAR-000001"),
         cultivar_reference="Afila",
         productive_use_reference="MICROGREEN",
@@ -291,6 +292,23 @@ def test_domanda_preserva_authority_e_formula_del_residuo() -> None:
     assert demand().commercial_residual.value == Decimal("1")
     with pytest.raises(InvalidProductionPlanningModelError):
         DemandSnapshot(**{**demand().__dict__, "commercial_residual": qty("0.5")})
+
+
+@pytest.mark.parametrize("approval_state", ["APPROVATA", "BOZZA", "RITIRATA"])
+def test_protocol_approval_state_congelato_e_rappresentabile(approval_state: str) -> None:
+    value = knowledge(approval_state)
+    assert value.approval_state == approval_state
+
+
+def test_protocol_approval_state_non_congelato_e_rifiutato() -> None:
+    with pytest.raises(InvalidProductionPlanningModelError):
+        knowledge("ARCHIVIATA")
+
+
+def test_protocol_approval_state_e_immutabile() -> None:
+    value = knowledge()
+    with pytest.raises(FrozenInstanceError):
+        value.approval_state = "BOZZA"  # type: ignore[misc]
 
 
 def test_stock_snapshot_impone_saldo_e_ordine_deterministico() -> None:

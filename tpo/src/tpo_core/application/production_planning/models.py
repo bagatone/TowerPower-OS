@@ -27,6 +27,7 @@ PLANNING_LINE_STATES = frozenset(
 BUFFER_TYPES = frozenset({"NONE", "PERCENTAGE", "ABSOLUTE_SET"})
 RUN_STATES = frozenset({"OPEN", "COMMITTED", "FAILED", "RECONCILIATION_REQUIRED"})
 AUDIT_OPERATIONS = frozenset({"INSERT", "UPDATE", "DELETE", "STATE_TRANSITION", "CORRECTION"})
+PROTOCOL_APPROVAL_STATES = frozenset({"BOZZA", "APPROVATA", "RITIRATA"})
 
 
 def _text(name: str, value: object, *, optional: bool = False) -> None:
@@ -186,6 +187,7 @@ class DemandSnapshot:
 class ProductionKnowledgeSnapshot:
     protocol_version_public_id: PublicId
     protocol_version_number: int
+    approval_state: str
     variety_public_id: PublicId
     cultivar_reference: str
     productive_use_reference: str
@@ -206,6 +208,10 @@ class ProductionKnowledgeSnapshot:
 
     def __post_init__(self) -> None:
         _version("protocol_version_number", self.protocol_version_number, positive=True)
+        if self.approval_state not in PROTOCOL_APPROVAL_STATES:
+            raise InvalidProductionPlanningModelError(
+                "Stato approvazione protocollo non congelato."
+            )
         for name in ("cultivar_reference", "productive_use_reference", "provenance"):
             _text(name, getattr(self, name))
         object.__setattr__(self, "hydration_hours", _decimal("hydration_hours", self.hydration_hours))

@@ -699,16 +699,39 @@ class ProductionPlanningCommit:
 
 
 @dataclass(frozen=True)
+class RevisionCommitResult:
+    plan_public_id: PublicId
+    revision_public_id: PublicId
+    revision_request_key: CanonicalHash
+    planning_key_v1: CanonicalHash | None
+    replanning_key_v1: CanonicalHash | None
+    reused_existing_revision: bool
+
+    def __post_init__(self) -> None:
+        keys = tuple(
+            key for key in (self.planning_key_v1, self.replanning_key_v1) if key is not None
+        )
+        if len(keys) != 1:
+            raise InvalidProductionPlanningModelError(
+                "Il risultato revisione richiede esattamente una chiave initial o replanning."
+            )
+        if self.revision_request_key != keys[0]:
+            raise InvalidProductionPlanningModelError(
+                "revision_request_key non coincide con la chiave strutturale della revisione."
+            )
+        if not isinstance(self.reused_existing_revision, bool):
+            raise InvalidProductionPlanningModelError("Indicatore replay revisione non valido.")
+
+
+@dataclass(frozen=True)
 class ProductionPlanningResult:
     planning_run_public_id: PublicId
     run_state: str
     plan_public_ids: tuple[PublicId, ...]
     current_revision_public_ids: tuple[PublicId, ...]
+    revision_results: tuple[RevisionCommitResult, ...]
     planning_line_public_ids: tuple[PublicId, ...]
     allocation_public_ids: tuple[PublicId, ...]
-    planning_key_v1: CanonicalHash | None
-    replanning_key_v1: CanonicalHash | None
-    reused_existing_revision: bool
     committed_at: datetime
     warnings: tuple[RunMessage, ...]
 
@@ -716,7 +739,21 @@ class ProductionPlanningResult:
         if self.run_state not in {"COMMITTED", "RECONCILIATION_REQUIRED"}:
             raise InvalidProductionPlanningModelError("Result state non valido.")
         _instant("committed_at", self.committed_at)
-        if len(self.plan_public_ids) != len(self.current_revision_public_ids):
+        if not isinstance(self.revision_results, tuple) or not self.revision_results:
+            raise InvalidProductionPlanningModelError("Result privo di revisioni committed.")
+        revision_keys = tuple(
+            (item.plan_public_id.value, item.revision_public_id.value)
+            for item in self.revision_results
+        )
+        if revision_keys != tuple(sorted(revision_keys)) or len(revision_keys) != len(set(revision_keys)):
+            raise InvalidProductionPlanningModelError(
+                "Risultati revisione devono essere unici e ordinati deterministicamente."
+            )
+        if self.plan_public_ids != tuple(item.plan_public_id for item in self.revision_results):
+            raise InvalidProductionPlanningModelError("Piani non allineati ai risultati revisione.")
+        if self.current_revision_public_ids != tuple(
+            item.revision_public_id for item in self.revision_results
+        ):
             raise InvalidProductionPlanningModelError("Piani e revisioni correnti non allineati.")
 
 

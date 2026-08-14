@@ -37,6 +37,7 @@ from src.tpo_core.application.production_planning.models import (
     ProductionPlanningRunSnapshot,
     PublicId,
     ReplanProductionPlanningCommand,
+    RevisionCommitResult,
     RunMessage,
     SeedResourceDraft,
     StockResourceSnapshot,
@@ -220,16 +221,22 @@ def write_set(run: ProductionPlanningRunSnapshot) -> ProductionPlanningCommit:
 
 
 def result(run_id: PublicId, *, state: str = "COMMITTED") -> ProductionPlanningResult:
+    revision_result = RevisionCommitResult(
+        plan_public_id=pid("PP-000001"),
+        revision_public_id=pid("RVP-000001"),
+        revision_request_key=HASH,
+        planning_key_v1=HASH,
+        replanning_key_v1=None,
+        reused_existing_revision=False,
+    )
     return ProductionPlanningResult(
         planning_run_public_id=run_id,
         run_state=state,
         plan_public_ids=(pid("PP-000001"),),
         current_revision_public_ids=(pid("RVP-000001"),),
+        revision_results=(revision_result,),
         planning_line_public_ids=(pid("RPS-000001"),),
         allocation_public_ids=(pid("ALL-000001"),),
-        planning_key_v1=HASH,
-        replanning_key_v1=None,
-        reused_existing_revision=False,
         committed_at=BUSINESS_AT,
         warnings=(),
     )
@@ -376,6 +383,54 @@ def test_commit_richiede_contatori_e_audit_immutabili_e_ordinati() -> None:
         value.counters.orders_read = 2  # type: ignore[misc]
     with pytest.raises(InvalidProductionPlanningModelError):
         ProductionPlanningCommit(**{**value.__dict__, "audits": tuple(reversed(value.audits))})
+
+
+def test_revision_result_initial_associa_univocamente_la_chiave() -> None:
+    value = result(pid("RPP-000001")).revision_results[0]
+    assert value.revision_request_key == value.planning_key_v1
+    assert value.replanning_key_v1 is None
+
+
+def test_revision_result_replanning_associa_univocamente_la_chiave() -> None:
+    key = CanonicalHash("b" * 64)
+    value = RevisionCommitResult(
+        pid("PP-000001"), pid("RVP-000002"), key, None, key, True
+    )
+    assert value.reused_existing_revision is True
+    with pytest.raises(InvalidProductionPlanningModelError):
+        RevisionCommitResult(pid("PP-000001"), pid("RVP-000002"), HASH, None, key, False)
+
+
+def test_result_multi_revisione_preserva_associazione_e_replay_parziale() -> None:
+    first_key = CanonicalHash("a" * 64)
+    second_key = CanonicalHash("b" * 64)
+    revisions = (
+        RevisionCommitResult(pid("PP-000001"), pid("RVP-000001"), first_key, first_key, None, True),
+        RevisionCommitResult(pid("PP-000002"), pid("RVP-000002"), second_key, second_key, None, False),
+    )
+    value = ProductionPlanningResult(
+        planning_run_public_id=pid("RPP-000001"),
+        run_state="COMMITTED",
+        plan_public_ids=tuple(item.plan_public_id for item in revisions),
+        current_revision_public_ids=tuple(item.revision_public_id for item in revisions),
+        revision_results=revisions,
+        planning_line_public_ids=(pid("RPS-000001"), pid("RPS-000002")),
+        allocation_public_ids=(),
+        committed_at=BUSINESS_AT,
+        warnings=(),
+    )
+    assert tuple(item.reused_existing_revision for item in value.revision_results) == (True, False)
+    assert tuple(item.revision_request_key for item in value.revision_results) == (first_key, second_key)
+    with pytest.raises(InvalidProductionPlanningModelError):
+        ProductionPlanningResult(**{**value.__dict__, "revision_results": tuple(reversed(revisions))})
+
+
+def test_revision_result_e_immutabile_e_vieta_chiavi_ambigue() -> None:
+    value = result(pid("RPP-000001")).revision_results[0]
+    with pytest.raises(FrozenInstanceError):
+        value.reused_existing_revision = True  # type: ignore[misc]
+    with pytest.raises(InvalidProductionPlanningModelError):
+        RevisionCommitResult(pid("PP-000001"), pid("RVP-000001"), HASH, HASH, HASH, False)
 
 
 def test_snapshot_espone_expected_version_delle_righe_planning_correnti() -> None:

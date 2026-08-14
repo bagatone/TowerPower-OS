@@ -152,15 +152,26 @@ Il successo restituisce l’immutabile `ProductionPlanningResult`:
 | `run_state` | valore frozen `COMMITTED` |
 | `plan_public_ids` | public ID dei piani interessati, ordinati |
 | `current_revision_public_ids` | revisioni complete risultanti, nello stesso ordine dei piani |
+| `revision_results` | una `RevisionCommitResult` per ogni revisione risultante, ordinata per plan public ID e revision public ID |
 | `planning_line_public_ids` | righe prodotte, ordinate secondo il risultato deterministico |
 | `allocation_public_ids` | allocazioni create, ordinate |
-| `planning_key_v1` | chiave frozen per la richiesta iniziale, quando applicabile |
-| `replanning_key_v1` | chiave frozen per replanning, quando applicabile |
-| `reused_existing_revision` | vero se l’unicità idempotente ha restituito la revisione già committed |
 | `committed_at` | istante di conclusione autorevole |
 | `warnings` | messaggi provider-neutral sanitizzati e ordinati |
 
-Un replay idempotente restituisce gli stessi identificativi persistiti e non crea una nuova revisione. Non promette il riuso del public ID di una RUN nuova aperta per osservare il replay.
+`RevisionCommitResult` associa univocamente `plan_public_id`, `revision_public_id`,
+`revision_request_key`, una e una sola fra `planning_key_v1` e
+`replanning_key_v1`, e `reused_existing_revision`. La forma initial/replanning è
+strutturale e non introduce un enum. `revision_request_key` coincide con la
+chiave strutturale applicabile. I campi singoli globali `planning_key_v1`,
+`replanning_key_v1` e `reused_existing_revision` non appartengono più a
+`ProductionPlanningResult`.
+
+Un replay idempotente viene valutato per ogni `revision_request_key`: ogni
+revisione compatibile può essere riusata, conservando nel risultato la propria
+associazione piano/revisione/chiave e il proprio indicatore di riuso. Un mismatch
+materiale resta un conflitto e nessuna revisione rappresenta arbitrariamente
+l'intero commit. Il replay non crea una nuova revisione e non promette il riuso
+del public ID di una RUN nuova aperta per osservarlo.
 
 Le failure certe sono espresse tramite `ProductionPlanningError` e una categoria frozen. Un esito fisico non determinabile è espresso come risultato di riconciliazione con `run_state = RECONCILIATION_REQUIRED`, public ID RUN e informazioni diagnostiche sanitizzate; non viene dichiarato rollback certo.
 
@@ -183,6 +194,7 @@ I modelli applicativi obbligatori sono:
 - `AllocationDraft`: parent e child tipizzato coerente con il frozen `allocation_type`;
 - `RunMessage`: tipo già frozen, eventuale failure category frozen, codice, messaggio e posizione;
 - `ProductionPlanningCommit`: write set completo e deterministico;
+- `RevisionCommitResult`: esito idempotente univoco di una singola revisione;
 - `ProductionPlanningResult`;
 - `ProductionPlanningError`.
 

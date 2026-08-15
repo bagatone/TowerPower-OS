@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from src.sheets_writer import SheetsWriter, WritePlan
+from tests.fixtures.legacy_google_sheets import legacy_schema_path
 
 
 class FakeExecute:
@@ -57,7 +58,11 @@ class FakeService:
 
 class SheetsWriterTest(unittest.TestCase):
     def writer(self, sheets):
-        return SheetsWriter(spreadsheet_id="test", service=FakeService(sheets))
+        return SheetsWriter(
+            spreadsheet_id="test",
+            service=FakeService(sheets),
+            schema_path=legacy_schema_path(),
+        )
 
     def test_values_are_ordered_and_missing_columns_are_empty(self) -> None:
         writer = self.writer({"FORNITORI": [["ID_FORNITORE", "RAGIONE_SOCIALE", "CONTATTO", "EMAIL", "TELEFONO", "SITO_WEB", "TEMPO_CONSEGNA_GG", "STATO", "NOTE"]]})

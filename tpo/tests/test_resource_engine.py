@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from pathlib import Path
 
 from src.init_resource_engine import (
     INITIAL_ROWS,
@@ -13,6 +12,7 @@ from src.init_resource_engine import (
 )
 from src.schema_validator import SchemaValidator
 from src.sheets_loader import REQUIRED_SHEETS
+from tests.fixtures.legacy_google_sheets import legacy_schema_path
 
 
 RESOURCE_SHEETS = [
@@ -30,7 +30,7 @@ class ResourceEngineTest(unittest.TestCase):
             self.assertIn(sheet_name, REQUIRED_SHEETS)
 
     def test_schema_contains_resource_engine_headers(self) -> None:
-        markdown = Path("docs/TPO_SHEETS_SCHEMA.md").read_text(encoding="utf-8")
+        markdown = legacy_schema_path().read_text(encoding="utf-8")
         schemas = SchemaValidator().parse_schema(markdown)
 
         for sheet_name in RESOURCE_SHEETS:

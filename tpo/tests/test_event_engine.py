@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import unittest
 from copy import deepcopy
-from pathlib import Path
 from unittest.mock import patch
 
 from src.event_engine import (
@@ -16,6 +15,7 @@ from src.event_engine import (
 )
 from src.sheets_loader import SheetData
 from src.source_gate import build_google_sheets_provenance
+from tests.fixtures.legacy_google_sheets import legacy_schema_path
 
 
 def valid_event(**overrides):
@@ -46,7 +46,7 @@ def valid_event(**overrides):
 
 class EventEngineTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.schemas = _load_schemas(Path("docs/TPO_SHEETS_SCHEMA.md"))
+        self.schemas = _load_schemas(legacy_schema_path())
         self.sheets = build_demo_sheets(self.schemas)
         self.engine = EventEngine.from_context(EventDataContext(self.sheets, self.schemas))
 

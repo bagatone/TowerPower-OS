@@ -20,6 +20,7 @@ from src.event_engine import (
     _load_schemas,
     build_demo_sheets,
 )
+from tests.fixtures.legacy_google_sheets import legacy_schema_path
 
 
 def recurring_event(**overrides) -> OperationalEvent:
@@ -56,7 +57,7 @@ def recurring_event(**overrides) -> OperationalEvent:
 
 class RecurringOrderEventTest(unittest.TestCase):
     def setUp(self) -> None:
-        self.schemas = _load_schemas(Path("docs/TPO_SHEETS_SCHEMA.md"))
+        self.schemas = _load_schemas(legacy_schema_path())
         self.sheets = build_demo_sheets(self.schemas)
         self.engine = EventEngine.from_context(EventDataContext(self.sheets, self.schemas))
 
@@ -293,9 +294,15 @@ class RecurringOrderEventTest(unittest.TestCase):
         buffer = io.StringIO()
 
         with patch.object(sys, "argv", ["process_event", "--input", handle.name, "--dry-run"]):
-            with patch("src.sheets_writer.SheetsWriter._write_log") as write_log:
-                with redirect_stdout(buffer):
-                    process_event.main()
+            with patch.object(
+                EventEngine, "from_default_sources", return_value=self.engine
+            ):
+                with patch.object(
+                    process_event, "validate_write_plan_offline", return_value=[]
+                ):
+                    with patch("src.sheets_writer.SheetsWriter._write_log") as write_log:
+                        with redirect_stdout(buffer):
+                            process_event.main()
 
         write_log.assert_not_called()
         output = buffer.getvalue()

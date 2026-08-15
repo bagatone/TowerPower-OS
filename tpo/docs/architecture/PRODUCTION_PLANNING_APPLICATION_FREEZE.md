@@ -306,12 +306,21 @@ e persistence timestamp senza interpretare i business payload.
 rilegge tutte le transizioni della coppia allocation/version e confronta
 integralmente l'insieme canonico ordinato di tipo, quantità, replacement, reason
 e provenance. Payload identico è riuso compatibile; qualunque differenza è
-conflict. `ON CONFLICT DO NOTHING` non prova idempotenza.
+conflict. Questo boundary non dipende dalla contemporaneità: due richieste già
+in-flight sullo stesso parent ed epoch con identico payload canonico ricevono
+entrambe il risultato committed compatibile, applicando una sola mutazione
+fisica. La distinzione temporale tra replay successivo e duplicate concorrente
+non è authority V1 e non viene dedotta. Lo stesso epoch con payload differente è
+`ALLOCATION_CONFLICT`; una expected version stale senza batch committed
+compatibile resta concurrency/allocation conflict secondo la causa frozen.
+`ON CONFLICT DO NOTHING` non prova idempotenza.
 
 Sotto lock per allocation public ID crescente il writer verifica stato
 `ATTIVA`, expected version, fatti esistenti e residuo, valida il batch, inserisce
 i fatti, aggiorna stato/audit e incrementa la versione una sola volta. Due writer
-sulla stessa versione producono un solo commit; nessun retry automatico.
+sulla stessa versione e con payload identico producono una sola mutazione fisica
+e possono entrambi concludere con successo logico tramite riuso; con payload
+differente producono un solo commit e un conflict. Nessun retry automatico.
 
 ## 7. Service responsibilities
 

@@ -9,6 +9,8 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from src import process_event
+from src.event_engine import EventDataContext, EventEngine, _load_schemas, build_demo_sheets
+from tests.fixtures.legacy_google_sheets import legacy_schema_path
 
 
 class ProcessEventCliTest(unittest.TestCase):
@@ -39,9 +41,15 @@ class ProcessEventCliTest(unittest.TestCase):
     def test_cli_dry_run_prints_ready_event(self) -> None:
         path = self.event_file()
         buffer = io.StringIO()
+        schemas = _load_schemas(legacy_schema_path())
+        engine = EventEngine.from_context(
+            EventDataContext(sheets=build_demo_sheets(schemas), schemas=schemas)
+        )
         with patch.object(sys, "argv", ["process_event", "--input", path, "--dry-run"]):
-            with redirect_stdout(buffer):
-                process_event.main()
+            with patch.object(EventEngine, "from_default_sources", return_value=engine):
+                with patch.object(process_event, "validate_write_plan_offline", return_value=[]):
+                    with redirect_stdout(buffer):
+                        process_event.main()
 
         output = buffer.getvalue()
         self.assertIn("TOWERPOWER OS - EVENT ENGINE MVP", output)

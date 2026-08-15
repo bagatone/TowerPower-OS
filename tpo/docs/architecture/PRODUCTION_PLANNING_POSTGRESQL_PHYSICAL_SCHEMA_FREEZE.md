@@ -1831,8 +1831,14 @@ Acceptance obbligatoria: (A) 1.0, consume 0.4, remaining 0.6, ATTIVA; (B)
 consume 1.0, CONSUMATA; (C) consume 0.4 + release 0.6, RILASCIATA; (D) consume
 0.4 + transfer 0.6, original SOSTITUITA e replacement 0.6; (E) invalidazione
 parziale, ATTIVA; (F) invalidazione intero residuo, INVALIDA; (G) delta oltre
-residuo, rollback totale; (H) due writer stessa versione, un commit/un conflict;
-(I) replay compatibile, riuso; (J) stesso epoch con payload diverso, conflict.
+residuo, rollback totale; (H1) due writer concorrenti sulla stessa versione con
+identico payload canonico, una sola mutazione fisica ed entrambi riusano il
+risultato committed compatibile; (H2) due writer concorrenti sullo stesso epoch
+con payload canonico differente, un solo commit e un conflict; (I) replay
+compatibile, riuso; (J) stesso epoch con payload diverso, conflict. H1 e I hanno
+lo stesso boundary `allocation parent + expected allocation version + canonical
+transition payload`: V1 non introduce request marker, attempt identity o
+inferenze temporali per distinguerli.
 
 ### TABLE: `tpo.ordini` (existing, extended)
 

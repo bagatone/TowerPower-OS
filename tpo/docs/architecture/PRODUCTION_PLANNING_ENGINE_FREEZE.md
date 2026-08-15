@@ -48,6 +48,10 @@ Production Planning è responsabile di:
 - segnalare condizioni tardive, non producibili o incoerenti;
 - alimentare CALENDARIO_PRODUZIONE come read model derivato.
 
+Queste sono responsabilita del bounded context, non del solo Pure Planning
+Engine. Il boundary applicativo fra Pure Planning Engine, Commit Assembler,
+Writer e Orchestrator e congelato al §29.
+
 Non assume responsabilità di Scheduling, esecuzione fisica, raccolta o logistica.
 
 ## 4. Production Planning RUN
@@ -314,6 +318,9 @@ Il buffer quantitativo:
 - appartiene a una policy di produzione esplicita e versionata;
 - si applica dopo il deficit e prima della granularità finale;
 - non modifica le date salvo futura policy approvata.
+
+Il buffer quantitativo e la granularita finale sono calcolati dal Commit
+Assembler dopo la coverage, non dal Pure Planning Engine.
 
 Il legacy `+1 SET` non è una regola V1. In assenza di una policy quantitativa approvata, nessun buffer quantitativo viene inventato.
 
@@ -972,3 +979,129 @@ Qualunque introduzione richiede Architecture Review.
 18. Il motore è fail-closed e non retrodata attività.
 19. Google e il Write Plan legacy sono esclusi dal runtime autorevole.
 20. Nessun valore produttivo reale è congelato in questo documento.
+
+## 29. Architecture Addendum — Pure Engine / Commit Assembler Boundary
+
+Il Pure Planning Engine riceve `PlanningInputSnapshot` e produce candidati
+provider-neutral contenenti domanda, protocollo approvato selezionato, timeline
+completa e provenance temporale. Non determina coverage, deficit finale, buffer
+quantitativo, granularita finale, risorse, allocazioni, chiavi persistenti,
+audit, contatori o write set.
+
+`ProductionPlanningCommitAssembler` riceve command, RUN aperta, snapshot,
+candidati e ID gia allocati e produce il `ProductionPlanningCommit` completo.
+E un componente applicativo puro: nessun I/O, provider, SQL, Identity allocation
+o clock. Resource selection, coverage, calcolo quantitativo finale e assembly
+non appartengono all'Orchestrator o al Writer.
+
+La formula V1 e:
+
+```text
+commercial_residual = ordered_quantity - net_delivered_quantity
+coverage_quantity = stock_coverage + harvest_coverage + in_progress_coverage
+production_deficit = max(0, commercial_residual - coverage_quantity)
+buffered_requirement = apply_quantitative_buffer(production_deficit)
+productive_quantity = ceil_to_granularity(
+    buffered_requirement,
+    production_granularity
+)
+```
+
+La precedenza stretta e STOCK, RACCOLTA reale, SEMINA in corso, nuova
+produzione. Dentro ogni classe: earliest usable/ready crescente, quantita gia
+allocata crescente, residuo eleggibile decrescente, public ID crescente. La
+coverage puo usare piu risorse e produce un draft distinto per source public ID.
+La somma di nuove allocazioni e impegno attivo esistente non supera mai la
+quantita eleggibile.
+
+STOCK conserva source, destination order-line, quantita/UOM, readiness ed
+expected version. SEMINA conserva source, protocol version, useful/residual,
+harvest window, destination, quantita/UOM ed expected version. RACCOLTA conserva
+source, quantita immutabile/residuo, harvested/usable timestamp, destination,
+quantita/UOM e provenance; non riceve una optimistic version inventata.
+
+L'Assembler assegna gli ID gia ottenuti da Identity secondo l'ordine materiale,
+costruisce chiavi e ordering deterministici, `AuditDraft` business-completi e i
+soli contatori/messaggi derivabili dal write set. Il Writer aggiunge soltanto il
+contesto audit e il timestamp tecnico gia congelati e persiste dopo revalidation.
+
+Per replanning l'Assembler costruisce le transizioni da
+`ActiveAllocationSnapshot`; il Writer non sceglie transizioni. Le regole
+business che distinguono rilascio, sostituzione e invalidazione sono congelate
+al §29.1 e non possono essere inferite dall'adapter.
+
+### 29.1 Replanning allocation disposition
+
+La disposition è determinata congiuntamente da causa normalizzata, source
+usability e destinazione della quota. Non deriva dal reason code generico, dallo
+stato corrente, dal protocol approval state o dal Writer.
+
+Cause V1:
+
+```text
+DEMAND_REDUCED | DEMAND_CANCELLED | DEMAND_COVERED_ELSEWHERE |
+REALLOCATION_REQUIRED | REVISION_REPLACEMENT | SOURCE_UNUSABLE |
+SEEDING_FAILED | HARVEST_UNAVAILABLE | STOCK_QUANTITY_INVALIDATED |
+DATA_CORRUPTION_CONFIRMED | MANUAL_INVALIDATION_AUTHORIZED
+```
+
+Source usability V1:
+
+```text
+REUSABLE | TRANSFERABLE_ONLY | UNUSABLE
+```
+
+La matrice chiusa è:
+
+- cause demand reduced/cancelled/covered elsewhere + `REUSABLE` + nessuna
+  destinazione → `RILASCIATA`;
+- reallocation/revision replacement + `TRANSFERABLE_ONLY` + replacement
+  canonica esplicita → `SOSTITUITA`;
+- source unusable, seeding failed, harvest unavailable, stock quantity
+  invalidated, data corruption confirmed o manual invalidation authorized +
+  `UNUSABLE` + nessuna destinazione → `INVALIDA`.
+
+Ogni altra combinazione fallisce chiuso. `SOSTITUITA` richiede una replacement
+nuova e distinta, con tipo/source/destination espliciti, quantità pari al delta,
+stessa UOM, provenance e commit atomico. Release e invalidation vietano una
+replacement.
+
+Il ritiro successivo del protocollo non invalida una allocation committed. Un
+fatto autorevole distinto deve dichiarare la source o il commitment non più
+utilizzabile.
+
+Dopo consumo parziale, una sola disposition copre l'intero residuo finale:
+release lo rende nuovamente allocabile nella source, transfer lo conserva nella
+replacement, invalidation lo rimuove dall'impegno senza renderlo disponibile.
+Nessuna transition modifica fatti fisici delle resource authority.
+
+`AllocationDispositionDecision` porta causa, usability, residuo observed,
+consumed delta, target, eventuale `AllocationReplacementSpecification`, reason
+e provenance. L'Assembler lo combina con l'`ActiveAllocationSnapshot` della
+stessa allocation/version per produrre il transition draft completo. Il Writer
+non riceve né interpreta la decisione originaria.
+
+### 29.2 Test contract del Commit Assembler
+
+La futura implementazione deve coprire obbligatoriamente:
+
+1. full stock coverage con zero nuova produzione;
+2. partial stock coverage;
+3. stock + harvest coverage;
+4. stock + harvest + semina coverage;
+5. deficit dopo coverage mista;
+6. buffer applicato soltanto al deficit;
+7. granularita applicata soltanto dopo il buffer;
+8. resource ordering deterministico;
+9. piu risorse della stessa classe;
+10. partial allocation su piu risorse;
+11. no over-allocation;
+12. UOM mismatch fail-closed;
+13. readiness mismatch fail-closed;
+14. chiavi deterministiche;
+15. allocation ordering deterministico;
+16. audit draft completi;
+17. counters/messages deterministici;
+18. provider neutrality;
+19. assenza di import PostgreSQL;
+20. compatibilita replay/replanning.

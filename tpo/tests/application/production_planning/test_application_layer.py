@@ -16,7 +16,9 @@ from src.tpo_core.application.production_planning.errors import (
 )
 from src.tpo_core.application.production_planning.models import (
     ActiveAllocationSnapshot,
+    AllocationDispositionDecision,
     AllocationDraft,
+    AllocationReplacementSpecification,
     AllocationTransitionDraft,
     AuditDraft,
     CanonicalHash,
@@ -108,6 +110,37 @@ def allocation_transition(**overrides) -> AllocationTransitionDraft:
     }
     values.update(overrides)
     return AllocationTransitionDraft(**values)
+
+
+def replacement_specification(**overrides) -> AllocationReplacementSpecification:
+    values = {
+        "replacement_allocation_public_id": pid("ALL-000002"),
+        "allocation_type": "DOMANDA",
+        "source_public_id": pid("RO-000001"),
+        "destination_order_line_public_id": pid("RO-000001"),
+        "destination_planning_line_public_id": pid("RPS-000002"),
+        "quantity": qty("1"),
+        "provenance": "replanning replacement",
+    }
+    values.update(overrides)
+    return AllocationReplacementSpecification(**values)
+
+
+def disposition_decision(**overrides) -> AllocationDispositionDecision:
+    values = {
+        "allocation_public_id": pid("ALL-000001"),
+        "expected_version": 0,
+        "disposition_cause": "DEMAND_REDUCED",
+        "source_usability": "REUSABLE",
+        "observed_remaining_quantity": Decimal("1"),
+        "consumed_quantity_delta": Decimal("0"),
+        "target_disposition": "RILASCIATA",
+        "replacement_specification": None,
+        "reason": "demand reduced",
+        "provenance": "authoritative replanning decision",
+    }
+    values.update(overrides)
+    return AllocationDispositionDecision(**values)
 
 
 def command() -> InitialProductionPlanningCommand:
@@ -475,6 +508,131 @@ def test_allocation_transition_e_immutabile() -> None:
     value = allocation_transition()
     with pytest.raises(FrozenInstanceError):
         value.target_state = "CONSUMATA"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("cause", ["DEMAND_REDUCED", "DEMAND_CANCELLED"])
+def test_allocation_disposition_release_per_domanda_e_source_reusable(cause: str) -> None:
+    decision = disposition_decision(disposition_cause=cause)
+    transition = decision.to_transition_draft(allocation_snapshot())
+    assert transition.target_state == "RILASCIATA"
+    assert transition.released_quantity_delta == Decimal("1")
+    assert transition.replacement_allocation_public_id is None
+
+
+@pytest.mark.parametrize("cause", ["REALLOCATION_REQUIRED", "REVISION_REPLACEMENT"])
+def test_allocation_disposition_replacement_esplicita(cause: str) -> None:
+    decision = disposition_decision(
+        disposition_cause=cause,
+        source_usability="TRANSFERABLE_ONLY",
+        target_disposition="SOSTITUITA",
+        replacement_specification=replacement_specification(),
+    )
+    transition = decision.to_transition_draft(allocation_snapshot())
+    assert transition.target_state == "SOSTITUITA"
+    assert transition.transferred_quantity_delta == Decimal("1")
+    assert transition.replacement_allocation_public_id == pid("ALL-000002")
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        "SOURCE_UNUSABLE",
+        "SEEDING_FAILED",
+        "HARVEST_UNAVAILABLE",
+        "STOCK_QUANTITY_INVALIDATED",
+    ],
+)
+def test_allocation_disposition_invalidation_per_source_non_usabile(cause: str) -> None:
+    decision = disposition_decision(
+        disposition_cause=cause,
+        source_usability="UNUSABLE",
+        target_disposition="INVALIDA",
+    )
+    transition = decision.to_transition_draft(allocation_snapshot())
+    assert transition.target_state == "INVALIDA"
+    assert transition.invalidated_quantity_delta == Decimal("1")
+
+
+def test_protocol_retirement_non_e_una_causa_di_invalidation() -> None:
+    with pytest.raises(InvalidProductionPlanningModelError):
+        disposition_decision(
+            disposition_cause="PROTOCOL_RETIRED",
+            source_usability="UNUSABLE",
+            target_disposition="INVALIDA",
+        )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {
+            "disposition_cause": "REALLOCATION_REQUIRED",
+            "source_usability": "TRANSFERABLE_ONLY",
+            "target_disposition": "SOSTITUITA",
+        },
+        {"replacement_specification": replacement_specification()},
+        {
+            "source_usability": "UNUSABLE",
+            "target_disposition": "INVALIDA",
+        },
+        {
+            "disposition_cause": "SOURCE_UNUSABLE",
+            "source_usability": "REUSABLE",
+            "target_disposition": "RILASCIATA",
+        },
+        {"expected_version": -1},
+        {"observed_remaining_quantity": Decimal("0")},
+        {"observed_remaining_quantity": Decimal("1"), "consumed_quantity_delta": Decimal("1")},
+        {"observed_remaining_quantity": 1.0},
+    ],
+)
+def test_allocation_disposition_rifiuta_combinazioni_non_autorizzate(changes) -> None:
+    with pytest.raises(InvalidProductionPlanningModelError):
+        disposition_decision(**changes)
+
+
+def test_allocation_disposition_partial_consumption_mapping_deterministico() -> None:
+    decision = disposition_decision(
+        observed_remaining_quantity=Decimal("1"),
+        consumed_quantity_delta=Decimal("0.4"),
+    )
+    first = decision.to_transition_draft(allocation_snapshot())
+    second = decision.to_transition_draft(allocation_snapshot())
+    assert first == second
+    assert first.consumed_quantity_delta == Decimal("0.4")
+    assert first.released_quantity_delta == Decimal("0.6")
+    assert first.expected_remaining_after == Decimal("0")
+
+
+def test_allocation_replacement_impone_quantita_uom_e_identita_coerenti() -> None:
+    with pytest.raises(InvalidProductionPlanningModelError):
+        disposition_decision(
+            disposition_cause="REALLOCATION_REQUIRED",
+            source_usability="TRANSFERABLE_ONLY",
+            target_disposition="SOSTITUITA",
+            replacement_specification=replacement_specification(quantity=qty("0.5")),
+        )
+    decision = disposition_decision(
+        disposition_cause="REALLOCATION_REQUIRED",
+        source_usability="TRANSFERABLE_ONLY",
+        target_disposition="SOSTITUITA",
+        replacement_specification=replacement_specification(
+            quantity=qty("1", UnitOfMeasure.GRAM)
+        ),
+    )
+    with pytest.raises(InvalidProductionPlanningModelError):
+        decision.to_transition_draft(allocation_snapshot())
+
+
+def test_allocation_disposition_models_sono_immutabili_e_provider_neutral() -> None:
+    decision = disposition_decision()
+    with pytest.raises(FrozenInstanceError):
+        decision.target_disposition = "INVALIDA"  # type: ignore[misc]
+    annotations = get_type_hints(AllocationDispositionDecision)
+    assert all(
+        forbidden not in repr(annotations)
+        for forbidden in ("psycopg", "sqlalchemy", "Connection", "Cursor")
+    )
 
 
 def test_commit_allocation_transitions_uniche_e_ordinate() -> None:

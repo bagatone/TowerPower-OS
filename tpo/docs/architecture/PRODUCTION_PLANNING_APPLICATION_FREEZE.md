@@ -14,13 +14,18 @@ Questo documento congela esclusivamente il contratto applicativo provider-neutra
 
 Non introduce authority, schema persistente, enum, API, UI o writer ulteriori. I nomi PostgreSQL sono richiamati soltanto per rendere verificabile la corrispondenza con le authority già congelate. Google Sheets e il Write Plan legacy non appartengono al runtime autorevole.
 
-Il motore:
+Il bounded context Production Planning:
 
 - legge domanda commerciale residua, conoscenza produttiva approvata, policy, STOCK, SEMINE, RACCOLTE, piani e allocazioni;
 - calcola un piano deterministico e completo;
 - persiste RUN, piano, revisione, righe, risorse, allocazioni, snapshot di ripianificazione, messaggi e audit mediante i writer già congelati;
 - non modifica ORDINI, RIGHE_ORDINE, CONSEGNE, STOCK, SEMINE, RACCOLTE o MOVIMENTI_MAGAZZINO;
 - non trasforma una previsione in fatto fisico.
+
+Il Pure Planning Engine, il Commit Assembler, il Commit Writer e
+l'Orchestrator hanno responsabilita separate secondo il boundary congelato al
+§7.1. Il termine "motore" non autorizza uno di questi componenti ad assumere le
+responsabilita degli altri.
 
 ## 2. Command pubblico provider-neutral
 
@@ -273,6 +278,27 @@ Fornisce soltanto istanti tecnici di apertura/completamento. `business_at` provi
 
 Non sono richieste port Google, API, UI, event bus, stock writer, order writer, delivery writer, semina writer o harvest writer.
 
+### 6.5-bis ProductionPlanningCommitAssembler
+
+`ProductionPlanningCommitAssembler` e un componente applicativo esplicito,
+immutabile rispetto agli input, provider-neutral e deterministico. Non e una
+port infrastrutturale e non effettua I/O. Riceve:
+
+- il `ProductionPlanningCommand` validato;
+- la `ProductionPlanningRunSnapshot` gia aperta;
+- il `PlanningInputSnapshot` autorevole completo;
+- la collezione ordinata di `PlanningCandidate` prodotta dal Pure Planning
+  Engine;
+- gli identificativi pubblici gia allocati tramite `IdentityAllocationPort`,
+  in un bundle tipizzato e ordinato.
+
+Restituisce un solo `ProductionPlanningCommit` completo. Il modello intermedio
+obbligatorio e `ProductionPlanningAssemblyInput`; non sono ammessi `dict`,
+payload SQL/provider o callback opachi come contratto del boundary. Il bundle
+degli identificativi distingue field-by-field RUN, piano, revisione, righe,
+risorse, snapshot, allocazioni e replacement applicabili. L'Assembler non
+alloca Identity, non genera UUID casuali e non effettua letture aggiuntive.
+
 ### 6.6 AllocationTransitionDraft e commit
 
 `AllocationTransitionDraft` è immutabile e contiene:
@@ -360,21 +386,196 @@ differente producono un solo commit e un conflict. Nessun retry automatico.
 3. aprire una Planning RUN distinta dalla Scheduling RUN;
 4. leggere lo snapshot autorevole;
 5. validare eleggibilità, UOM, quantità, policy e conoscenza;
-6. calcolare domanda residua senza alterare ORDINI;
-7. selezionare deterministicamente protocollo e risorse;
-8. applicare priority policy, backplanning, autorità temporale globale, buffer quantitativo della policy e buffer temporale/granularità del protocollo;
-9. produrre revisioni complete, righe, risorse seme e allocazioni tipizzate;
-10. calcolare chiavi e hash con il canonical encoding frozen;
-11. costruire un write set completo e deterministicamente ordinato;
-12. delegare revalidation e commit atomico alla Commit Port;
-13. restituire `ProductionPlanningResult` per il risultato committed o
+6. invocare il Pure Planning Engine per selezione protocollo e backplanning;
+7. invocare il `ProductionPlanningCommitAssembler` con snapshot, candidati e
+   identificativi gia allocati;
+8. ricevere dall'Assembler il write set completo e deterministicamente ordinato;
+9. delegare revalidation e commit atomico alla Commit Port;
+10. restituire `ProductionPlanningResult` per il risultato committed o
     idempotente;
-14. dopo rollback certo, finalizzare la RUN fallita in transazione separata;
-15. su esito incerto, non dedurre failure o dati committed, indirizzare la RUN
+11. dopo rollback certo, finalizzare la RUN fallita in transazione separata;
+12. su esito incerto, non dedurre failure o dati committed, indirizzare la RUN
     alla riconciliazione e restituire
     `ProductionPlanningReconciliationRequiredResult`.
 
 Il service non deve aggiornare stato o versioni delle authority lette, avviare SEMINE, registrare RACCOLTE, movimentare STOCK, consegnare ORDINI, eseguire retry ciechi o compensazioni.
+
+### 7.1 Architecture Addendum — Production Planning Commit Assembly Boundary
+
+#### Separazione definitiva delle responsabilita
+
+Il Pure Planning Engine determina esclusivamente domanda eleggibile, unico
+protocollo `APPROVATA`, timeline completa e provenance del calcolo temporale.
+Non applica il buffer quantitativo, non arrotonda alla granularita e non
+seleziona o alloca risorse.
+
+Il Commit Assembler determina esclusivamente, a partire dagli snapshot gia
+presenti nell'input, coverage, selezione delle risorse, deficit produttivo,
+buffer quantitativo, granularita, risorse seme, allocazioni, struttura
+piano/revisione/riga, chiavi, contatori, messaggi, audit e write set completo.
+Il Writer persiste e revalida soltanto. L'Orchestrator esegue soltanto:
+
+```text
+RUN -> SNAPSHOT -> ENGINE -> ASSEMBLER -> COMMIT PORT -> FINALIZE
+```
+
+#### Formula quantitativa V1
+
+Per ogni riga domanda, con Decimal esatti e UOM identica:
+
+```text
+commercial_residual = ordered_quantity - net_delivered_quantity
+coverage_quantity = eligible_stock_coverage
+                    + eligible_harvest_coverage
+                    + eligible_in_progress_coverage
+production_deficit = max(0, commercial_residual - coverage_quantity)
+buffered_requirement = apply_quantitative_buffer(production_deficit)
+productive_quantity = conservative_round_up(
+    buffered_requirement,
+    production_granularity
+)
+```
+
+Buffer e granularita si applicano una sola volta e soltanto al deficit. La
+responsabilita di `productive_quantity` e trasferita dall'Engine all'Assembler;
+l'Engine non riceve un deficit precomputato e non duplica la lettura delle
+risorse. Coverage non puo superare il residuo commerciale; con coverage completa
+deficit, buffer, pre-granularity e productive quantity sono zero.
+
+#### Precedenza e selezione delle risorse
+
+Le sole classi V1, in precedenza stretta, sono:
+
+1. STOCK gia disponibile ed eleggibile;
+2. RACCOLTA reale gia disponibile/eleggibile entro la delivery;
+3. SEMINA/produzione in corso eleggibile entro la delivery;
+4. nuova produzione per il solo deficit residuo.
+
+Dentro la stessa classe l'ordine e: earliest usable/ready timestamp crescente,
+quantita gia allocata crescente, residuo eleggibile decrescente, public ID
+crescente. Per STOCK gia disponibile l'istante usable e `business_at`; per
+RACCOLTA e `harvested_at`; per SEMINA e `harvest_window_start`. Nessun PK,
+query order, insertion order o map order partecipa alla selezione.
+
+La copertura attraversa tutte le risorse necessarie nell'ordine congelato.
+Ogni source public ID usato produce un `AllocationDraft` distinto; non esiste
+aggregazione implicita fra sorgenti. Per ogni risorsa:
+
+```text
+sum(new allocation quantity) + existing active material allocation quantity
+    <= eligible resource quantity
+```
+
+Ogni mismatch di UOM, readiness, identita, versione o capienza fallisce chiuso.
+
+#### Semantica field-by-field delle allocazioni di coverage
+
+- STOCK: `resource_public_id`, destination order-line, quantita, UOM,
+  allocation type `STOCK`, `readiness_code`, eligible/allocated/residual
+  osservati ed expected resource version.
+- RACCOLTA: `harvest_public_id`, destination order-line, quantita, UOM,
+  allocation type `RACCOLTA`, quantita immutabile eleggibile, residuo osservato,
+  `harvested_at` e provenance. Non viene inventata una version assente
+  dall'authority.
+- SEMINA: `semina_public_id`, protocol version public ID, destination
+  order-line, quantita, UOM, allocation type `PRODUZIONE_IN_CORSO`, useful/
+  allocated/residual osservati, harvest window, stato ed expected semina
+  version.
+
+Gli snapshot restano le sole authority osservate; i draft non modificano
+STOCK, SEMINA, RACCOLTA o MOVIMENTI_MAGAZZINO.
+
+#### Identita, chiavi, audit, contatori e messaggi
+
+Identity alloca gli identificativi pubblici in transazioni separate prima
+dell'assembly. L'Assembler assegna deterministicamente tali ID al materiale
+ordinato e costruisce planning key, replanning key, revision request key, scope
+delle righe, identita delle allocazioni/replacement, snapshot e ordinamenti.
+Nessun ID casuale e ammesso dove l'idempotenza richiede materiale deterministico.
+
+L'Assembler costruisce `AuditDraft` business-completi e ordinati. Il Writer
+aggiunge soltanto actor, reason e correlation ID da `commit.context` e il
+persistence timestamp, senza interpretare payload o provenance.
+
+I soli contatori costruiti dall'Assembler sono quelli derivabili dal write set:
+ORDINI letti, righe ORDINE valutate, righe coperte integralmente, righe coperte
+parzialmente, righe piano generate, allocazioni generate, righe tardive, righe
+non producibili ed elementi saltati. I messaggi sono soltanto errori/warning
+frozen derivati dalle decisioni del write set, sanitizzati, densi e ordinati.
+
+#### Replanning
+
+L'Assembler usa `ActiveAllocationSnapshot` e costruisce ogni
+`AllocationTransitionDraft`; il Writer non sceglie target, delta, replacement o
+provenance. Epoch e replay restano quelli del §6.6.
+
+La disposition non deriva dal `replanning_reason_code`, dal target state
+corrente, dallo stato del protocollo o da euristiche del Writer. È una decisione
+applicativa esplicita basata congiuntamente su causa normalizzata, usability
+autorevole della source e destinazione della quota residua.
+
+Il vocabulary chiuso delle cause V1 è:
+
+```text
+DEMAND_REDUCED
+DEMAND_CANCELLED
+DEMAND_COVERED_ELSEWHERE
+REALLOCATION_REQUIRED
+REVISION_REPLACEMENT
+SOURCE_UNUSABLE
+SEEDING_FAILED
+HARVEST_UNAVAILABLE
+STOCK_QUANTITY_INVALIDATED
+DATA_CORRUPTION_CONFIRMED
+MANUAL_INVALIDATION_AUTHORIZED
+```
+
+Il vocabulary chiuso di source usability V1 è `REUSABLE`,
+`TRANSFERABLE_ONLY`, `UNUSABLE`:
+
+- `REUSABLE` consente esclusivamente `RILASCIATA`: la quota non serve più alla
+  demand originaria, torna allocabile nella stessa source e non ha replacement;
+- `TRANSFERABLE_ONLY` consente esclusivamente `SOSTITUITA`: la quota resta
+  impegnata e viene trasferita a una replacement canonica esplicita;
+- `UNUSABLE` consente esclusivamente `INVALIDA`: la quota non è riutilizzabile,
+  non torna disponibile e non viene trasferita.
+
+Le cause `DEMAND_REDUCED`, `DEMAND_CANCELLED` e
+`DEMAND_COVERED_ELSEWHERE` ammettono `RILASCIATA`; `REALLOCATION_REQUIRED` e
+`REVISION_REPLACEMENT` ammettono `SOSTITUITA`; `SOURCE_UNUSABLE`,
+`SEEDING_FAILED`, `HARVEST_UNAVAILABLE`, `STOCK_QUANTITY_INVALIDATED`,
+`DATA_CORRUPTION_CONFIRMED` e `MANUAL_INVALIDATION_AUTHORIZED` ammettono
+`INVALIDA`. Ogni combinazione diversa fallisce chiuso.
+
+`AllocationReplacementSpecification` è immutabile e contiene replacement
+allocation public ID, frozen allocation type, source public ID, destination
+order-line public ID, destination planning-line public ID, quantità/UOM e
+provenance. È obbligatoria soltanto per `SOSTITUITA`; parent e replacement sono
+distinti, quantità replacement e transferred delta coincidono e la UOM è la
+stessa del parent.
+
+`AllocationDispositionDecision` è immutabile e contiene allocation public ID,
+expected version, disposition cause, source usability, observed remaining,
+eventuale consumed delta contestuale, target disposition, replacement
+specification opzionale, reason e provenance. Observed remaining è positivo;
+il consumed delta è non negativo e inferiore al residuo. La disposition riguarda
+tutta la quota rimasta dopo tale consumo.
+
+L'Assembler combina `AllocationDispositionDecision` e il corrispondente
+`ActiveAllocationSnapshot` della stessa allocation/version per produrre
+deterministicamente `AllocationTransitionDraft`. Se snapshot, versione, saldi o
+UOM divergono, fallisce chiuso. Il Writer riceve soltanto il transition draft e
+non interpreta la decisione.
+
+Il ritiro successivo di un protocollo non invalida retroattivamente allocation
+committed. `INVALIDA` richiede un fatto autorevole distinto che dichiari source
+o commitment non più utilizzabile.
+
+Nel resource accounting, `RILASCIATA` restituisce la quota al residuo allocabile
+della source; `SOSTITUITA` rimuove l'impegno originario e lo rappresenta nella
+replacement; `INVALIDA` rimuove l'impegno originario senza rendere la quota
+disponibile. Nessuna transition modifica fisicamente STOCK, SEMINA, RACCOLTA o
+MOVIMENTI_MAGAZZINO.
 
 ## 8. Invarianti applicative
 

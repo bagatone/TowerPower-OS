@@ -28,6 +28,39 @@ BUFFER_TYPES = frozenset({"NONE", "PERCENTAGE", "ABSOLUTE_SET"})
 RUN_STATES = frozenset({"OPEN", "COMMITTED", "FAILED", "RECONCILIATION_REQUIRED"})
 AUDIT_OPERATIONS = frozenset({"INSERT", "UPDATE", "DELETE", "STATE_TRANSITION", "CORRECTION"})
 PROTOCOL_APPROVAL_STATES = frozenset({"BOZZA", "APPROVATA", "RITIRATA"})
+ALLOCATION_DISPOSITION_CAUSES = frozenset(
+    {
+        "DEMAND_REDUCED",
+        "DEMAND_CANCELLED",
+        "DEMAND_COVERED_ELSEWHERE",
+        "REALLOCATION_REQUIRED",
+        "REVISION_REPLACEMENT",
+        "SOURCE_UNUSABLE",
+        "SEEDING_FAILED",
+        "HARVEST_UNAVAILABLE",
+        "STOCK_QUANTITY_INVALIDATED",
+        "DATA_CORRUPTION_CONFIRMED",
+        "MANUAL_INVALIDATION_AUTHORIZED",
+    }
+)
+ALLOCATION_SOURCE_USABILITY = frozenset(
+    {"REUSABLE", "TRANSFERABLE_ONLY", "UNUSABLE"}
+)
+ALLOCATION_DISPOSITIONS = frozenset({"RILASCIATA", "SOSTITUITA", "INVALIDA"})
+_RELEASE_CAUSES = frozenset(
+    {"DEMAND_REDUCED", "DEMAND_CANCELLED", "DEMAND_COVERED_ELSEWHERE"}
+)
+_TRANSFER_CAUSES = frozenset({"REALLOCATION_REQUIRED", "REVISION_REPLACEMENT"})
+_INVALIDATION_CAUSES = frozenset(
+    {
+        "SOURCE_UNUSABLE",
+        "SEEDING_FAILED",
+        "HARVEST_UNAVAILABLE",
+        "STOCK_QUANTITY_INVALIDATED",
+        "DATA_CORRUPTION_CONFIRMED",
+        "MANUAL_INVALIDATION_AUTHORIZED",
+    }
+)
 PRODUCTION_PLANNING_PRIORITY_POLICY_V1 = "DELIVERY_THEN_PUBLIC_ID"
 PRODUCTION_PLANNING_ALGORITHM_VERSION_V1 = "production-planning-v1"
 HARVEST_TARGET_STRATEGY_V1 = "EARLIEST_APPROVED_WINDOW"
@@ -582,6 +615,153 @@ class AllocationDraft:
             raise InvalidProductionPlanningModelError("Nuova allocazione deve avere tipo congelato e stato ATTIVA.")
         if self.quantity.value <= 0:
             raise InvalidProductionPlanningModelError("Allocazione deve essere positiva.")
+
+
+@dataclass(frozen=True)
+class AllocationReplacementSpecification:
+    replacement_allocation_public_id: PublicId
+    allocation_type: str
+    source_public_id: PublicId
+    destination_order_line_public_id: PublicId
+    destination_planning_line_public_id: PublicId
+    quantity: ExactQuantity
+    provenance: str
+
+    def __post_init__(self) -> None:
+        if not all(
+            isinstance(value, PublicId)
+            for value in (
+                self.replacement_allocation_public_id,
+                self.source_public_id,
+                self.destination_order_line_public_id,
+                self.destination_planning_line_public_id,
+            )
+        ) or not isinstance(self.quantity, ExactQuantity):
+            raise InvalidProductionPlanningModelError(
+                "Replacement allocation contiene riferimenti o quantità non validi."
+            )
+        if self.allocation_type not in ALLOCATION_TYPES:
+            raise InvalidProductionPlanningModelError("Tipo replacement allocation non congelato.")
+        if self.quantity.value <= 0:
+            raise InvalidProductionPlanningModelError("Quantità replacement deve essere positiva.")
+        _text("replacement provenance", self.provenance)
+
+
+@dataclass(frozen=True)
+class AllocationDispositionDecision:
+    allocation_public_id: PublicId
+    expected_version: int
+    disposition_cause: str
+    source_usability: str
+    observed_remaining_quantity: Decimal
+    consumed_quantity_delta: Decimal
+    target_disposition: str
+    replacement_specification: AllocationReplacementSpecification | None
+    reason: str
+    provenance: str
+
+    def __post_init__(self) -> None:
+        _version("expected_version", self.expected_version)
+        if self.disposition_cause not in ALLOCATION_DISPOSITION_CAUSES:
+            raise InvalidProductionPlanningModelError("Causa disposition allocation non congelata.")
+        if self.source_usability not in ALLOCATION_SOURCE_USABILITY:
+            raise InvalidProductionPlanningModelError("Source usability allocation non congelata.")
+        if self.target_disposition not in ALLOCATION_DISPOSITIONS:
+            raise InvalidProductionPlanningModelError("Target disposition allocation non congelata.")
+        object.__setattr__(
+            self,
+            "observed_remaining_quantity",
+            _decimal("observed_remaining_quantity", self.observed_remaining_quantity, positive=True),
+        )
+        object.__setattr__(
+            self,
+            "consumed_quantity_delta",
+            _decimal("consumed_quantity_delta", self.consumed_quantity_delta),
+        )
+        if self.consumed_quantity_delta >= self.observed_remaining_quantity:
+            raise InvalidProductionPlanningModelError(
+                "La disposition richiede una quota residua positiva dopo il consumo."
+            )
+        expected = {
+            "RILASCIATA": ("REUSABLE", _RELEASE_CAUSES),
+            "SOSTITUITA": ("TRANSFERABLE_ONLY", _TRANSFER_CAUSES),
+            "INVALIDA": ("UNUSABLE", _INVALIDATION_CAUSES),
+        }[self.target_disposition]
+        if self.source_usability != expected[0] or self.disposition_cause not in expected[1]:
+            raise InvalidProductionPlanningModelError(
+                "Causa, source usability e target disposition non coerenti."
+            )
+        has_replacement = self.replacement_specification is not None
+        if has_replacement and not isinstance(
+            self.replacement_specification, AllocationReplacementSpecification
+        ):
+            raise InvalidProductionPlanningModelError("Replacement specification non valida.")
+        if (self.target_disposition == "SOSTITUITA") != has_replacement:
+            raise InvalidProductionPlanningModelError(
+                "Replacement obbligatoria soltanto per SOSTITUITA."
+            )
+        if self.replacement_specification is not None:
+            if (
+                self.replacement_specification.replacement_allocation_public_id
+                == self.allocation_public_id
+            ):
+                raise InvalidProductionPlanningModelError(
+                    "Replacement allocation deve essere distinta dal parent."
+                )
+            if self.replacement_specification.quantity.value != self.disposition_quantity:
+                raise InvalidProductionPlanningModelError(
+                    "Quantità replacement diversa dal delta trasferito."
+                )
+        _text("disposition reason", self.reason)
+        _text("disposition provenance", self.provenance)
+
+    @property
+    def disposition_quantity(self) -> Decimal:
+        return self.observed_remaining_quantity - self.consumed_quantity_delta
+
+    def to_transition_draft(
+        self, snapshot: ActiveAllocationSnapshot
+    ) -> AllocationTransitionDraft:
+        if not isinstance(snapshot, ActiveAllocationSnapshot):
+            raise InvalidProductionPlanningModelError("Active allocation snapshot non valido.")
+        if (
+            snapshot.allocation_public_id != self.allocation_public_id
+            or snapshot.version != self.expected_version
+            or snapshot.state != "ATTIVA"
+            or snapshot.remaining_quantity.value != self.observed_remaining_quantity
+        ):
+            raise InvalidProductionPlanningModelError(
+                "Disposition decision non coerente con ActiveAllocationSnapshot."
+            )
+        replacement = self.replacement_specification
+        if replacement is not None and replacement.quantity.unit != snapshot.remaining_quantity.unit:
+            raise InvalidProductionPlanningModelError("UOM replacement incoerente con il parent.")
+        disposition_deltas = {
+            "RILASCIATA": (self.disposition_quantity, Decimal("0"), Decimal("0")),
+            "SOSTITUITA": (Decimal("0"), self.disposition_quantity, Decimal("0")),
+            "INVALIDA": (Decimal("0"), Decimal("0"), self.disposition_quantity),
+        }[self.target_disposition]
+        return AllocationTransitionDraft(
+            allocation_public_id=self.allocation_public_id,
+            expected_version=self.expected_version,
+            current_state="ATTIVA",
+            target_state=self.target_disposition,
+            observed_allocated_quantity=snapshot.allocated_quantity.value,
+            observed_consumed_quantity=snapshot.consumed_quantity.value,
+            observed_released_quantity=snapshot.released_quantity.value,
+            observed_transferred_quantity=snapshot.transferred_quantity.value,
+            observed_invalidated_quantity=snapshot.invalidated_quantity.value,
+            observed_remaining_quantity=snapshot.remaining_quantity.value,
+            consumed_quantity_delta=self.consumed_quantity_delta,
+            released_quantity_delta=disposition_deltas[0],
+            transferred_quantity_delta=disposition_deltas[1],
+            invalidated_quantity_delta=disposition_deltas[2],
+            replacement_allocation_public_id=(
+                replacement.replacement_allocation_public_id if replacement else None
+            ),
+            reason=self.reason,
+            provenance=self.provenance,
+        )
 
 
 @dataclass(frozen=True)

@@ -11,6 +11,7 @@ from .models import (
     ProductionPlanningCommand,
     ProductionPlanningCommit,
     ProductionPlanningResult,
+    ProductionPlanningRunOutcome,
     ProductionPlanningRunSnapshot,
     PublicId,
     ReplanProductionPlanningCommand,
@@ -51,7 +52,7 @@ class ProductionPlanningService:
         self._clock = clock
         self._build_commit = build_commit
 
-    def execute(self, command: ProductionPlanningCommand) -> ProductionPlanningResult:
+    def execute(self, command: ProductionPlanningCommand) -> ProductionPlanningRunOutcome:
         if not isinstance(command, (InitialProductionPlanningCommand, ReplanProductionPlanningCommand)):
             raise ProductionPlanningError(
                 "PLANNING_INPUT_INVALID", "INVALID_COMMAND", "Command Production Planning non valido."
@@ -87,7 +88,11 @@ class ProductionPlanningService:
             return self._commit.commit(write_set, completed_at=self._clock.now())
         except ProductionPlanningOutcomeUncertain as error:
             return self._runs.require_reconciliation(
-                run=run, observed_at=self._clock.now(), error=error
+                run=run,
+                business_at=command.business_at,
+                observed_at=self._clock.now(),
+                correlation_id=command.context.correlation_id,
+                error=error,
             )
         except ProductionPlanningError as error:
             completed_at = self._clock.now()

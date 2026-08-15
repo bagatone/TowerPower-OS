@@ -883,8 +883,10 @@ class ProductionPlanningResult:
     warnings: tuple[RunMessage, ...]
 
     def __post_init__(self) -> None:
-        if self.run_state not in {"COMMITTED", "RECONCILIATION_REQUIRED"}:
-            raise InvalidProductionPlanningModelError("Result state non valido.")
+        if self.run_state != "COMMITTED":
+            raise InvalidProductionPlanningModelError(
+                "ProductionPlanningResult rappresenta esclusivamente un commit certo."
+            )
         _instant("committed_at", self.committed_at)
         if not isinstance(self.revision_results, tuple) or not self.revision_results:
             raise InvalidProductionPlanningModelError("Result privo di revisioni committed.")
@@ -902,6 +904,43 @@ class ProductionPlanningResult:
             item.revision_public_id for item in self.revision_results
         ):
             raise InvalidProductionPlanningModelError("Piani e revisioni correnti non allineati.")
+
+
+@dataclass(frozen=True)
+class ProductionPlanningReconciliationRequiredResult:
+    planning_run_public_id: PublicId
+    run_state: str
+    business_at: datetime
+    observed_at: datetime
+    correlation_id: str
+    failure_category: str
+    code: str
+    message: str
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.planning_run_public_id, PublicId)
+            or not self.planning_run_public_id.value.startswith("RPP-")
+        ):
+            raise InvalidProductionPlanningModelError("planning_run_public_id deve essere RPP-*.")
+        if self.run_state != "RECONCILIATION_REQUIRED":
+            raise InvalidProductionPlanningModelError(
+                "Il risultato incerto richiede RECONCILIATION_REQUIRED."
+            )
+        _instant("business_at", self.business_at)
+        _instant("observed_at", self.observed_at)
+        _text("correlation_id", self.correlation_id)
+        if self.failure_category != "RECONCILIATION_REQUIRED":
+            raise InvalidProductionPlanningModelError(
+                "Failure category del risultato incerto non valida."
+            )
+        _text("code", self.code)
+        _text("message", self.message)
+
+
+ProductionPlanningRunOutcome = (
+    ProductionPlanningResult | ProductionPlanningReconciliationRequiredResult
+)
 
 
 def _resource_quantities(total: ExactQuantity, allocated: ExactQuantity, residual: ExactQuantity) -> None:

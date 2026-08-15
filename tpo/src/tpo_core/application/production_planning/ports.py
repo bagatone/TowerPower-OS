@@ -11,6 +11,7 @@ from .models import (
     PolicyVersionReference,
     ProductionPlanningCommand,
     ProductionPlanningCommit,
+    ProductionPlanningReconciliationRequiredResult,
     ProductionPlanningResult,
     ProductionPlanningRunSnapshot,
     PublicId,
@@ -50,9 +51,11 @@ class ProductionPlanningRunPort(Protocol):
         self,
         *,
         run: ProductionPlanningRunSnapshot,
+        business_at: datetime,
         observed_at: datetime,
+        correlation_id: str,
         error: ProductionPlanningError,
-    ) -> ProductionPlanningResult: ...
+    ) -> ProductionPlanningReconciliationRequiredResult: ...
 
 
 class ProductionPlanningCommitPort(Protocol):

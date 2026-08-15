@@ -5,6 +5,7 @@ from datetime import date, datetime, time, timezone
 from decimal import Decimal
 import hashlib
 from pathlib import Path
+from typing import get_type_hints
 
 import pytest
 
@@ -33,7 +34,9 @@ from src.tpo_core.application.production_planning.models import (
     PolicyVersionReference,
     ProductionKnowledgeSnapshot,
     ProductionPlanningCommit,
+    ProductionPlanningReconciliationRequiredResult,
     ProductionPlanningResult,
+    ProductionPlanningRunOutcome,
     ProductionPlanningRunCounters,
     ProductionPlanningRunSnapshot,
     PublicId,
@@ -44,6 +47,10 @@ from src.tpo_core.application.production_planning.models import (
     StockResourceSnapshot,
 )
 from src.tpo_core.application.production_planning.service import ProductionPlanningService
+from src.tpo_core.application.production_planning.ports import (
+    ProductionPlanningCommitPort,
+    ProductionPlanningRunPort,
+)
 from src.tpo_core.domain.identifiers import ActorId
 from src.tpo_core.domain.quantities import UnitOfMeasure
 from src.tpo_core.domain.states import OrdineState
@@ -290,7 +297,7 @@ def write_set(run: ProductionPlanningRunSnapshot) -> ProductionPlanningCommit:
     )
 
 
-def result(run_id: PublicId, *, state: str = "COMMITTED") -> ProductionPlanningResult:
+def result(run_id: PublicId) -> ProductionPlanningResult:
     revision_result = RevisionCommitResult(
         plan_public_id=pid("PP-000001"),
         revision_public_id=pid("RVP-000001"),
@@ -301,7 +308,7 @@ def result(run_id: PublicId, *, state: str = "COMMITTED") -> ProductionPlanningR
     )
     return ProductionPlanningResult(
         planning_run_public_id=run_id,
-        run_state=state,
+        run_state="COMMITTED",
         plan_public_ids=(pid("PP-000001"),),
         current_revision_public_ids=(pid("RVP-000001"),),
         revision_results=(revision_result,),
@@ -689,7 +696,16 @@ class FakeRuns:
 
     def require_reconciliation(self, **kwargs):
         self.reconciliations.append(kwargs)
-        return result(kwargs["run"].public_id, state="RECONCILIATION_REQUIRED")
+        return ProductionPlanningReconciliationRequiredResult(
+            planning_run_public_id=kwargs["run"].public_id,
+            run_state="RECONCILIATION_REQUIRED",
+            business_at=kwargs["business_at"],
+            observed_at=kwargs["observed_at"],
+            correlation_id=kwargs["correlation_id"],
+            failure_category=kwargs["error"].category,
+            code=kwargs["error"].code,
+            message=kwargs["error"].safe_message,
+        )
 
 
 class FakeCommit:
@@ -742,8 +758,90 @@ def test_outcome_incerto_usa_reconciliation_e_non_failure_finalization() -> None
     runs = FakeRuns()
     output = service(FakeCommit(ProductionPlanningOutcomeUncertain()), runs).execute(command())
     assert output.run_state == "RECONCILIATION_REQUIRED"
+    assert output.correlation_id == command().context.correlation_id
+    assert output.business_at == command().business_at
     assert runs.failures == []
     assert len(runs.reconciliations) == 1
+
+
+def test_result_committed_non_puo_rappresentare_outcome_incerto() -> None:
+    committed = result(pid("RPP-000001"))
+    assert committed.run_state == "COMMITTED"
+    with pytest.raises(InvalidProductionPlanningModelError):
+        ProductionPlanningResult(
+            **{**committed.__dict__, "run_state": "RECONCILIATION_REQUIRED"}
+        )
+
+
+def test_uncertain_result_e_minimale_immutabile_e_senza_dati_committed() -> None:
+    value = ProductionPlanningReconciliationRequiredResult(
+        planning_run_public_id=pid("RPP-000001"),
+        run_state="RECONCILIATION_REQUIRED",
+        business_at=BUSINESS_AT,
+        observed_at=BUSINESS_AT,
+        correlation_id="corr-1",
+        failure_category="RECONCILIATION_REQUIRED",
+        code="COMMIT_OUTCOME_UNCERTAIN",
+        message="Esito del commit non determinabile.",
+    )
+    assert set(value.__dataclass_fields__) == {
+        "planning_run_public_id",
+        "run_state",
+        "business_at",
+        "observed_at",
+        "correlation_id",
+        "failure_category",
+        "code",
+        "message",
+    }
+    forbidden = {
+        "plan_public_ids",
+        "current_revision_public_ids",
+        "revision_results",
+        "planning_line_public_ids",
+        "allocation_public_ids",
+        "committed_at",
+        "reused_existing_revision",
+    }
+    assert forbidden.isdisjoint(value.__dataclass_fields__)
+    with pytest.raises(FrozenInstanceError):
+        value.run_state = "COMMITTED"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    (("run_state", "COMMITTED"), ("failure_category", "INTERNAL_ERROR")),
+)
+def test_uncertain_result_rifiuta_stato_o_categoria_non_coerenti(
+    field_name: str, value: str
+) -> None:
+    fields = {
+        "planning_run_public_id": pid("RPP-000001"),
+        "run_state": "RECONCILIATION_REQUIRED",
+        "business_at": BUSINESS_AT,
+        "observed_at": BUSINESS_AT,
+        "correlation_id": "corr-1",
+        "failure_category": "RECONCILIATION_REQUIRED",
+        "code": "COMMIT_OUTCOME_UNCERTAIN",
+        "message": "Esito del commit non determinabile.",
+    }
+    fields[field_name] = value
+    with pytest.raises(InvalidProductionPlanningModelError):
+        ProductionPlanningReconciliationRequiredResult(**fields)
+
+
+def test_public_outcome_union_e_provider_neutral() -> None:
+    assert ProductionPlanningRunOutcome == (
+        ProductionPlanningResult | ProductionPlanningReconciliationRequiredResult
+    )
+
+
+def test_port_return_types_distinguono_successo_e_riconciliazione() -> None:
+    assert get_type_hints(ProductionPlanningCommitPort.commit)["return"] is ProductionPlanningResult
+    assert (
+        get_type_hints(ProductionPlanningRunPort.require_reconciliation)["return"]
+        is ProductionPlanningReconciliationRequiredResult
+    )
 
 
 def test_failure_inattesa_e_sanitizzata_e_finalizzata_come_internal_error() -> None:

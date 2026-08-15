@@ -18,6 +18,9 @@ __all__ = [
     "ProductionPlanningError",
     "ProductionPlanningInputPort",
     "ProductionPlanningOutcomeUncertain",
+    "ProductionPlanningReconciliationRequiredResult",
+    "ProductionPlanningResult",
     "ProductionPlanningRunPort",
+    "ProductionPlanningRunOutcome",
     "ProductionPlanningService",
 ]

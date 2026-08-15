@@ -161,7 +161,8 @@ canonici e framing deterministico; non ricostruisce saldi da uno stato terminale
 
 ## 4. Output contract
 
-Il successo restituisce l’immutabile `ProductionPlanningResult`:
+Il successo certo restituisce l’immutabile `ProductionPlanningResult`, che
+rappresenta esclusivamente una RUN `COMMITTED`:
 
 | Campo | Contratto |
 |---|---|
@@ -190,7 +191,27 @@ materiale resta un conflitto e nessuna revisione rappresenta arbitrariamente
 l'intero commit. Il replay non crea una nuova revisione e non promette il riuso
 del public ID di una RUN nuova aperta per osservarlo.
 
-Le failure certe sono espresse tramite `ProductionPlanningError` e una categoria frozen. Un esito fisico non determinabile è espresso come risultato di riconciliazione con `run_state = RECONCILIATION_REQUIRED`, public ID RUN e informazioni diagnostiche sanitizzate; non viene dichiarato rollback certo.
+Le failure certe sono espresse tramite `ProductionPlanningError` e una categoria
+frozen. Un esito fisico non determinabile è espresso dall'immutabile e distinto
+`ProductionPlanningReconciliationRequiredResult`, contenente esclusivamente:
+
+- `planning_run_public_id`;
+- `run_state = RECONCILIATION_REQUIRED`;
+- `business_at` e `observed_at`, entrambi timezone-aware;
+- `correlation_id` del command;
+- `failure_category = RECONCILIATION_REQUIRED`;
+- codice e messaggio provider-neutral sanitizzati.
+
+Il risultato incerto non contiene né richiede public ID di piani, revisioni o
+righe committed, `RevisionCommitResult`, flag created/reused o `committed_at`.
+Non dichiara rollback, commit, failure certa o retryability. Il return type
+pubblico è la union chiusa provider-neutral:
+
+```text
+ProductionPlanningRunOutcome =
+    ProductionPlanningResult
+    | ProductionPlanningReconciliationRequiredResult
+```
 
 L’output non espone PK, SQLSTATE, SQL, stack trace, DSN, secret, dettagli driver o nomi fisici.
 
@@ -213,7 +234,10 @@ I modelli applicativi obbligatori sono:
 - `RunMessage`: tipo già frozen, eventuale failure category frozen, codice, messaggio e posizione;
 - `ProductionPlanningCommit`: write set completo e deterministico;
 - `RevisionCommitResult`: esito idempotente univoco di una singola revisione;
-- `ProductionPlanningResult`;
+- `ProductionPlanningResult`, risultato esclusivamente `COMMITTED`;
+- `ProductionPlanningReconciliationRequiredResult`, risultato esclusivamente
+  `RECONCILIATION_REQUIRED` senza dati committed dedotti;
+- `ProductionPlanningRunOutcome`, union chiusa dei due risultati pubblici;
 - `ProductionPlanningError`.
 
 Public ID, date, istanti, quantità, unità, versioni e hash sono value object validati. I modelli non replicano entità ORM né ammettono dizionari/provider payload come contratto pubblico.
@@ -230,7 +254,12 @@ Legge uno snapshot coerente e completo delle authority elencate al §3. Non filt
 
 ### 6.3 ProductionPlanningRunPort
 
-Apre la RUN `OPEN`, registra i dati frozen e la expected version; finalizza una failure certa con CAS in transazione separata; supporta la riconciliazione esclusivamente secondo il protocollo già congelato. Non completa autonomamente una RUN committed fuori dal commit autorevole.
+Apre la RUN `OPEN`, registra i dati frozen e la expected version; finalizza una
+failure certa con CAS in transazione separata; supporta la riconciliazione
+esclusivamente secondo il protocollo già congelato e restituisce
+`ProductionPlanningReconciliationRequiredResult`. Non completa autonomamente
+una RUN committed fuori dal commit autorevole e non sintetizza dati committed
+durante la riconciliazione.
 
 ### 6.4 ProductionPlanningCommitPort
 
@@ -338,9 +367,12 @@ differente producono un solo commit e un conflict. Nessun retry automatico.
 10. calcolare chiavi e hash con il canonical encoding frozen;
 11. costruire un write set completo e deterministicamente ordinato;
 12. delegare revalidation e commit atomico alla Commit Port;
-13. restituire il risultato committed o idempotente;
+13. restituire `ProductionPlanningResult` per il risultato committed o
+    idempotente;
 14. dopo rollback certo, finalizzare la RUN fallita in transazione separata;
-15. su esito incerto, non dedurre failure e indirizzare la RUN alla riconciliazione.
+15. su esito incerto, non dedurre failure o dati committed, indirizzare la RUN
+    alla riconciliazione e restituire
+    `ProductionPlanningReconciliationRequiredResult`.
 
 Il service non deve aggiornare stato o versioni delle authority lette, avviare SEMINE, registrare RACCOLTE, movimentare STOCK, consegnare ORDINI, eseguire retry ciechi o compensazioni.
 

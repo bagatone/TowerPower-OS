@@ -1516,6 +1516,20 @@ non modificano STOCK, SEMINE, RACCOLTE o MOVIMENTI_MAGAZZINO; l'impegno logico
 della risorsa originaria è `consumed_quantity + remaining_quantity` e la
 replacement conta autonomamente con la propria quantità.
 
+### 23.2 Addendum Production Planning — righe a zero nuova produzione
+
+Una riga Planning integralmente coperta da risorse eleggibili conserva la
+tracciabilità della domanda senza creare fatti produttivi artificiali. In
+`tpo.righe_piano_semina`, `grammi_seme_richiesti` è NULL se e solo se
+`quantita_produttiva_autorizzata = 0`; quando la quantità produttiva autorizzata
+è positiva, `grammi_seme_richiesti` è NOT NULL e strettamente positivo. Il
+valore numerico zero non rappresenta mai l'assenza di nuova semina e i vincoli
+positivi di `tpo.risorse_seme_pianificate` restano invariati.
+
+La migration successiva a `20260814_0012` è schema-only e fail-closed: righe
+storiche a produzione zero con grammi seme valorizzati richiedono commissioning
+esplicito; il downgrade è vietato finché esistono righe con grammi seme NULL.
+
 Il modello fisico PostgreSQL v1.0 preserva i Register congelati, normalizza aggregati e relazioni, rende atomiche Identity, RUN, idempotenza e variazioni STOCK e mantiene il Core indipendente dal provider.
 
 Le fonti autorevoli sono le tabelle PostgreSQL governate da questo documento. Le viste e Google Sheets restano rappresentazioni derivate.

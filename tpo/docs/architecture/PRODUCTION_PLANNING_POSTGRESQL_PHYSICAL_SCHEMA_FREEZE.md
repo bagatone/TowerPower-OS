@@ -1223,7 +1223,7 @@ solo sostituzione metadata con CAS. **DELETE:** RESTRICT. **WRITER:** Planning.
 | `quantita_residua_da_avviare` | `numeric(20,6)` | NOT NULL | NO DEFAULT | residua |
 | `resa_attesa` | `numeric(20,6)` | NOT NULL | NO DEFAULT | resa |
 | `resa_unita_misura` | `unit_of_measure` | NOT NULL | NO DEFAULT | UOM resa |
-| `grammi_seme_richiesti` | `numeric(20,6)` | NOT NULL | NO DEFAULT | seme |
+| `grammi_seme_richiesti` | `numeric(20,6)` | NULL | NO DEFAULT | seme; NULL esclusivamente per zero nuova produzione |
 | `unita_domanda` | `unit_of_measure` | NOT NULL | NO DEFAULT | UOM domanda |
 | `data_consegna` | `date` | NOT NULL | NO DEFAULT | consegna |
 | `harvest_window_start` | `date` | NOT NULL | NO DEFAULT | finestra inizio |
@@ -1277,7 +1277,11 @@ copertura_raccolta_allocata >= 0 AND deficit_produttivo >= 0 AND
 buffer_quantitativo_calcolato >= 0 AND quantita_pre_granularita >= 0 AND
 granularita_produttiva > 0 AND quantita_produttiva_autorizzata >= 0 AND
 quantita_avviata >= 0 AND quantita_residua_da_avviare >= 0 AND resa_attesa > 0
-AND grammi_seme_richiesti > 0)`; `CONSTRAINT
+AND ((quantita_produttiva_autorizzata = 0 AND grammi_seme_richiesti IS NULL) OR
+(quantita_produttiva_autorizzata > 0 AND grammi_seme_richiesti IS NOT NULL AND
+grammi_seme_richiesti > 0)))`; zero non è una quantità seme persistibile:
+assenza di nuova produzione è rappresentata esclusivamente da NULL, mentre ogni
+quantità produttiva positiva richiede grammi seme strettamente positivi; `CONSTRAINT
 ck_righe_piano_semina_commercial_residual CHECK
 (quantita_consegnata_snapshot <= domanda_originaria AND
 domanda_residua_commerciale = domanda_originaria -

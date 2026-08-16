@@ -38,6 +38,7 @@ from tests.application.production_planning.test_application_layer import (
     allocation_transition,
     qty,
     write_set,
+    zero_production_line,
 )
 from tests.infrastructure.postgresql.test_production_planning_migrations import (
     isolated_postgresql as migration_postgresql,
@@ -162,6 +163,18 @@ def _commit(engine):
     return writer.commit(value, completed_at=PERSISTENCE_AT), value
 
 
+def _zero_production_write_set(run, *, mixed: bool = False):
+    base = write_set(run)
+    line = zero_production_line(
+        stock="0.4", in_progress="0.3", harvest="0.3"
+    ) if mixed else zero_production_line()
+    return replace(
+        base,
+        revisions=(replace(base.revisions[0], lines=(line,)),),
+        seed_resources=(),
+    )
+
+
 def _open_run(engine, number: int) -> ProductionPlanningRunSnapshot:
     public_id = f"RPP-{number:06d}"
     with engine.begin() as conn:
@@ -219,6 +232,70 @@ def test_initial_commit_complete_audit_run_and_deferred_constraints(writer_datab
         assert len(audit) == len(value.audits)
         assert all(row[:3] == ("tpo.planning", "planning", "corr-1") for row in audit)
         assert all(row[3] and row[4] == PERSISTENCE_AT for row in audit)
+
+
+@pytest.mark.parametrize("mixed", [False, True], ids=["stock", "mixed"])
+def test_zero_production_line_persists_without_seed_child(
+    writer_database, mixed: bool,
+) -> None:
+    run = ProductionPlanningRunSnapshot(PublicId("RPP-000001"), 0, "OPEN")
+    value = _zero_production_write_set(run, mixed=mixed)
+    result = PostgreSQLProductionPlanningCommitWriter(
+        _Factory(writer_database)
+    ).commit(value, completed_at=PERSISTENCE_AT)
+    assert result.run_state == "COMMITTED"
+    with writer_database.connect() as conn:
+        row = conn.exec_driver_sql("""
+          SELECT quantita_produttiva_autorizzata,grammi_seme_richiesti,
+                 copertura_stock,copertura_produzione_in_corso,
+                 copertura_raccolta_allocata
+          FROM tpo.righe_piano_semina WHERE public_id='RPS-000001'
+        """).one()
+        assert row[0:2] == (Decimal("0"), None)
+        assert sum(row[2:]) == Decimal("1")
+        assert conn.exec_driver_sql(
+            "SELECT count(*) FROM tpo.risorse_seme_pianificate"
+        ).scalar_one() == 0
+        assert conn.exec_driver_sql(
+            "SELECT count(*) FROM tpo.allocazioni"
+        ).scalar_one() == 1
+        assert conn.exec_driver_sql(
+            "SELECT count(*) FROM tpo.audit_eventi WHERE planning_run_id IS NOT NULL"
+        ).scalar_one() == len(value.audits)
+
+
+def test_mixed_revision_persists_exactly_one_positive_seed_child(
+    writer_database,
+) -> None:
+    run = ProductionPlanningRunSnapshot(PublicId("RPP-000001"), 0, "OPEN")
+    base = _multi_plan_write_set(run)
+    zero_line = zero_production_line()
+    zero_revision = replace(base.revisions[0], lines=(zero_line,))
+    positive_seed = tuple(
+        resource for resource in base.seed_resources
+        if resource.planning_line_public_id == base.revisions[1].lines[0].public_id
+    )
+    value = replace(
+        base,
+        revisions=(zero_revision, base.revisions[1]),
+        seed_resources=positive_seed,
+    )
+    PostgreSQLProductionPlanningCommitWriter(_Factory(writer_database)).commit(
+        value, completed_at=PERSISTENCE_AT
+    )
+    with writer_database.connect() as conn:
+        rows = conn.exec_driver_sql("""
+          SELECT r.public_id,r.quantita_produttiva_autorizzata,
+                 r.grammi_seme_richiesti,count(s.id)
+          FROM tpo.righe_piano_semina r
+          LEFT JOIN tpo.risorse_seme_pianificate s
+            ON s.riga_piano_semina_id=r.id
+          GROUP BY r.id ORDER BY r.public_id
+        """).all()
+    assert rows == [
+        ("RPS-000001", Decimal("0"), None, 0),
+        ("RPS-000002", Decimal("1"), Decimal("25"), 1),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -328,6 +405,71 @@ def test_compatible_revision_replay_reuses_revision(writer_database) -> None:
     assert result.revision_results[0].reused_existing_revision is True
     with writer_database.connect() as conn:
         assert conn.exec_driver_sql("SELECT count(*) FROM tpo.piano_produzione_revisioni").scalar_one() == 1
+
+
+def test_zero_production_replay_reuses_line_without_creating_seed_child(
+    writer_database,
+) -> None:
+    writer = PostgreSQLProductionPlanningCommitWriter(_Factory(writer_database))
+    first = _zero_production_write_set(
+        ProductionPlanningRunSnapshot(PublicId("RPP-000001"), 0, "OPEN")
+    )
+    writer.commit(first, completed_at=PERSISTENCE_AT)
+    replay = _zero_production_write_set(_open_run(writer_database, 2))
+    result = writer.commit(replay, completed_at=PERSISTENCE_AT)
+    assert result.revision_results[0].reused_existing_revision is True
+    with writer_database.connect() as conn:
+        assert conn.exec_driver_sql(
+            "SELECT count(*) FROM tpo.risorse_seme_pianificate"
+        ).scalar_one() == 0
+        assert conn.exec_driver_sql("SELECT 1").scalar_one() == 1
+
+
+def test_zero_production_replay_rejects_unexpected_seed_child(
+    writer_database,
+) -> None:
+    writer = PostgreSQLProductionPlanningCommitWriter(_Factory(writer_database))
+    first = _zero_production_write_set(
+        ProductionPlanningRunSnapshot(PublicId("RPP-000001"), 0, "OPEN")
+    )
+    writer.commit(first, completed_at=PERSISTENCE_AT)
+    with writer_database.begin() as conn:
+        conn.exec_driver_sql("""
+          INSERT INTO tpo.risorse_seme_pianificate
+            (riga_piano_semina_id,cultivar_uso_id,protocollo_versione_id,
+             grammi_richiesti,grammi_seme_per_set,unita_misura,created_by)
+          SELECT r.id,r.cultivar_uso_id,p.id,25,25,'GRAM','test'
+          FROM tpo.righe_piano_semina r
+          CROSS JOIN tpo.protocollo_versioni p
+          WHERE r.public_id='RPS-000001' AND p.public_id='PV-000001'
+        """)
+    replay = _zero_production_write_set(_open_run(writer_database, 2))
+    with pytest.raises(ProductionPlanningError) as captured:
+        writer.commit(replay, completed_at=PERSISTENCE_AT)
+    assert captured.value.code == "REVISION_REPLAY_MISMATCH"
+    with writer_database.connect() as conn:
+        assert conn.exec_driver_sql(
+            "SELECT state FROM tpo.production_planning_runs WHERE public_id='RPP-000002'"
+        ).scalar_one() == "OPEN"
+        assert conn.exec_driver_sql("SELECT 1").scalar_one() == 1
+
+
+def test_positive_production_replay_rejects_missing_seed_child(
+    writer_database,
+) -> None:
+    writer = PostgreSQLProductionPlanningCommitWriter(_Factory(writer_database))
+    _, first = _commit(writer_database)
+    with writer_database.begin() as conn:
+        conn.exec_driver_sql("DELETE FROM tpo.risorse_seme_pianificate")
+    replay = replace(first, run=_open_run(writer_database, 2))
+    with pytest.raises(ProductionPlanningError) as captured:
+        writer.commit(replay, completed_at=PERSISTENCE_AT)
+    assert captured.value.code == "REVISION_REPLAY_MISMATCH"
+    with writer_database.connect() as conn:
+        assert conn.exec_driver_sql(
+            "SELECT state FROM tpo.production_planning_runs WHERE public_id='RPP-000002'"
+        ).scalar_one() == "OPEN"
+        assert conn.exec_driver_sql("SELECT 1").scalar_one() == 1
 
 
 def test_incompatible_revision_replay_rolls_back(writer_database) -> None:

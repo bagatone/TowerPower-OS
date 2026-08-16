@@ -442,6 +442,25 @@ l'Engine non riceve un deficit precomputato e non duplica la lettura delle
 risorse. Coverage non puo superare il residuo commerciale; con coverage completa
 deficit, buffer, pre-granularity e productive quantity sono zero.
 
+Con coverage completa la `PlanningLineDraft` resta nella revisione completa per
+tracciabilita e conserva coverage uguale al residuo commerciale. Deficit,
+buffer calcolato, pre-granularity, quantita produttiva autorizzata, quantita
+avviata e residuo da avviare sono tutti zero. Buffer `PERCENTAGE` e
+`ABSOLUTE_SET` applicati a deficit zero restituiscono zero; la granularita non
+trasforma zero in un batch positivo.
+
+La cardinalita della risorsa seme e condizionale:
+
+```text
+productive_quantity > 0 -> esattamente un SeedResourceDraft
+productive_quantity = 0 -> nessun SeedResourceDraft
+```
+
+`SeedResourceDraft.required_grams` e `grams_per_set` restano strettamente
+positivi. Sono vietati seed draft a quantita zero, seed draft orfani e seed
+draft associati a righe con produzione zero. Nessuna nuova SEMINA o allocation
+produttiva sintetica deriva dalla full coverage.
+
 #### Precedenza e selezione delle risorse
 
 Le sole classi V1, in precedenza stretta, sono:

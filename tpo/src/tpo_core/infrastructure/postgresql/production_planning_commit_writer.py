@@ -149,7 +149,7 @@ class PostgreSQLProductionPlanningCommitWriter:
                         "Winner concorrente incompatibile con la revisione richiesta.",
                     )
                 existing_lines = self._validate_replayed_revision(
-                    cursor, draft, row[0]
+                    cursor, draft, row[0], write_set.seed_resources
                 )
                 line_public_ids.extend(
                     line.public_id for line in draft.lines
@@ -760,7 +760,9 @@ class PostgreSQLProductionPlanningCommitWriter:
                         "Revision request key già associata a un payload incompatibile.",
                     )
                 line_ids.update(
-                    self._validate_replayed_revision(cursor, draft, replay[0])
+                    self._validate_replayed_revision(
+                        cursor, draft, replay[0], write_set.seed_resources
+                    )
                 )
                 results.append(_revision_result(draft, reused=True))
                 continue
@@ -851,8 +853,12 @@ class PostgreSQLProductionPlanningCommitWriter:
                         line.remaining_to_start.value,
                         line.candidate.knowledge.expected_yield.value,
                         line.candidate.knowledge.expected_yield.unit.value,
-                        line.candidate.productive_quantity.value
-                        * line.candidate.knowledge.seed_grams_per_set,
+                        (
+                            line.candidate.productive_quantity.value
+                            * line.candidate.knowledge.seed_grams_per_set
+                            if line.authorized_productive_quantity.value > 0
+                            else None
+                        ),
                         demand.ordered.unit.value, demand.delivery_date,
                         line.harvest_window_start, line.harvest_window_end,
                         line.candidate.harvest_target_at, line.candidate.sowing_at,
@@ -874,6 +880,14 @@ class PostgreSQLProductionPlanningCommitWriter:
             }
             for line in draft.lines:
                 resource = resources.get(line.public_id.value)
+                productive = line.authorized_productive_quantity.value
+                if productive == 0:
+                    if resource is not None:
+                        raise _input(
+                            "SEED_RESOURCE_UNEXPECTED",
+                            "Risorsa seme vietata per una riga a produzione zero.",
+                        )
+                    continue
                 if resource is None:
                     raise _input(
                         "SEED_RESOURCE_MISSING", "Risorsa seme pianificata mancante."
@@ -919,23 +933,66 @@ class PostgreSQLProductionPlanningCommitWriter:
 
     @staticmethod
     def _validate_replayed_revision(
-        cursor: Any, draft: PlanRevisionDraft, public_id: str
+        cursor: Any, draft: PlanRevisionDraft, public_id: str,
+        seed_resources: tuple[Any, ...],
     ) -> dict[str, int]:
         cursor.execute(
-            """SELECT rps.public_id,rps.planning_key,rps.id
+            """SELECT rps.public_id,rps.planning_key,rps.id,
+                      rps.quantita_produttiva_autorizzata,
+                      rps.grammi_seme_richiesti
                FROM tpo.piano_produzione_revisioni r
                JOIN tpo.righe_piano_semina rps ON rps.piano_revisione_id=r.id
                WHERE r.public_id=%s ORDER BY rps.public_id""", (public_id,),
         )
         observed = tuple(cursor.fetchall())
         expected = tuple(sorted(
-            (line.public_id.value, line.planning_key.value) for line in draft.lines
+            (
+                line.public_id.value,
+                line.planning_key.value,
+                line.authorized_productive_quantity.value,
+                (
+                    line.candidate.productive_quantity.value
+                    * line.candidate.knowledge.seed_grams_per_set
+                    if line.authorized_productive_quantity.value > 0
+                    else None
+                ),
+            )
+            for line in draft.lines
         ))
-        if tuple((row[0], row[1]) for row in observed) != expected:
+        if tuple((row[0], row[1], row[3], row[4]) for row in observed) != expected:
             raise _conflict(
                 "REVISION_REPLAY_MISMATCH",
                 "Revisione committed incompatibile con il replay.",
             )
+        resources = {
+            item.planning_line_public_id.value: item
+            for item in seed_resources
+        }
+        lines = {line.public_id.value: line for line in draft.lines}
+        for line_public_id, _, line_id, _, _ in observed:
+            cursor.execute(
+                """SELECT grammi_richiesti,grammi_seme_per_set,unita_misura
+                   FROM tpo.risorse_seme_pianificate
+                   WHERE riga_piano_semina_id=%s""",
+                (line_id,),
+            )
+            children = tuple(cursor.fetchall())
+            line = lines[line_public_id]
+            resource = resources.get(line_public_id)
+            if line.authorized_productive_quantity.value == 0:
+                if children or resource is not None:
+                    raise _conflict(
+                        "REVISION_REPLAY_MISMATCH",
+                        "Replay a produzione zero con risorsa seme incompatibile.",
+                    )
+                continue
+            if resource is None or children != ((
+                resource.required_grams, resource.grams_per_set, "GRAM",
+            ),):
+                raise _conflict(
+                    "REVISION_REPLAY_MISMATCH",
+                    "Replay produttivo privo della risorsa seme compatibile.",
+                )
         return {row[0]: row[2] for row in observed}
 
     @staticmethod

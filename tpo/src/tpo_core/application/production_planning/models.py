@@ -585,6 +585,16 @@ class PlanningLineDraft:
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, _decimal(name, value))
+        if self.authorized_productive_quantity.value == 0 and (
+            self.production_deficit.value != 0
+            or self.calculated_quantitative_buffer != 0
+            or self.pre_granularity_quantity != 0
+            or self.remaining_to_start.value != 0
+            or covered != self.candidate.demand.commercial_residual.value
+        ):
+            raise InvalidProductionPlanningModelError(
+                "Produzione zero ammessa esclusivamente con coverage completa e calcolo zero."
+            )
         if self.harvest_window_end < self.harvest_window_start:
             raise InvalidProductionPlanningModelError("Finestra raccolta riga piano incoerente.")
 
@@ -1001,6 +1011,13 @@ class ProductionPlanningCommit:
         if not self.revisions:
             raise InvalidProductionPlanningModelError("Write set privo di revisioni.")
         _unique_sorted(self.revisions, lambda item: item.plan_public_id.value, "revisions")
+        if not isinstance(self.seed_resources, tuple):
+            raise InvalidProductionPlanningModelError("seed_resources deve essere una tuple ordinata.")
+        _unique_sorted(
+            self.seed_resources,
+            lambda item: item.planning_line_public_id.value,
+            "seed_resources",
+        )
         _unique_sorted(self.allocations, lambda item: item.public_id.value, "allocations")
         if not isinstance(self.allocation_transitions, tuple):
             raise InvalidProductionPlanningModelError("allocation_transitions deve essere una tuple ordinata.")
@@ -1016,6 +1033,25 @@ class ProductionPlanningCommit:
         if self.business_at != self.input_snapshot.business_at or self.policy != self.input_snapshot.policy.reference:
             raise InvalidProductionPlanningModelError("Scope commit non coerente con lo snapshot.")
         generated_lines = sum(len(revision.lines) for revision in self.revisions)
+        lines = {
+            line.public_id: line
+            for revision in self.revisions
+            for line in revision.lines
+        }
+        if len(lines) != generated_lines:
+            raise InvalidProductionPlanningModelError("Planning line public ID duplicata nel write set.")
+        seed_line_ids = {item.planning_line_public_id for item in self.seed_resources}
+        if not seed_line_ids.issubset(lines):
+            raise InvalidProductionPlanningModelError("SeedResourceDraft orfano.")
+        expected_seed_line_ids = {
+            public_id
+            for public_id, line in lines.items()
+            if line.authorized_productive_quantity.value > 0
+        }
+        if seed_line_ids != expected_seed_line_ids:
+            raise InvalidProductionPlanningModelError(
+                "Cardinalità SeedResourceDraft incoerente con la produzione autorizzata."
+            )
         if self.counters.planning_lines_generated != generated_lines or self.counters.allocations_generated != len(self.allocations):
             raise InvalidProductionPlanningModelError("Contatori RUN non coerenti con il write set.")
         audit_keys = tuple((item.entity_type, item.entity_public_id.value, item.operation) for item in self.audits)

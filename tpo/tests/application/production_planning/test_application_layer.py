@@ -684,6 +684,109 @@ def test_line_draft_espone_il_write_set_quantitativo_completo() -> None:
         PlanningLineDraft(**{**line.__dict__, "production_deficit": qty("0.5")})
 
 
+def zero_production_line(
+    *, stock: str = "1", harvest: str = "0", in_progress: str = "0"
+) -> PlanningLineDraft:
+    base = write_set(
+        ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN")
+    ).revisions[0].lines[0]
+    zero_candidate = replace(base.candidate, productive_quantity=qty("0"))
+    return replace(
+        base,
+        candidate=zero_candidate,
+        stock_coverage=qty(stock),
+        allocated_harvest_coverage=qty(harvest),
+        in_progress_coverage=qty(in_progress),
+        production_deficit=qty("0"),
+        calculated_quantitative_buffer=Decimal("0"),
+        pre_granularity_quantity=Decimal("0"),
+        authorized_productive_quantity=qty("0"),
+        remaining_to_start=qty("0"),
+    )
+
+
+def commit_with_line(
+    line: PlanningLineDraft, *, seed_resources: tuple[SeedResourceDraft, ...]
+) -> ProductionPlanningCommit:
+    base = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN"))
+    revision = replace(base.revisions[0], lines=(line,))
+    return replace(base, revisions=(revision,), seed_resources=seed_resources)
+
+
+def test_full_stock_coverage_ammette_planning_line_a_produzione_zero() -> None:
+    line = zero_production_line()
+    commit = commit_with_line(line, seed_resources=())
+    assert line.production_deficit.value == Decimal("0")
+    assert line.authorized_productive_quantity.value == Decimal("0")
+    assert commit.seed_resources == ()
+
+
+def test_full_mixed_coverage_ammette_planning_line_a_produzione_zero() -> None:
+    line = zero_production_line(stock="0.4", harvest="0.3", in_progress="0.3")
+    commit = commit_with_line(line, seed_resources=())
+    assert sum(
+        quantity.value
+        for quantity in (
+            line.stock_coverage,
+            line.allocated_harvest_coverage,
+            line.in_progress_coverage,
+        )
+    ) == Decimal("1")
+    assert commit.seed_resources == ()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"production_deficit": qty("0.1")},
+        {"calculated_quantitative_buffer": Decimal("0.1")},
+        {"pre_granularity_quantity": Decimal("0.1")},
+        {"remaining_to_start": qty("0.1")},
+        {"stock_coverage": qty("0.9")},
+    ],
+)
+def test_produzione_zero_richiede_full_coverage_e_calcolo_zero(changes) -> None:
+    with pytest.raises(InvalidProductionPlanningModelError):
+        replace(zero_production_line(), **changes)
+
+
+def test_seed_resource_cardinality_e_condizionale() -> None:
+    base = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN"))
+    assert len(base.seed_resources) == 1
+    with pytest.raises(InvalidProductionPlanningModelError):
+        replace(base, seed_resources=())
+
+    zero_line = zero_production_line()
+    with pytest.raises(InvalidProductionPlanningModelError):
+        commit_with_line(
+            zero_line,
+            seed_resources=(
+                SeedResourceDraft(zero_line.public_id, Decimal("25"), Decimal("25")),
+            ),
+        )
+
+
+def test_seed_resource_zero_e_orfano_sono_rifiutati() -> None:
+    with pytest.raises(InvalidProductionPlanningModelError):
+        SeedResourceDraft(pid("RPS-000001"), Decimal("0"), Decimal("25"))
+    base = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN"))
+    with pytest.raises(InvalidProductionPlanningModelError):
+        replace(
+            base,
+            seed_resources=(
+                SeedResourceDraft(pid("RPS-999999"), Decimal("25"), Decimal("25")),
+            ),
+        )
+
+
+def test_conditional_seed_contract_e_immutabile_e_provider_neutral() -> None:
+    line = zero_production_line()
+    with pytest.raises(FrozenInstanceError):
+        line.authorized_productive_quantity = qty("1")  # type: ignore[misc]
+    hints = repr(get_type_hints(ProductionPlanningCommit)).lower()
+    assert all(name not in hints for name in ("psycopg", "sqlalchemy", "connection"))
+
+
 def test_replanning_snapshot_conserva_testo_hash_versioni_e_input_persistenti() -> None:
     canonical_text = "TPO-REPLANNING-V1|ORDER=ORD-000001"
     value = CanonicalReplanningSnapshot(

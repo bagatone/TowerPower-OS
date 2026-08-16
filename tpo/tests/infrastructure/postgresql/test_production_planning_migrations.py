@@ -27,6 +27,7 @@ PATHS = [
     VERSIONS / "20260814_0010_allocation_quantitative_lifecycle.py",
     VERSIONS / "20260814_0011_replanning_allocation_snapshot_balances.py",
     VERSIONS / "20260814_0012_audit_provenance.py",
+    VERSIONS / "20260815_0013_zero_production_planning_lines.py",
 ]
 PLANNING_TABLES = {
     "production_planning_policy_versions", "production_planning_runs",
@@ -393,14 +394,41 @@ def upgraded(tmp_path: Path):
 
 def test_revision_chain_e_nuovo_head() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
-    assert [item.revision for item in revisions[:7]] == [
+    assert [item.revision for item in revisions[:8]] == [
+        "20260815_0013", "20260814_0012", "20260814_0011", "20260814_0010",
+        "20260812_0009", "20260811_0008", "20260811_0007", "20260811_0006",
+    ]
+    assert [item.down_revision for item in revisions[:7]] == [
         "20260814_0012", "20260814_0011", "20260814_0010", "20260812_0009",
         "20260811_0008", "20260811_0007", "20260811_0006",
     ]
-    assert [item.down_revision for item in revisions[:6]] == [
-        "20260814_0011", "20260814_0010", "20260812_0009", "20260811_0008",
-        "20260811_0007", "20260811_0006",
-    ]
+
+
+def test_zero_production_planning_line_migration_contract() -> None:
+    migration = _module(
+        VERSIONS / "20260815_0013_zero_production_planning_lines.py"
+    )
+    assert migration.revision == "20260815_0013"
+    assert migration.down_revision == "20260814_0012"
+    assert "quantita_produttiva_autorizzata = 0" in migration.NEW_CHECK
+    assert "grammi_seme_richiesti IS NULL" in migration.NEW_CHECK
+    assert "quantita_produttiva_autorizzata > 0" in migration.NEW_CHECK
+    assert "grammi_seme_richiesti IS NOT NULL" in migration.NEW_CHECK
+    assert "grammi_seme_richiesti > 0" in migration.NEW_CHECK
+    source = (
+        VERSIONS / "20260815_0013_zero_production_planning_lines.py"
+    ).read_text(encoding="utf-8")
+    assert re.search(r"\b(?:INSERT|UPDATE|DELETE)\s+(?:INTO|tpo\.)", source, re.I) is None
+
+
+def test_zero_production_planning_line_offline_postgresql_ddl() -> None:
+    ddl = _postgresql_ddl("20260814_0012", "20260815_0013")
+    normalized = ddl.lower()
+    assert "zero-production planning line commissioning required" in normalized
+    assert "alter column grammi_seme_richiesti drop not null" in normalized
+    assert "quantita_produttiva_autorizzata = 0" in normalized
+    assert "grammi_seme_richiesti is null" in normalized
+    assert re.search(r"\b(insert into|update tpo\.|delete from)\b", ddl, re.I) is None
 
 
 def test_audit_provenance_migration_contract() -> None:
@@ -499,7 +527,7 @@ def test_upgrade_0004_downgrade_e_reupgrade(tmp_path: Path) -> None:
         command.upgrade(config, "20260810_0004")
         baseline = set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.upgrade(config, "head")
-        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
+        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260815_0013"
         assert PLANNING_TABLES <= set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.downgrade(config, "20260810_0004")
         assert set(sa.inspect(connection).get_table_names(schema="tpo")) == baseline
@@ -736,7 +764,24 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     config = make_config(connection=connection)
     command.upgrade(config, "20260810_0004")
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260815_0013"
+    command.downgrade(config, "20260814_0010")
+    columns = {
+        item["name"]
+        for item in sa.inspect(connection).get_columns(
+            "replanning_snapshot_allocazioni", schema="tpo"
+        )
+    }
+    assert "remaining_quantity" not in columns
+    checks = {
+        item["name"]: item["sqltext"]
+        for item in sa.inspect(connection).get_check_constraints(
+            "replanning_snapshot_allocazioni", schema="tpo"
+        )
+    }
+    assert "allocated_quantity > 0" in checks["ck_replanning_snapshot_allocazioni_quantity"]
+    command.upgrade(config, "head")
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260815_0013"
     connection.commit()
 
     functions = set(connection.exec_driver_sql("""
@@ -772,7 +817,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     command.downgrade(config, "20260810_0004")
     assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260810_0004"
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260815_0013"
     connection.commit()
 
 
@@ -1120,7 +1165,7 @@ def test_isolated_postgresql_allocation_transition_commissioning_and_roundtrip(i
     connection.execute(sa.text("UPDATE tpo.allocazioni SET state='ATTIVA' WHERE id=:parent"), {"parent": parent})
     connection.commit()
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260815_0013"
 
 
 def test_isolated_postgresql_replanning_snapshot_balance_catalog_and_checks(
@@ -1266,21 +1311,128 @@ def test_isolated_postgresql_replanning_snapshot_balance_roundtrip(
     connection = isolated_postgresql
     config = make_config(connection=connection)
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
-    command.downgrade(config, "20260814_0010")
-    columns = {
-        item["name"]
-        for item in sa.inspect(connection).get_columns(
-            "replanning_snapshot_allocazioni", schema="tpo"
-        )
-    }
-    assert "remaining_quantity" not in columns
-    checks = {
-        item["name"]: item["sqltext"]
-        for item in sa.inspect(connection).get_check_constraints(
-            "replanning_snapshot_allocazioni", schema="tpo"
-        )
-    }
-    assert "allocated_quantity > 0" in checks["ck_replanning_snapshot_allocazioni_quantity"]
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260815_0013"
+
+
+def test_isolated_postgresql_zero_production_line_contract(
+    isolated_postgresql,
+) -> None:
+    connection = isolated_postgresql
+    config = make_config(connection=connection)
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260814_0012"
+    planning_row_id, _, _ = _resolve_valid_planning_graph(connection)
+    connection.commit()
+
+    connection.execute(sa.text("""
+        UPDATE tpo.righe_piano_semina
+        SET copertura_stock=1, deficit_produttivo=0,
+            buffer_quantitativo_calcolato=0, quantita_pre_granularita=0,
+            quantita_produttiva_autorizzata=0, quantita_avviata=0,
+            quantita_residua_da_avviare=0, grammi_seme_richiesti=NULL
+        WHERE id=:planning_row_id
+    """), {"planning_row_id": planning_row_id})
+    connection.commit()
+
+    row = connection.execute(sa.text("""
+        SELECT quantita_produttiva_autorizzata,grammi_seme_richiesti
+        FROM tpo.righe_piano_semina WHERE id=:planning_row_id
+    """), {"planning_row_id": planning_row_id}).one()
+    assert row == (Decimal("0.000000"), None)
+
+    invalid_pairs = (
+        (Decimal("0"), Decimal("1")),
+        (Decimal("1"), None),
+        (Decimal("1"), Decimal("0")),
+    )
+    for productive, grams in invalid_pairs:
+        with pytest.raises(sa.exc.IntegrityError), connection.begin_nested():
+            connection.execute(sa.text("""
+                UPDATE tpo.righe_piano_semina
+                SET quantita_produttiva_autorizzata=:productive,
+                    quantita_residua_da_avviare=:productive,
+                    grammi_seme_richiesti=:grams
+                WHERE id=:planning_row_id
+            """), {
+                "productive": productive,
+                "grams": grams,
+                "planning_row_id": planning_row_id,
+            })
+    assert connection.exec_driver_sql("SELECT 1").scalar_one() == 1
+
+    connection.execute(sa.text("""
+        UPDATE tpo.righe_piano_semina
+        SET copertura_stock=0, deficit_produttivo=1,
+            buffer_quantitativo_calcolato=0, quantita_pre_granularita=1,
+            quantita_produttiva_autorizzata=1, quantita_avviata=0,
+            quantita_residua_da_avviare=1, grammi_seme_richiesti=1
+        WHERE id=:planning_row_id
+    """), {"planning_row_id": planning_row_id})
+    connection.commit()
+
+
+def test_isolated_postgresql_zero_production_historical_and_downgrade_gates(
+    isolated_postgresql,
+) -> None:
+    connection = isolated_postgresql
+    config = make_config(connection=connection)
+    command.upgrade(config, "head")
+    planning_row_id, _, _ = _resolve_valid_planning_graph(connection)
+    connection.commit()
+    command.downgrade(config, "20260814_0012")
+
+    connection.execute(sa.text("""
+        UPDATE tpo.righe_piano_semina
+        SET copertura_stock=1, deficit_produttivo=0,
+            buffer_quantitativo_calcolato=0, quantita_pre_granularita=0,
+            quantita_produttiva_autorizzata=0, quantita_avviata=0,
+            quantita_residua_da_avviare=0, grammi_seme_richiesti=1
+        WHERE id=:planning_row_id
+    """), {"planning_row_id": planning_row_id})
+    connection.commit()
+    with pytest.raises(
+        RuntimeError,
+        match="zero-production planning line commissioning required",
+    ):
+        command.upgrade(config, "head")
+    connection.rollback()
+    assert connection.exec_driver_sql("SELECT 1").scalar_one() == 1
+
+    connection.execute(sa.text("""
+        UPDATE tpo.righe_piano_semina
+        SET copertura_stock=0, deficit_produttivo=1,
+            buffer_quantitativo_calcolato=0, quantita_pre_granularita=1,
+            quantita_produttiva_autorizzata=1, quantita_avviata=0,
+            quantita_residua_da_avviare=1, grammi_seme_richiesti=1
+        WHERE id=:planning_row_id
+    """), {"planning_row_id": planning_row_id})
+    connection.commit()
+    command.upgrade(config, "head")
+
+    connection.execute(sa.text("""
+        UPDATE tpo.righe_piano_semina
+        SET copertura_stock=1, deficit_produttivo=0,
+            buffer_quantitativo_calcolato=0, quantita_pre_granularita=0,
+            quantita_produttiva_autorizzata=0, quantita_avviata=0,
+            quantita_residua_da_avviare=0, grammi_seme_richiesti=NULL
+        WHERE id=:planning_row_id
+    """), {"planning_row_id": planning_row_id})
+    connection.commit()
+    with pytest.raises(
+        RuntimeError,
+        match="zero-production planning line downgrade commissioning required",
+    ):
+        command.downgrade(config, "20260814_0012")
+    connection.rollback()
+    assert connection.exec_driver_sql("SELECT 1").scalar_one() == 1
+
+    connection.execute(sa.text("""
+        UPDATE tpo.righe_piano_semina
+        SET copertura_stock=0, deficit_produttivo=1,
+            buffer_quantitativo_calcolato=0, quantita_pre_granularita=1,
+            quantita_produttiva_autorizzata=1, quantita_avviata=0,
+            quantita_residua_da_avviare=1, grammi_seme_richiesti=1
+        WHERE id=:planning_row_id
+    """), {"planning_row_id": planning_row_id})
+    connection.commit()
+    command.downgrade(config, "20260814_0012")
+    command.upgrade(config, "head")

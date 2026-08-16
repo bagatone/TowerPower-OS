@@ -1007,6 +1007,17 @@ productive_quantity = ceil_to_granularity(
 )
 ```
 
+Quando coverage e residuo commerciale coincidono, deficit, buffered requirement
+e productive quantity sono zero. Ogni quantitative buffer V1 applicato a zero
+restituisce zero e `ceil_to_granularity(0, granularity) = 0`; non esiste minimum
+batch implicito.
+
+La riga resta presente nello snapshot completo della revisione con produzione,
+avviata e residuo da avviare pari a zero. Non viene creato alcun
+`SeedResourceDraft`, fatto risorsa seme o nuova produzione. Un seed draft esiste
+esattamente una volta soltanto per una riga con productive quantity positiva e
+conserva quantita seme strettamente positiva.
+
 La precedenza stretta e STOCK, RACCOLTA reale, SEMINA in corso, nuova
 produzione. Dentro ogni classe: earliest usable/ready crescente, quantita gia
 allocata crescente, residuo eleggibile decrescente, public ID crescente. La

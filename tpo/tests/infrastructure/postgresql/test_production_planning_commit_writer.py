@@ -350,6 +350,8 @@ def test_port_signature_and_provider_boundary() -> None:
         "UPDATE tpo.semine", "UPDATE tpo.raccolte", "UPDATE tpo.movimenti_magazzino",
     ):
         assert authority not in source
+    assert "candidate.productive_quantity" not in source
+    assert "authorized_productive_quantity" in source
 
 
 def test_completed_at_naive_fails_before_connection() -> None:

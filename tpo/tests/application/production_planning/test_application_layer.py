@@ -254,7 +254,6 @@ def candidate() -> PlanningCandidate:
         sowing_at=datetime(2026, 8, 4, 6, 0, tzinfo=UTC),
         light_at=datetime(2026, 8, 6, 6, 0, tzinfo=UTC),
         harvest_target_at=datetime(2026, 8, 13, 6, 0, tzinfo=UTC),
-        productive_quantity=qty("1"),
         provenance="calculated",
     )
 
@@ -678,7 +677,7 @@ def test_line_draft_espone_il_write_set_quantitativo_completo() -> None:
     line = write_set(ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN")).revisions[0].lines[0]
     assert line.stock_coverage.value == Decimal("0")
     assert line.production_deficit.value == Decimal("1")
-    assert line.authorized_productive_quantity == line.candidate.productive_quantity
+    assert "productive_quantity" not in line.candidate.__dataclass_fields__
     assert line.harvest_window_start == date(2026, 8, 12)
     with pytest.raises(InvalidProductionPlanningModelError):
         PlanningLineDraft(**{**line.__dict__, "production_deficit": qty("0.5")})
@@ -690,10 +689,8 @@ def zero_production_line(
     base = write_set(
         ProductionPlanningRunSnapshot(pid("RPP-000001"), 0, "OPEN")
     ).revisions[0].lines[0]
-    zero_candidate = replace(base.candidate, productive_quantity=qty("0"))
     return replace(
         base,
-        candidate=zero_candidate,
         stock_coverage=qty(stock),
         allocated_harvest_coverage=qty(harvest),
         in_progress_coverage=qty(in_progress),

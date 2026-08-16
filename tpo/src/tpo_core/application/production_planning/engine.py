@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal
 from .errors import ProductionPlanningError
 from .models import (
     HARVEST_TARGET_STRATEGY_V1,
     PRODUCTION_PLANNING_ALGORITHM_VERSION_V1,
     PRODUCTION_PLANNING_PRIORITY_POLICY_V1,
     DemandSnapshot,
-    ExactQuantity,
     PlanningCandidate,
     PlanningInputSnapshot,
     PlanningPolicySnapshot,
@@ -62,9 +61,6 @@ class ProductionPlanningEngine:
             )
 
         knowledge, timeline = matches[0]
-        productive = _productive_quantity(
-            demand.commercial_residual, knowledge, snapshot.policy
-        )
         return PlanningCandidate(
             demand=demand,
             knowledge=knowledge,
@@ -72,7 +68,6 @@ class ProductionPlanningEngine:
             sowing_at=timeline.sowing_at,
             light_at=timeline.light_at,
             hydration_at=timeline.hydration_at,
-            productive_quantity=productive,
             provenance=f"{demand.provenance}|{knowledge.provenance}",
         )
 
@@ -150,23 +145,6 @@ def _strict_local_datetime(local_date: date, local_time) -> datetime:
             "Orario locale protocollo ambiguo o inesistente.",
         )
     return candidates[0].replace(second=0, microsecond=0)
-
-
-def _productive_quantity(
-    residual: ExactQuantity,
-    knowledge: ProductionKnowledgeSnapshot,
-    policy: PlanningPolicySnapshot,
-) -> ExactQuantity:
-    value = residual.value
-    if policy.quantitative_buffer_type == "PERCENTAGE":
-        assert policy.quantitative_buffer_value is not None
-        value += residual.value * policy.quantitative_buffer_value
-    elif policy.quantitative_buffer_type == "ABSOLUTE_SET":
-        assert policy.quantitative_buffer_value is not None
-        value += policy.quantitative_buffer_value
-    granularity = knowledge.production_granularity
-    rounded = (value / granularity).to_integral_value(rounding=ROUND_CEILING) * granularity
-    return ExactQuantity(rounded, residual.unit)
 
 
 def _validate_policy(policy: PlanningPolicySnapshot) -> None:

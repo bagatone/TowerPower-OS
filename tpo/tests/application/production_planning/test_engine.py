@@ -89,7 +89,7 @@ def test_singola_varieta_calcola_backplanning_completo() -> None:
     assert candidate.sowing_at == datetime(2026, 8, 4, 6, tzinfo=CANARY)
     assert candidate.light_at == datetime(2026, 8, 6, 6, tzinfo=CANARY)
     assert candidate.hydration_at == datetime(2026, 8, 3, 22, tzinfo=CANARY)
-    assert candidate.productive_quantity.value == Decimal("1.0")
+    assert "productive_quantity" not in candidate.__dataclass_fields__
     assert candidate.provenance == "ORDINI|PROTOCOLLO_APPROVATO"
 
 
@@ -139,9 +139,7 @@ def test_piu_varieta_e_ordine_jaira_producono_un_candidato_per_riga() -> None:
     assert [item.demand.order_line_public_id.value for item in result] == [
         "RO-000010", "RO-000011", "RO-000012"
     ]
-    assert [item.productive_quantity.value for item in result] == [
-        Decimal("1.0"), Decimal("0.5"), Decimal("0.5")
-    ]
+    assert all("productive_quantity" not in item.__dataclass_fields__ for item in result)
 
 
 @pytest.mark.parametrize("approval", ["BOZZA", "RITIRATA"])
@@ -189,8 +187,19 @@ def test_output_e_deterministico_indipendentemente_dall_ordine_input() -> None:
 def test_timezone_e_decimal_sono_preservati_senza_float() -> None:
     candidate = ProductionPlanningEngine().calculate(snapshot())[0]
     assert candidate.sowing_at.tzinfo == CANARY
-    assert isinstance(candidate.productive_quantity.value, Decimal)
-    assert not isinstance(candidate.productive_quantity.value, float)
+    assert isinstance(candidate.knowledge.seed_grams_per_set, Decimal)
+    assert not isinstance(candidate.knowledge.seed_grams_per_set, float)
+
+
+def test_engine_non_applica_buffer_granularita_o_deficit() -> None:
+    from src.tpo_core.application.production_planning import engine
+
+    candidate = ProductionPlanningEngine().calculate(snapshot())[0]
+    assert "productive_quantity" not in candidate.__dataclass_fields__
+    source = Path(engine.__file__).read_text(encoding="utf-8")
+    assert "_productive_quantity" not in source
+    assert "ROUND_CEILING" not in source
+    assert "production_deficit" not in source
 
 
 def test_engine_non_dipende_da_provider_database_o_google() -> None:

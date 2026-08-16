@@ -854,7 +854,7 @@ class PostgreSQLProductionPlanningCommitWriter:
                         line.candidate.knowledge.expected_yield.value,
                         line.candidate.knowledge.expected_yield.unit.value,
                         (
-                            line.candidate.productive_quantity.value
+                            line.authorized_productive_quantity.value
                             * line.candidate.knowledge.seed_grams_per_set
                             if line.authorized_productive_quantity.value > 0
                             else None
@@ -951,7 +951,7 @@ class PostgreSQLProductionPlanningCommitWriter:
                 line.planning_key.value,
                 line.authorized_productive_quantity.value,
                 (
-                    line.candidate.productive_quantity.value
+                    line.authorized_productive_quantity.value
                     * line.candidate.knowledge.seed_grams_per_set
                     if line.authorized_productive_quantity.value > 0
                     else None

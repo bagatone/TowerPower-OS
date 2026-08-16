@@ -524,7 +524,6 @@ class PlanningCandidate:
     sowing_at: datetime
     light_at: datetime
     hydration_at: datetime
-    productive_quantity: ExactQuantity
     provenance: str
 
     def __post_init__(self) -> None:
@@ -575,7 +574,7 @@ class PlanningLineDraft:
         covered = self.stock_coverage.value + self.in_progress_coverage.value + self.allocated_harvest_coverage.value
         if covered + self.production_deficit.value != self.candidate.demand.commercial_residual.value:
             raise InvalidProductionPlanningModelError("Coperture e deficit non bilanciano la domanda residua.")
-        if self.authorized_productive_quantity != self.candidate.productive_quantity or self.remaining_to_start != self.authorized_productive_quantity:
+        if self.remaining_to_start != self.authorized_productive_quantity:
             raise InvalidProductionPlanningModelError("Quantita produttiva draft incoerente.")
         if self.quantitative_buffer_type not in BUFFER_TYPES:
             raise InvalidProductionPlanningModelError("Buffer riga piano non congelato.")

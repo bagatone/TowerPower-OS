@@ -255,7 +255,13 @@ Alloca, tramite l’Identity persistente già congelata, i public ID necessari p
 
 ### 6.2 ProductionPlanningInputPort
 
-Legge uno snapshot coerente e completo delle authority elencate al §3. Non filtra tramite euristiche provider-specifiche e non inventa default. Espone versioni e provenance necessarie alla revalidation.
+Legge una sola volta un `ProductionPlanningLoadedInput` immutabile e
+provider-neutral, composto dallo snapshot coerente e completo delle authority
+elencate al §3 e dalle `allocation_disposition_decisions`. Nell'initial planning
+la collezione disposition è vuota; nel replanning è autorevole, completa, unica
+e ordinata per allocation public ID. Il Service non deduce disposition. La port
+non filtra tramite euristiche provider-specifiche e non inventa default. Espone
+versioni e provenance necessarie alla revalidation.
 
 ### 6.3 ProductionPlanningRunPort
 
@@ -292,12 +298,37 @@ port infrastrutturale e non effettua I/O. Riceve:
 - gli identificativi pubblici gia allocati tramite `IdentityAllocationPort`,
   in un bundle tipizzato e ordinato.
 
-Restituisce un solo `ProductionPlanningCommit` completo. Il modello intermedio
-obbligatorio e `ProductionPlanningAssemblyInput`; non sono ammessi `dict`,
-payload SQL/provider o callback opachi come contratto del boundary. Il bundle
-degli identificativi distingue field-by-field RUN, piano, revisione, righe,
-risorse, snapshot, allocazioni e replacement applicabili. L'Assembler non
-alloca Identity, non genera UUID casuali e non effettua letture aggiuntive.
+Il boundary obbligatorio è:
+
+```text
+PURE ASSEMBLY PLAN
+→ IDENTITY ALLOCATION
+→ PURE MATERIALIZATION
+```
+
+`plan(ProductionPlanningAssemblyInput) -> ProductionPlanningAssemblyPlan`
+esegue una sola volta coverage, resource selection, deficit, buffer,
+granularity, replanning, cardinalità seed, ordering, contatori, messaggi, audit
+intent e discovery degli identity slot. Il piano è immutabile, provider-neutral,
+non contiene public ID allocati, provider object o persistence e congela tutte
+le decisioni definitive necessarie alla materializzazione.
+
+Ogni `ProductionPlanningIdentitySlot` contiene `sequence_name`, `slot_kind`,
+`canonical_slot_key` normalizzata e `position`. Gli slot sono unici e ordinati
+prima per sequence name lessicografico e poi per canonical slot order. Il
+Service invoca `IdentityAllocationPort.allocate(sequence_name)` esattamente una
+volta per slot, senza retry. `ProductionPlanningIdentityBundle` mappa
+esattamente slot a public ID e rifiuta slot mancanti/eccedenti, ordine errato,
+ID duplicati e prefix incompatibili.
+
+`materialize(assembly_plan, identity_bundle) -> ProductionPlanningCommit`
+verifica la corrispondenza slot/bundle, assegna gli ID e costruisce draft, chiavi
+ID-dependent e audit finali. Non ricalcola coverage, resource selection,
+deficit, ordering o altre decisioni business. `assemble()` è ammesso soltanto
+come wrapper compatibile `plan() → materialize()` e non mantiene un algoritmo
+parallelo. Non sono ammessi `dict`, payload SQL/provider o callback opachi come
+boundary. L'Assembler non alloca Identity, non genera UUID casuali e non
+effettua letture aggiuntive.
 
 ### 6.6 AllocationTransitionDraft e commit
 
@@ -636,7 +667,14 @@ MOVIMENTI_MAGAZZINO.
 | `CONCURRENCY_CONFLICT` | version mismatch o input mutato sotto lock | rollback certo; RUN `FAILED` |
 | `COMMIT_FAILED_ROLLED_BACK` | failure tecnica con rollback fisico certo | nessun piano parziale; failure-finalization separata |
 | `RECONCILIATION_REQUIRED` | esito fisico del commit non determinabile | nessuna deduzione; procedura di riconciliazione |
+| `RUN_FINALIZATION_OUTCOME_UNCERTAIN` | esito di `FINALIZE_FAILURE` o `REQUIRE_RECONCILIATION` non determinabile | nessun retry, compensazione, fallback o dichiarazione dello stato finale RUN |
 | `INTERNAL_ERROR` | difetto non riconducibile a una categoria nota | rollback se certo; diagnostica sanitizzata |
+
+`ProductionPlanningRunFinalizationOutcomeUncertain` trasporta esclusivamente
+l'operazione tentata (`FINALIZE_FAILURE` o `REQUIRE_RECONCILIATION`), categoria,
+codice e messaggio sanitizzato della failure originale, planning RUN public ID
+e correlation ID. Può conservare exception chaining interno, ma non entra in
+`ProductionPlanningRunOutcome` e non autorizza retry o compensazioni.
 
 Le categorie note non vengono degradate a `INTERNAL_ERROR`. `PROTOCOL_NOT_AVAILABLE` e `PROTOCOL_AMBIGUOUS` restano codici diagnostici provider-neutral già contemplati; i codici non costituiscono una nuova tassonomia di authority. SQLSTATE e classi driver sono tradotti al boundary infrastrutturale.
 

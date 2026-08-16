@@ -7,7 +7,7 @@ from typing import Protocol
 
 from .errors import ProductionPlanningError
 from .models import (
-    PlanningInputSnapshot,
+    ProductionPlanningLoadedInput,
     PolicyVersionReference,
     ProductionPlanningCommand,
     ProductionPlanningCommit,
@@ -24,7 +24,7 @@ class IdentityAllocationPort(Protocol):
 
 
 class ProductionPlanningInputPort(Protocol):
-    def load(self, command: ProductionPlanningCommand) -> PlanningInputSnapshot: ...
+    def load(self, command: ProductionPlanningCommand) -> ProductionPlanningLoadedInput: ...
 
 
 class ProductionPlanningRunPort(Protocol):

@@ -12,6 +12,7 @@ FROZEN_FAILURE_CATEGORIES = frozenset(
         "CONCURRENCY_CONFLICT",
         "COMMIT_FAILED_ROLLED_BACK",
         "RECONCILIATION_REQUIRED",
+        "RUN_FINALIZATION_OUTCOME_UNCERTAIN",
         "INTERNAL_ERROR",
     }
 )
@@ -39,6 +40,30 @@ class InvalidProductionPlanningModelError(ProductionPlanningError, ValueError):
 class ProductionPlanningOutcomeUncertain(ProductionPlanningError):
     def __init__(self, message: str = "Esito del commit non determinabile.") -> None:
         super().__init__("RECONCILIATION_REQUIRED", "COMMIT_OUTCOME_UNCERTAIN", message)
+
+
+class ProductionPlanningRunFinalizationOutcomeUncertain(ProductionPlanningError):
+    def __init__(
+        self,
+        *,
+        attempted_operation: str,
+        original_error: ProductionPlanningError,
+        planning_run_public_id: object,
+        correlation_id: str,
+    ) -> None:
+        if attempted_operation not in {"FINALIZE_FAILURE", "REQUIRE_RECONCILIATION"}:
+            raise ValueError("Operazione di finalizzazione non congelata.")
+        self.attempted_operation = attempted_operation
+        self.original_failure_category = original_error.category
+        self.original_code = original_error.code
+        self.original_safe_message = original_error.safe_message
+        self.planning_run_public_id = planning_run_public_id
+        self.correlation_id = correlation_id
+        super().__init__(
+            "RUN_FINALIZATION_OUTCOME_UNCERTAIN",
+            "RUN_FINALIZATION_OUTCOME_UNCERTAIN",
+            "Esito della finalizzazione RUN non determinabile; è richiesta review operativa.",
+        )
 
 
 def _safe_text(value: object) -> bool:

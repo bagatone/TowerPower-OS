@@ -13,6 +13,7 @@ from src.tpo_core.application.production_planning.errors import (
     InvalidProductionPlanningModelError,
     ProductionPlanningError,
     ProductionPlanningOutcomeUncertain,
+    ProductionPlanningRunFinalizationOutcomeUncertain,
 )
 from src.tpo_core.application.production_planning.models import (
     ActiveAllocationSnapshot,
@@ -36,6 +37,7 @@ from src.tpo_core.application.production_planning.models import (
     PolicyVersionReference,
     ProductionKnowledgeSnapshot,
     ProductionPlanningCommit,
+    ProductionPlanningLoadedInput,
     ProductionPlanningReconciliationRequiredResult,
     ProductionPlanningResult,
     ProductionPlanningRunOutcome,
@@ -49,6 +51,8 @@ from src.tpo_core.application.production_planning.models import (
     StockResourceSnapshot,
 )
 from src.tpo_core.application.production_planning.service import ProductionPlanningService
+from src.tpo_core.application.production_planning.assembler import ProductionPlanningCommitAssembler
+from src.tpo_core.application.production_planning.engine import ProductionPlanningEngine
 from src.tpo_core.application.production_planning.ports import (
     ProductionPlanningCommitPort,
     ProductionPlanningRunPort,
@@ -931,19 +935,29 @@ class FakeIdentity:
 
     def allocate(self, sequence_name: str) -> PublicId:
         self.calls.append(sequence_name)
-        return pid("RPP-000001")
+        prefix = {
+            "RUN_PIANIFICAZIONE_PRODUZIONE_ID": "RPP",
+            "PIANO_PRODUZIONE_ID": "PP",
+            "REVISIONE_PIANO_PRODUZIONE_ID": "RVP",
+            "RIGA_PIANO_SEMINA_ID": "RPS",
+            "ALLOCAZIONE_ID": "ALL",
+        }[sequence_name]
+        number = sum(call == sequence_name for call in self.calls)
+        return pid(f"{prefix}-{number:06d}")
 
 
 class FakeInputs:
     def load(self, requested):
-        return snapshot()
+        return ProductionPlanningLoadedInput(snapshot(), ())
 
 
 class FakeRuns:
-    def __init__(self) -> None:
+    def __init__(self, *, finalize_error=None, reconciliation_error=None) -> None:
         self.opened = []
         self.failures = []
         self.reconciliations = []
+        self.finalize_error = finalize_error
+        self.reconciliation_error = reconciliation_error
 
     def open(self, **kwargs):
         self.opened.append(kwargs)
@@ -951,9 +965,13 @@ class FakeRuns:
 
     def finalize_failure(self, **kwargs):
         self.failures.append(kwargs)
+        if self.finalize_error:
+            raise self.finalize_error
 
     def require_reconciliation(self, **kwargs):
         self.reconciliations.append(kwargs)
+        if self.reconciliation_error:
+            raise self.reconciliation_error
         return ProductionPlanningReconciliationRequiredResult(
             planning_run_public_id=kwargs["run"].public_id,
             run_state="RECONCILIATION_REQUIRED",
@@ -986,7 +1004,8 @@ class FakeClock:
 def service(commit_port: FakeCommit, runs: FakeRuns) -> ProductionPlanningService:
     return ProductionPlanningService(
         identity=FakeIdentity(), inputs=FakeInputs(), runs=runs, commit=commit_port,
-        clock=FakeClock(), build_commit=lambda _command, _snapshot, run: write_set(run),
+        clock=FakeClock(), engine=ProductionPlanningEngine(),
+        assembler=ProductionPlanningCommitAssembler(),
     )
 
 
@@ -1020,6 +1039,28 @@ def test_outcome_incerto_usa_reconciliation_e_non_failure_finalization() -> None
     assert output.business_at == command().business_at
     assert runs.failures == []
     assert len(runs.reconciliations) == 1
+
+
+def test_failure_finalization_incerta_ha_categoria_distinta_e_non_riprova() -> None:
+    runs = FakeRuns(finalize_error=RuntimeError("private detail"))
+    with pytest.raises(ProductionPlanningRunFinalizationOutcomeUncertain) as captured:
+        service(FakeCommit(ProductionPlanningError(
+            "CONCURRENCY_CONFLICT", "ORDER_CHANGED", "Input mutato."
+        )), runs).execute(command())
+    assert captured.value.attempted_operation == "FINALIZE_FAILURE"
+    assert captured.value.original_failure_category == "CONCURRENCY_CONFLICT"
+    assert len(runs.failures) == 1
+    assert runs.reconciliations == []
+
+
+def test_reconciliation_finalization_incerta_ha_categoria_distinta_e_non_riprova() -> None:
+    runs = FakeRuns(reconciliation_error=RuntimeError("private detail"))
+    with pytest.raises(ProductionPlanningRunFinalizationOutcomeUncertain) as captured:
+        service(FakeCommit(ProductionPlanningOutcomeUncertain()), runs).execute(command())
+    assert captured.value.attempted_operation == "REQUIRE_RECONCILIATION"
+    assert captured.value.original_failure_category == "RECONCILIATION_REQUIRED"
+    assert len(runs.reconciliations) == 1
+    assert runs.failures == []
 
 
 def test_result_committed_non_puo_rappresentare_outcome_incerto() -> None:

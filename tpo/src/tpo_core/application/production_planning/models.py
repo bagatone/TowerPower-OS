@@ -188,6 +188,34 @@ ProductionPlanningCommand = InitialProductionPlanningCommand | ReplanProductionP
 
 
 @dataclass(frozen=True)
+class ProductionPlanningIdentitySlot:
+    sequence_name: str
+    slot_kind: str
+    canonical_slot_key: str
+    position: int
+
+    def __post_init__(self) -> None:
+        for name in ("sequence_name", "slot_kind", "canonical_slot_key"):
+            _text(name, getattr(self, name))
+        if self.canonical_slot_key != self.canonical_slot_key.upper():
+            raise InvalidProductionPlanningModelError("Identity slot key non canonica.")
+        expected_sequences = {
+            "PLAN": "PIANO_PRODUZIONE_ID",
+            "REVISION": "REVISIONE_PIANO_PRODUZIONE_ID",
+            "PLANNING_LINE": "RIGA_PIANO_SEMINA_ID",
+            "ALLOCATION": "ALLOCAZIONE_ID",
+            "REPLACEMENT_ALLOCATION": "ALLOCAZIONE_ID",
+        }
+        if expected_sequences.get(self.slot_kind) != self.sequence_name:
+            raise InvalidProductionPlanningModelError("Identity slot kind/sequence incoerenti.")
+        _version("identity slot position", self.position)
+
+    @property
+    def ordering_key(self) -> tuple[str, str, int]:
+        return self.sequence_name, self.canonical_slot_key, self.position
+
+
+@dataclass(frozen=True)
 class ProductionPlanningIdentityBundle:
     """Identita gia allocate, consumate nell'ordine materiale dell'assembly."""
 
@@ -196,6 +224,7 @@ class ProductionPlanningIdentityBundle:
     planning_line_public_ids: tuple[PublicId, ...]
     allocation_public_ids: tuple[PublicId, ...]
     replacement_allocation_public_ids: tuple[PublicId, ...] = ()
+    slot_assignments: tuple[tuple[ProductionPlanningIdentitySlot, PublicId], ...] = ()
 
     def __post_init__(self) -> None:
         for name, values, prefix in (
@@ -224,6 +253,38 @@ class ProductionPlanningIdentityBundle:
                 raise InvalidProductionPlanningModelError(
                     f"{name} contiene identita duplicate o non valide."
                 )
+        if self.slot_assignments:
+            slots = tuple(item[0] for item in self.slot_assignments)
+            public_ids = tuple(item[1] for item in self.slot_assignments)
+            if tuple(slot.ordering_key for slot in slots) != tuple(
+                sorted(slot.ordering_key for slot in slots)
+            ) or len(set(slots)) != len(slots):
+                raise InvalidProductionPlanningModelError("Identity slot bundle non ordinato o duplicato.")
+            if len(set(public_ids)) != len(public_ids):
+                raise InvalidProductionPlanningModelError("Public ID duplicato nel bundle Identity.")
+
+    @classmethod
+    def from_slot_assignments(
+        cls,
+        assignments: tuple[tuple[ProductionPlanningIdentitySlot, PublicId], ...],
+    ) -> ProductionPlanningIdentityBundle:
+        by_kind: dict[str, list[PublicId]] = {
+            "PLAN": [], "REVISION": [], "PLANNING_LINE": [],
+            "ALLOCATION": [], "REPLACEMENT_ALLOCATION": [],
+        }
+        prefixes = {
+            "PLAN": "PP-", "REVISION": "RVP-", "PLANNING_LINE": "RPS-",
+            "ALLOCATION": "ALL-", "REPLACEMENT_ALLOCATION": "ALL-",
+        }
+        for slot, public_id in assignments:
+            if slot.slot_kind not in by_kind or not public_id.value.startswith(prefixes[slot.slot_kind]):
+                raise InvalidProductionPlanningModelError("Identity non coerente con lo slot.")
+            by_kind[slot.slot_kind].append(public_id)
+        return cls(
+            *(tuple(by_kind[kind]) for kind in ("PLAN", "REVISION", "PLANNING_LINE", "ALLOCATION")),
+            replacement_allocation_public_ids=tuple(by_kind["REPLACEMENT_ALLOCATION"]),
+            slot_assignments=assignments,
+        )
 
 
 @dataclass(frozen=True)
@@ -481,13 +542,30 @@ class PlanningInputSnapshot:
 
 
 @dataclass(frozen=True)
+class ProductionPlanningLoadedInput:
+    snapshot: PlanningInputSnapshot
+    allocation_disposition_decisions: tuple[AllocationDispositionDecision, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.snapshot, PlanningInputSnapshot):
+            raise InvalidProductionPlanningModelError("Loaded input privo di snapshot valido.")
+        if not isinstance(self.allocation_disposition_decisions, tuple):
+            raise InvalidProductionPlanningModelError("Disposition loaded input devono essere una tuple.")
+        _unique_sorted(
+            self.allocation_disposition_decisions,
+            lambda item: item.allocation_public_id.value,
+            "allocation disposition decisions",
+        )
+
+
+@dataclass(frozen=True)
 class ProductionPlanningAssemblyInput:
     command: ProductionPlanningCommand
     run: ProductionPlanningRunSnapshot
     snapshot: PlanningInputSnapshot
     candidates: tuple[PlanningCandidate, ...]
     allocation_dispositions: tuple[AllocationDispositionDecision, ...]
-    identities: ProductionPlanningIdentityBundle
+    identities: ProductionPlanningIdentityBundle | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(
@@ -498,7 +576,7 @@ class ProductionPlanningAssemblyInput:
             raise InvalidProductionPlanningModelError("Assembly richiede una RUN OPEN.")
         if not isinstance(self.snapshot, PlanningInputSnapshot):
             raise InvalidProductionPlanningModelError("Snapshot assembly non valido.")
-        if not isinstance(self.identities, ProductionPlanningIdentityBundle):
+        if self.identities is not None and not isinstance(self.identities, ProductionPlanningIdentityBundle):
             raise InvalidProductionPlanningModelError("Identity bundle assembly non valido.")
         if self.command.business_at != self.snapshot.business_at:
             raise InvalidProductionPlanningModelError("business_at assembly incoerente.")
@@ -532,6 +610,58 @@ class ProductionPlanningAssemblyInput:
             raise InvalidProductionPlanningModelError(
                 "Candidates non corrispondono field-by-field alle demands dello snapshot."
             )
+
+
+@dataclass(frozen=True)
+class ProductionPlanningAssemblyPlan:
+    """Decisioni business definitive e template ID-free per la materializzazione."""
+
+    command: ProductionPlanningCommand
+    run: ProductionPlanningRunSnapshot
+    snapshot: PlanningInputSnapshot
+    candidates: tuple[PlanningCandidate, ...]
+    allocation_dispositions: tuple[AllocationDispositionDecision, ...]
+    identity_slots: tuple[ProductionPlanningIdentitySlot, ...]
+    _materialization_template: object
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identity_slots, tuple) or not self.identity_slots:
+            raise InvalidProductionPlanningModelError("Assembly plan privo di identity slot.")
+        keys = tuple(slot.ordering_key for slot in self.identity_slots)
+        if keys != tuple(sorted(keys)) or len(set(self.identity_slots)) != len(self.identity_slots):
+            raise InvalidProductionPlanningModelError("Identity slot non canonici.")
+
+    @property
+    def revisions(self) -> tuple[PlanRevisionDraft, ...]:
+        return self._materialization_template.revisions  # type: ignore[union-attr]
+
+    @property
+    def planning_lines(self) -> tuple[PlanningLineDraft, ...]:
+        return tuple(line for revision in self.revisions for line in revision.lines)
+
+    @property
+    def seed_resources(self) -> tuple[SeedResourceDraft, ...]:
+        return self._materialization_template.seed_resources  # type: ignore[union-attr]
+
+    @property
+    def allocations(self) -> tuple[AllocationDraft, ...]:
+        return self._materialization_template.allocations  # type: ignore[union-attr]
+
+    @property
+    def allocation_transitions(self) -> tuple[AllocationTransitionDraft, ...]:
+        return self._materialization_template.allocation_transitions  # type: ignore[union-attr]
+
+    @property
+    def counters(self) -> ProductionPlanningRunCounters:
+        return self._materialization_template.counters  # type: ignore[union-attr]
+
+    @property
+    def messages(self) -> tuple[RunMessage, ...]:
+        return self._materialization_template.messages  # type: ignore[union-attr]
+
+    @property
+    def audit_intents(self) -> tuple[AuditDraft, ...]:
+        return self._materialization_template.audits  # type: ignore[union-attr]
 
 
 @dataclass(frozen=True)

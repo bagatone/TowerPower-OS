@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import fields, is_dataclass, replace
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_CEILING
+from enum import Enum
 import hashlib
 
 from .errors import ProductionPlanningError
@@ -17,18 +19,159 @@ from .models import (
     PlanRevisionDraft,
     PlanningCandidate,
     PlanningLineDraft,
+    ProductionPlanningAssemblyPlan,
     ProductionPlanningAssemblyInput,
     ProductionPlanningCommit,
+    ProductionPlanningIdentityBundle,
+    ProductionPlanningIdentitySlot,
     ProductionPlanningRunCounters,
+    PublicId,
     ReplanProductionPlanningCommand,
     SeedResourceDraft,
 )
 
 
 class ProductionPlanningCommitAssembler:
-    """Trasforma input autorevoli e ID preallocati in un commit completo."""
+    """Separa decisioni business pure e assegnazione meccanica degli ID."""
+
+    def plan(self, value: ProductionPlanningAssemblyInput) -> ProductionPlanningAssemblyPlan:
+        if not isinstance(value, ProductionPlanningAssemblyInput):
+            raise _input_error("INVALID_ASSEMBLY_INPUT", "Input assembly non valido.")
+        if value.identities is not None:
+            value = replace(value, identities=None)
+        candidates = tuple(sorted(value.candidates, key=_candidate_order))
+        allocation_capacity = len(candidates) + len(value.snapshot.stock) + len(
+            value.snapshot.harvests
+        ) + len(value.snapshot.in_progress)
+        replacement_ids = tuple(
+            decision.replacement_specification.replacement_allocation_public_id
+            for decision in value.allocation_dispositions
+            if decision.replacement_specification is not None
+        )
+        plan_ids = (
+            (value.snapshot.current_plans[0].plan_public_id,)
+            if isinstance(value.command, ReplanProductionPlanningCommand)
+            else (PublicId("PP-900000"),)
+        )
+        placeholders = ProductionPlanningIdentityBundle(
+            plan_ids,
+            (PublicId("RVP-900000"),),
+            tuple(PublicId(f"RPS-{900000 + index:06d}") for index in range(len(candidates))),
+            tuple(PublicId(f"ALL-{900000 + index:06d}") for index in range(allocation_capacity)),
+            tuple(sorted(replacement_ids, key=lambda item: item.value)),
+        )
+        template = self._assemble_with_identities(
+            replace(value, candidates=candidates, identities=placeholders),
+            allow_unused_identities=True,
+        )
+        generated_allocation_ids = tuple(
+            item.public_id for item in template.allocations
+            if item.public_id in placeholders.allocation_public_ids
+        )
+        slots = []
+        for sequence_name, kind, values in (
+            ("ALLOCAZIONE_ID", "ALLOCATION", generated_allocation_ids),
+            ("ALLOCAZIONE_ID", "REPLACEMENT_ALLOCATION", replacement_ids),
+            ("PIANO_PRODUZIONE_ID", "PLAN", () if isinstance(value.command, ReplanProductionPlanningCommand) else placeholders.plan_public_ids),
+            ("REVISIONE_PIANO_PRODUZIONE_ID", "REVISION", placeholders.revision_public_ids),
+            ("RIGA_PIANO_SEMINA_ID", "PLANNING_LINE", placeholders.planning_line_public_ids),
+        ):
+            for position, _ in enumerate(values):
+                slots.append(
+                    ProductionPlanningIdentitySlot(
+                        sequence_name, kind, f"{kind}:{position:06d}", position
+                    )
+                )
+        return ProductionPlanningAssemblyPlan(
+            value.command,
+            value.run,
+            value.snapshot,
+            candidates,
+            value.allocation_dispositions,
+            tuple(sorted(slots, key=lambda item: item.ordering_key)),
+            template,
+        )
+
+    def materialize(
+        self,
+        assembly_plan: ProductionPlanningAssemblyPlan,
+        identity_bundle: ProductionPlanningIdentityBundle,
+    ) -> ProductionPlanningCommit:
+        if not isinstance(assembly_plan, ProductionPlanningAssemblyPlan):
+            raise _input_error("INVALID_ASSEMBLY_PLAN", "Assembly plan non valido.")
+        if not isinstance(identity_bundle, ProductionPlanningIdentityBundle):
+            raise _input_error("INVALID_IDENTITY_BUNDLE", "Identity bundle non valido.")
+        expected = assembly_plan.identity_slots
+        actual = tuple(item[0] for item in identity_bundle.slot_assignments)
+        if actual != expected:
+            missing = set(expected) - set(actual)
+            extra = set(actual) - set(expected)
+            code = "IDENTITY_SLOT_MISSING" if missing else "IDENTITY_SLOT_EXTRA" if extra else "IDENTITY_SLOT_ORDER_MISMATCH"
+            raise _input_error(code, "Identity bundle non coincide con gli slot canonici.")
+        template = assembly_plan._materialization_template
+        replacement_placeholders = tuple(
+            decision.replacement_specification.replacement_allocation_public_id
+            for decision in assembly_plan.allocation_dispositions
+            if decision.replacement_specification is not None
+        )
+        placeholder_by_slot = {
+            "PLAN": tuple(item.plan_public_id for item in template.revisions),
+            "REVISION": tuple(item.revision_public_id for item in template.revisions),
+            "PLANNING_LINE": tuple(line.public_id for revision in template.revisions for line in revision.lines),
+            "ALLOCATION": tuple(
+                item.public_id for item in template.allocations
+                if item.public_id not in replacement_placeholders
+            ),
+            "REPLACEMENT_ALLOCATION": replacement_placeholders,
+        }
+        mapping = {}
+        for slot, public_id in identity_bundle.slot_assignments:
+            placeholder = placeholder_by_slot[slot.slot_kind][slot.position]
+            mapping[placeholder.value] = public_id.value
+        return _replace_identity_values(template, mapping)
 
     def assemble(self, value: ProductionPlanningAssemblyInput) -> ProductionPlanningCommit:
+        if value.identities is None:
+            raise _input_error("IDENTITY_BUNDLE_REQUIRED", "assemble richiede Identity preallocate.")
+        final_line_ids = set(value.identities.planning_line_public_ids)
+        if any(
+            decision.replacement_specification is not None
+            and decision.replacement_specification.destination_planning_line_public_id not in final_line_ids
+            for decision in value.allocation_dispositions
+        ):
+            raise _allocation_error(
+                "REPLACEMENT_DESTINATION_INVALID",
+                "Replacement priva di riga Planning della revisione corrente.",
+            )
+        plan = self.plan(replace(value, identities=None))
+        assignments = []
+        ids_by_kind = {
+            "PLAN": value.identities.plan_public_ids,
+            "REVISION": value.identities.revision_public_ids,
+            "PLANNING_LINE": value.identities.planning_line_public_ids,
+            "ALLOCATION": value.identities.allocation_public_ids,
+            "REPLACEMENT_ALLOCATION": value.identities.replacement_allocation_public_ids,
+        }
+        positions = {kind: 0 for kind in ids_by_kind}
+        for slot in plan.identity_slots:
+            values = ids_by_kind[slot.slot_kind]
+            position = positions[slot.slot_kind]
+            if position >= len(values):
+                raise _input_error("IDENTITY_CARDINALITY_MISMATCH", "Identita insufficienti.")
+            assignments.append((slot, values[position]))
+            positions[slot.slot_kind] += 1
+        if any(
+            positions[kind] != len(values)
+            for kind, values in ids_by_kind.items()
+            if not (kind == "PLAN" and isinstance(value.command, ReplanProductionPlanningCommand))
+        ):
+            raise _input_error("IDENTITY_CARDINALITY_MISMATCH", "Identita inutilizzate.")
+        bundle = ProductionPlanningIdentityBundle.from_slot_assignments(tuple(assignments))
+        return self.materialize(plan, bundle)
+
+    def _assemble_with_identities(
+        self, value: ProductionPlanningAssemblyInput, *, allow_unused_identities: bool = False
+    ) -> ProductionPlanningCommit:
         if not isinstance(value, ProductionPlanningAssemblyInput):
             raise _input_error("INVALID_ASSEMBLY_INPUT", "Input assembly non valido.")
 
@@ -38,6 +181,7 @@ class ProductionPlanningCommitAssembler:
         ordered_groups = (("PRODUCTION_PLANNING_V1", candidates),)
 
         identities = value.identities
+        assert identities is not None
         if len(identities.plan_public_ids) != len(ordered_groups):
             raise _input_error("IDENTITY_CARDINALITY_MISMATCH", "Numero identita piano incoerente.")
         if len(identities.revision_public_ids) != len(ordered_groups):
@@ -92,12 +236,13 @@ class ProductionPlanningCommitAssembler:
                 self._revision(value, plan_id, revision_id, lines_tuple)
             )
 
-        try:
-            next(allocation_ids)
-        except StopIteration:
-            pass
-        else:
-            raise _input_error("IDENTITY_CARDINALITY_MISMATCH", "Identita allocazione inutilizzate.")
+        if not allow_unused_identities:
+            try:
+                next(allocation_ids)
+            except StopIteration:
+                pass
+            else:
+                raise _input_error("IDENTITY_CARDINALITY_MISMATCH", "Identita allocazione inutilizzate.")
 
         transitions = []
         active = {item.allocation_public_id: item for item in value.snapshot.allocations}
@@ -112,6 +257,11 @@ class ProductionPlanningCommitAssembler:
                 destination_line = lines_by_order_line.get(
                     replacement.destination_order_line_public_id.value
                 )
+                if allow_unused_identities and destination_line is not None:
+                    replacement = replace(
+                        replacement,
+                        destination_planning_line_public_id=destination_line.public_id,
+                    )
                 if (
                     destination_line is None
                     or replacement.destination_planning_line_public_id
@@ -322,6 +472,30 @@ class ProductionPlanningCommitAssembler:
 
 def assemble(value: ProductionPlanningAssemblyInput) -> ProductionPlanningCommit:
     return ProductionPlanningCommitAssembler().assemble(value)
+
+
+def _replace_identity_values(value, mapping):
+    """Sostituisce soltanto slot simbolici; non esegue decisioni business."""
+    if isinstance(value, PublicId):
+        return PublicId(mapping.get(value.value, value.value))
+    if isinstance(value, Enum):
+        return value
+    if isinstance(value, str):
+        result = value
+        for old, new in mapping.items():
+            result = result.replace(old, new)
+        return result
+    if isinstance(value, tuple):
+        return tuple(_replace_identity_values(item, mapping) for item in value)
+    if is_dataclass(value):
+        return replace(
+            value,
+            **{
+                field.name: _replace_identity_values(getattr(value, field.name), mapping)
+                for field in fields(value)
+            },
+        )
+    return value
 
 
 def _stock_resources(assembly, candidate):

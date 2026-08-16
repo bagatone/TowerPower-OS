@@ -188,6 +188,45 @@ ProductionPlanningCommand = InitialProductionPlanningCommand | ReplanProductionP
 
 
 @dataclass(frozen=True)
+class ProductionPlanningIdentityBundle:
+    """Identita gia allocate, consumate nell'ordine materiale dell'assembly."""
+
+    plan_public_ids: tuple[PublicId, ...]
+    revision_public_ids: tuple[PublicId, ...]
+    planning_line_public_ids: tuple[PublicId, ...]
+    allocation_public_ids: tuple[PublicId, ...]
+    replacement_allocation_public_ids: tuple[PublicId, ...] = ()
+
+    def __post_init__(self) -> None:
+        for name, values, prefix in (
+            ("plan_public_ids", self.plan_public_ids, "PP-"),
+            ("revision_public_ids", self.revision_public_ids, "RVP-"),
+            ("planning_line_public_ids", self.planning_line_public_ids, "RPS-"),
+            ("allocation_public_ids", self.allocation_public_ids, "ALL-"),
+            (
+                "replacement_allocation_public_ids",
+                self.replacement_allocation_public_ids,
+                "ALL-",
+            ),
+        ):
+            if not isinstance(values, tuple):
+                raise InvalidProductionPlanningModelError(f"{name} deve essere una tuple.")
+            if (
+                any(
+                    not isinstance(value, PublicId)
+                    or not value.value.startswith(prefix)
+                    for value in values
+                )
+                or tuple(item.value for item in values)
+                != tuple(sorted(item.value for item in values))
+                or len(set(values)) != len(values)
+            ):
+                raise InvalidProductionPlanningModelError(
+                    f"{name} contiene identita duplicate o non valide."
+                )
+
+
+@dataclass(frozen=True)
 class DemandSnapshot:
     order_public_id: PublicId
     order_line_public_id: PublicId
@@ -439,6 +478,60 @@ class PlanningInputSnapshot:
         _unique_sorted(self.harvests, lambda item: item.harvest_public_id.value, "harvests")
         _unique_sorted(self.allocations, lambda item: item.allocation_public_id.value, "allocations")
         _unique_sorted(self.current_planning_lines, lambda item: item.planning_line_public_id.value, "current_planning_lines")
+
+
+@dataclass(frozen=True)
+class ProductionPlanningAssemblyInput:
+    command: ProductionPlanningCommand
+    run: ProductionPlanningRunSnapshot
+    snapshot: PlanningInputSnapshot
+    candidates: tuple[PlanningCandidate, ...]
+    allocation_dispositions: tuple[AllocationDispositionDecision, ...]
+    identities: ProductionPlanningIdentityBundle
+
+    def __post_init__(self) -> None:
+        if not isinstance(
+            self.command, (InitialProductionPlanningCommand, ReplanProductionPlanningCommand)
+        ):
+            raise InvalidProductionPlanningModelError("Command assembly non valido.")
+        if not isinstance(self.run, ProductionPlanningRunSnapshot) or self.run.state != "OPEN":
+            raise InvalidProductionPlanningModelError("Assembly richiede una RUN OPEN.")
+        if not isinstance(self.snapshot, PlanningInputSnapshot):
+            raise InvalidProductionPlanningModelError("Snapshot assembly non valido.")
+        if not isinstance(self.identities, ProductionPlanningIdentityBundle):
+            raise InvalidProductionPlanningModelError("Identity bundle assembly non valido.")
+        if self.command.business_at != self.snapshot.business_at:
+            raise InvalidProductionPlanningModelError("business_at assembly incoerente.")
+        if self.command.policy != self.snapshot.policy.reference:
+            raise InvalidProductionPlanningModelError("Policy assembly incoerente.")
+        if not isinstance(self.candidates, tuple) or not isinstance(
+            self.allocation_dispositions, tuple
+        ):
+            raise InvalidProductionPlanningModelError(
+                "Candidates e disposition devono essere tuple ordinate."
+            )
+        candidate_ids = tuple(
+            item.demand.order_line_public_id.value for item in self.candidates
+        )
+        if len(candidate_ids) != len(set(candidate_ids)):
+            raise InvalidProductionPlanningModelError(
+                "assembly candidates contiene righe domanda duplicate."
+            )
+        _unique_sorted(
+            self.allocation_dispositions,
+            lambda item: item.allocation_public_id.value,
+            "assembly allocation dispositions",
+        )
+        candidate_demands = {
+            item.demand.order_line_public_id: item.demand for item in self.candidates
+        }
+        snapshot_demands = {
+            item.order_line_public_id: item for item in self.snapshot.demands
+        }
+        if candidate_demands != snapshot_demands:
+            raise InvalidProductionPlanningModelError(
+                "Candidates non corrispondono field-by-field alle demands dello snapshot."
+            )
 
 
 @dataclass(frozen=True)

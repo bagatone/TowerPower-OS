@@ -103,6 +103,36 @@ class ClienteId(PermanentId):
     prefix: ClassVar[str] = "CLI"
 
 
+@dataclass(frozen=True)
+class RunPianificazioneProduzioneId(PermanentId):
+    prefix: ClassVar[str] = "RPP"
+    sequence_name: ClassVar[str] = "RUN_PIANIFICAZIONE_PRODUZIONE_ID"
+
+
+@dataclass(frozen=True)
+class PianoProduzioneId(PermanentId):
+    prefix: ClassVar[str] = "PP"
+    sequence_name: ClassVar[str] = "PIANO_PRODUZIONE_ID"
+
+
+@dataclass(frozen=True)
+class RevisionePianoProduzioneId(PermanentId):
+    prefix: ClassVar[str] = "RVP"
+    sequence_name: ClassVar[str] = "REVISIONE_PIANO_PRODUZIONE_ID"
+
+
+@dataclass(frozen=True)
+class RigaPianoSeminaId(PermanentId):
+    prefix: ClassVar[str] = "RPS"
+    sequence_name: ClassVar[str] = "RIGA_PIANO_SEMINA_ID"
+
+
+@dataclass(frozen=True)
+class AllocazioneId(PermanentId):
+    prefix: ClassVar[str] = "ALL"
+    sequence_name: ClassVar[str] = "ALLOCAZIONE_ID"
+
+
 IdentifierT = TypeVar("IdentifierT", bound=PermanentId)
 
 

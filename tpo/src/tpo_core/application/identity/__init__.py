@@ -8,6 +8,11 @@ from .errors import (
 )
 from .models import AllocatedIdentifier, IdentifierSequence
 from .ports import IdentifierSequenceRepository
+from .production_planning import (
+    PRODUCTION_PLANNING_IDENTIFIER_TYPES,
+    PRODUCTION_PLANNING_SEQUENCE_TYPES,
+    production_planning_identifier_type,
+)
 from .service import PersistentIdAllocator
 
 __all__ = (
@@ -19,4 +24,7 @@ __all__ = (
     "IdentityAllocationError",
     "InvalidIdentifierSequenceError",
     "PersistentIdAllocator",
+    "PRODUCTION_PLANNING_IDENTIFIER_TYPES",
+    "PRODUCTION_PLANNING_SEQUENCE_TYPES",
+    "production_planning_identifier_type",
 )

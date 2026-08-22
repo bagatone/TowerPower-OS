@@ -370,6 +370,18 @@ def test_port_signature_and_provider_boundary() -> None:
     assert "authorized_productive_quantity" in source
 
 
+def test_resource_authority_revalidation_contract_is_explicit() -> None:
+    source = inspect.getsource(
+        PostgreSQLProductionPlanningCommitWriter._lock_and_revalidate_inputs
+    )
+    assert "readiness_code" not in source
+    for field in (
+        "expected_useful_quantity", "expected_useful_uom",
+        "harvest_window_start", "harvest_window_end",
+    ):
+        assert field in source
+
+
 def test_completed_at_naive_fails_before_connection() -> None:
     run = ProductionPlanningRunSnapshot(
         public_id=PublicId("RPP-000001"), expected_version=0, state="OPEN",

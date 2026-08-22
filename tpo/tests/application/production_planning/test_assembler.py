@@ -72,12 +72,12 @@ def knowledge(variety: str = "VAR-000001", protocol: str = "PV-000001"):
     )
 
 
-def stock(public_id: str, amount: str, *, allocated: str = "0", ready="READY"):
+def stock(public_id: str, amount: str, *, allocated: str = "0"):
     total = Decimal(amount)
     used = Decimal(allocated)
     return StockResourceSnapshot(
         pid(public_id), pid("VAR-000001"), qty(amount), qty(allocated),
-        qty(str(total - used)), 0, ready,
+        qty(str(total - used)), 0,
     )
 
 
@@ -263,14 +263,11 @@ def test_multi_source_non_aggrega_e_non_overalloca() -> None:
     assert sum(item.quantity.value for item in result.allocations) == Decimal("1")
 
 
-def test_uom_mismatch_e_readiness_mismatch_falliscono_chiusi() -> None:
+def test_stock_uom_mismatch_fallisce_chiuso_senza_readiness_artificiale() -> None:
     bad_uom = replace(stock("STK-000001", "1"), eligible=qty("1", UnitOfMeasure.UNIT), allocated=qty("0", UnitOfMeasure.UNIT), allocable_residual=qty("1", UnitOfMeasure.UNIT))
     with pytest.raises(ProductionPlanningError) as uom:
         assemble(stocks=(bad_uom,), allocation_count=1)
     assert uom.value.code == "RESOURCE_UOM_MISMATCH"
-    with pytest.raises(ProductionPlanningError) as readiness:
-        assemble(stocks=(stock("STK-000001", "1", ready="BLOCKED"),), allocation_count=1)
-    assert readiness.value.code == "RESOURCE_NOT_READY"
 
 
 def test_output_chiavi_audit_contatori_e_ordinamenti_sono_deterministici() -> None:

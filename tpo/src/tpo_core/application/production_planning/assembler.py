@@ -544,8 +544,6 @@ def _stock_resources(assembly, candidate):
         if resource.variety_public_id != candidate.demand.variety_public_id:
             continue
         _same_uom(candidate, resource.allocable_residual)
-        if resource.readiness_code != "READY":
-            raise _infeasible("RESOURCE_NOT_READY", "STOCK non ready nello snapshot eleggibile.")
         values.append((resource.resource_public_id, assembly.snapshot.business_at, resource.allocable_residual.value, resource.allocated.value))
     return _ordered_resources(values)
 
@@ -748,7 +746,7 @@ def _replanning_snapshot(assembly, line, previous_version):
 
 def _snapshot_collections(stock, progress, allocations):
     stock_values = tuple(
-        _record(item.resource_public_id.value, _decimal_text(item.eligible.value), _decimal_text(item.allocated.value), _decimal_text(item.allocable_residual.value), str(item.version), item.readiness_code)
+        _record(item.resource_public_id.value, _decimal_text(item.eligible.value), _decimal_text(item.allocated.value), _decimal_text(item.allocable_residual.value), str(item.version))
         for item in stock
     )
     progress_values = tuple(

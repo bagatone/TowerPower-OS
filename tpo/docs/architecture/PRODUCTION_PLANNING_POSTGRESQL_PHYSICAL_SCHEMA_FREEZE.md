@@ -233,6 +233,15 @@ snapshot storici, `created_at`, `created_by` e tutti i vincoli esistenti.
 **NEW COLUMN:** `version bigint NOT NULL DEFAULT 0`, mutabile soltanto dal writer
 autorevole SEMINE. **NEW CHECK:** `version >= 0`. Nessun nuovo indice.
 
+La resource authority V1 aggiunge `expected_useful_quantity numeric(20,6)
+NULL`, `expected_useful_uom unit_of_measure NULL`, `harvest_window_start
+timestamptz NULL` e `harvest_window_end timestamptz NULL`. I quattro campi sono
+tutti NULL per una SEMINA storica non commissionata oppure tutti valorizzati;
+quantity deve essere positiva e la fine finestra successiva all'inizio. Il
+writer SEMINE li riceve già autorizzati, senza derivarli da protocollo, seed,
+Planning o calendario, e incrementa `semine.version` a ogni modifica. Una
+SEMINA non commissionata non è eleggibile come risorsa in corso.
+
 La versione protegge stato, eleggibilità, resa prevista/allocabile e ogni dato
 SEMINA osservabile da Planning. Incrementa per ogni mutazione autorevole di tali
 dati; non incrementa per letture, log, note, Planning RUN o allocazioni che non
@@ -1697,7 +1706,7 @@ unidirezionale dalla revisione. **INDEXES:** `ix_replanning_snapshots_hash` ON
 | `allocated_quantity` | `numeric(20,6)` | NOT NULL | NONE | quantità già allocata |
 | `allocable_residual` | `numeric(20,6)` | NOT NULL | NONE | residuo allocabile |
 | `resource_version` | `bigint` | NOT NULL | NONE | versione osservata |
-| `readiness_code` | `text` | NOT NULL | NONE | stato readiness canonico |
+| `readiness_code` | `text` | NULL | NONE | sola evidenza storica legacy; non authority live |
 
 **PRIMARY KEY:** `pk_replanning_snapshot_stock`
 (`snapshot_id`,`posizione`). **FOREIGN KEYS:**

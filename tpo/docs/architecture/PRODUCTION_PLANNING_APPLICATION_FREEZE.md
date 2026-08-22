@@ -130,9 +130,9 @@ Timezone appartiene esclusivamente all'autorità temporale globale TPO (`OFFICIA
 
 ### 3.6 Resource snapshots
 
-`StockResourceSnapshot` contiene public ID risorsa/VARIETÀ, quantità disponibile, UOM, quantità già allocata materialmente rilevante, readiness e version. Lo STOCK resta fotografia corrente: leggere o allocare non ne modifica la quantità.
+`StockResourceSnapshot` contiene public ID risorsa/VARIETÀ, quantità disponibile, UOM, quantità già allocata materialmente rilevante e version. In V1 una riga STOCK con residuo allocabile positivo è già fisicamente disponibile: non esiste un distinto `readiness_code` live. Lo STOCK resta fotografia corrente: leggere o allocare non ne modifica la quantità.
 
-`InProgressResourceSnapshot` contiene public ID SEMINA, VARIETÀ, protocol version, finestra produttiva, quantità eleggibile, quantità già allocata e semina version.
+`InProgressResourceSnapshot` contiene public ID SEMINA, VARIETÀ, protocol version, finestra produttiva, quantità utile attesa, quantità già allocata e semina version. Quantità utile, relativa UOM e finestra sono authority persistite su SEMINA; l'Input Adapter deriva soltanto i saldi di allocazione e non applica formule biologiche o temporali. Una SEMINA non commissionata non è una risorsa eleggibile.
 
 `HarvestResourceSnapshot` contiene il fatto RACCOLTA effettivo, la quantità eleggibile e la provenance già congelata. Una previsione di raccolta non può essere trattata come fatto RACCOLTA.
 
@@ -521,7 +521,7 @@ Ogni mismatch di UOM, readiness, identita, versione o capienza fallisce chiuso.
 #### Semantica field-by-field delle allocazioni di coverage
 
 - STOCK: `resource_public_id`, destination order-line, quantita, UOM,
-  allocation type `STOCK`, `readiness_code`, eligible/allocated/residual
+  allocation type `STOCK`, eligible/allocated/residual
   osservati ed expected resource version.
 - RACCOLTA: `harvest_public_id`, destination order-line, quantita, UOM,
   allocation type `RACCOLTA`, quantita immutabile eleggibile, residuo osservato,

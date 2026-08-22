@@ -397,15 +397,65 @@ def upgraded(tmp_path: Path):
 
 def test_revision_chain_e_nuovo_head() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
-    assert [item.revision for item in revisions[:9]] == [
-        "20260822_0014", "20260815_0013", "20260814_0012", "20260814_0011",
+    assert [item.revision for item in revisions[:10]] == [
+        "20260822_0015", "20260822_0014", "20260815_0013", "20260814_0012", "20260814_0011",
         "20260814_0010", "20260812_0009", "20260811_0008", "20260811_0007",
         "20260811_0006",
     ]
-    assert [item.down_revision for item in revisions[:8]] == [
-        "20260815_0013", "20260814_0012", "20260814_0011", "20260814_0010",
+    assert [item.down_revision for item in revisions[:9]] == [
+        "20260822_0014", "20260815_0013", "20260814_0012", "20260814_0011", "20260814_0010",
         "20260812_0009", "20260811_0008", "20260811_0007", "20260811_0006",
     ]
+
+
+def test_resource_snapshot_authority_migration_contract() -> None:
+    path = VERSIONS / "20260822_0015_resource_snapshot_authority.py"
+    migration = _module(path)
+    assert migration.revision == "20260822_0015"
+    assert migration.down_revision == "20260822_0014"
+    source = path.read_text(encoding="utf-8")
+    for column in (
+        "expected_useful_quantity", "expected_useful_uom",
+        "harvest_window_start", "harvest_window_end",
+    ):
+        assert column in source
+    assert re.search(r"\b(?:INSERT\s+INTO|UPDATE\s+tpo\.|DELETE\s+FROM)\b", source, re.I) is None
+
+
+def test_resource_snapshot_authority_offline_postgresql_ddl() -> None:
+    ddl = _postgresql_ddl("20260822_0014", "20260822_0015")
+    normalized = ddl.lower()
+    for column in (
+        "expected_useful_quantity", "expected_useful_uom",
+        "harvest_window_start", "harvest_window_end",
+    ):
+        assert column in normalized
+    assert "alter column readiness_code drop not null" in normalized
+    assert re.search(r"\b(insert into|update tpo\.|delete from)\b", ddl, re.I) is None
+
+
+def test_resource_snapshot_authority_columns_and_checks(upgraded) -> None:
+    columns = {
+        row[1]: row[3]
+        for row in upgraded.exec_driver_sql("PRAGMA tpo.table_info('semine')")
+    }
+    assert columns["expected_useful_quantity"] == 0
+    assert columns["expected_useful_uom"] == 0
+    assert columns["harvest_window_start"] == 0
+    assert columns["harvest_window_end"] == 0
+    semine_sql = upgraded.exec_driver_sql(
+        "SELECT sql FROM tpo.sqlite_master WHERE type='table' AND name='semine'"
+    ).scalar_one()
+    assert "ck_semine_expected_useful_pair" in semine_sql
+    assert "ck_semine_harvest_window_pair" in semine_sql
+    assert "ck_semine_planning_authority_commissioning" in semine_sql
+    snapshot_columns = {
+        row[1]: row[3]
+        for row in upgraded.exec_driver_sql(
+            "PRAGMA tpo.table_info('replanning_snapshot_stock')"
+        )
+    }
+    assert snapshot_columns["readiness_code"] == 0
 
 
 def test_zero_production_planning_line_migration_contract() -> None:
@@ -600,7 +650,7 @@ def test_upgrade_0004_downgrade_e_reupgrade(tmp_path: Path) -> None:
         command.upgrade(config, "20260810_0004")
         baseline = set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.upgrade(config, "head")
-        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0014"
+        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0015"
         assert PLANNING_TABLES <= set(sa.inspect(connection).get_table_names(schema="tpo"))
         command.downgrade(config, "20260810_0004")
         assert set(sa.inspect(connection).get_table_names(schema="tpo")) == baseline
@@ -837,7 +887,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     config = make_config(connection=connection)
     command.upgrade(config, "20260810_0004")
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0014"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0015"
     command.downgrade(config, "20260814_0010")
     columns = {
         item["name"]
@@ -854,7 +904,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     }
     assert "allocated_quantity > 0" in checks["ck_replanning_snapshot_allocazioni_quantity"]
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0014"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0015"
     connection.commit()
 
     functions = set(connection.exec_driver_sql("""
@@ -890,7 +940,7 @@ def test_isolated_postgresql_upgrade_downgrade_reupgrade_and_catalogs(isolated_p
     command.downgrade(config, "20260810_0004")
     assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260810_0004"
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0014"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0015"
     connection.commit()
 
 
@@ -1238,7 +1288,7 @@ def test_isolated_postgresql_allocation_transition_commissioning_and_roundtrip(i
     connection.execute(sa.text("UPDATE tpo.allocazioni SET state='ATTIVA' WHERE id=:parent"), {"parent": parent})
     connection.commit()
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0014"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0015"
 
 
 def test_isolated_postgresql_replanning_snapshot_balance_catalog_and_checks(
@@ -1384,7 +1434,7 @@ def test_isolated_postgresql_replanning_snapshot_balance_roundtrip(
     connection = isolated_postgresql
     config = make_config(connection=connection)
     command.upgrade(config, "head")
-    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0014"
+    assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260822_0015"
 
 
 def test_isolated_postgresql_zero_production_line_contract(

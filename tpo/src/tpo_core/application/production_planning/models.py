@@ -496,12 +496,10 @@ class StockResourceSnapshot:
     allocated: ExactQuantity
     allocable_residual: ExactQuantity
     version: int
-    readiness_code: str
 
     def __post_init__(self) -> None:
         _resource_quantities(self.eligible, self.allocated, self.allocable_residual)
         _version("stock version", self.version)
-        _text("readiness_code", self.readiness_code)
 
 
 @dataclass(frozen=True)

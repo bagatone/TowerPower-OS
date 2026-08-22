@@ -219,7 +219,7 @@ Ogni Planning RUN usa versioni esplicite e immutabili di:
 - policy di buffer quantitativo;
 - policy di allocazione e priorità.
 
-Il buffer temporale e la granularità produttiva appartengono alla versione del protocollo; readiness appartiene alle risorse e ai relativi snapshot. Il cutoff non è un input autorevole V1. La timezone proviene esclusivamente dall'autorità temporale globale TPO (`OFFICIAL_TIMEZONE_NAME` / `OFFICIAL_TIMEZONE`, `Atlantic/Canary`).
+Il buffer temporale e la granularità produttiva appartengono alla versione del protocollo. In V1 STOCK con residuo allocabile positivo è già disponibile, senza un distinto readiness code; quantità utile attesa e finestra di una SEMINA in corso sono fatti persistiti della SEMINA. Il cutoff non è un input autorevole V1. La timezone proviene esclusivamente dall'autorità temporale globale TPO (`OFFICIAL_TIMEZONE_NAME` / `OFFICIAL_TIMEZONE`, `Atlantic/Canary`).
 
 Il vocabulary della Planning Policy V1 è chiuso: `priority_policy_code = DELIVERY_THEN_PUBLIC_ID`, `planning_algorithm_version = production-planning-v1` e `harvest_target_strategy = EARLIEST_APPROVED_WINDOW`. Il motore rifiuta ogni altro valore senza fallback. `planning_algorithm_version` è l'identificatore dell'algoritmo Planning e non deriva dalla versione del canonical encoding.
 
@@ -725,7 +725,7 @@ Testo libero e note operatore restano provenance diagnostica e non entrano nella
 21. `previous_plan_revision_public_id`;
 22. `previous_plan_revision_version`.
 
-`eligible_stock_snapshot` è ordinato per `stock_resource_public_id` crescente. Ogni elemento contiene, in ordine: identità stabile autorevole della risorsa, `variety_public_id`, quantità eleggibile, quantità già allocata, residuo allocabile, versione della risorsa e discriminatore canonico di readiness/eleggibilità. Se STOCK non possiede public ID, il Physical Schema deve definire un'identità stabile autorevole; non sono ammessi ordine query o PK occasionale prive di contratto.
+`eligible_stock_snapshot` è ordinato per `stock_resource_public_id` crescente. Ogni elemento contiene, in ordine: identità stabile autorevole della risorsa, `variety_public_id`, quantità eleggibile, quantità già allocata, residuo allocabile e versione della risorsa. La disponibilità STOCK V1 è implicita nell'eleggibilità e nel residuo positivo; nessun readiness code entra nel payload canonico. Se STOCK non possiede public ID, il Physical Schema deve definire un'identità stabile autorevole; non sono ammessi ordine query o PK occasionale prive di contratto.
 
 `eligible_in_progress_snapshot` è ordinato per `semina_public_id` crescente. Ogni elemento contiene, in ordine: `semina_public_id`, `variety_public_id`, `protocol_version_public_id`, quantità utile prevista, quantità già allocata, residuo allocabile, inizio e fine finestra prevista di raccolta, stato e versione della SEMINA.
 

@@ -432,12 +432,16 @@ def test_protocol_approval_state_e_immutabile() -> None:
 
 
 def test_stock_snapshot_impone_saldo_e_ordine_deterministico() -> None:
-    first = StockResourceSnapshot(pid("VAR-000001"), pid("VAR-000001"), qty("1"), qty("0"), qty("1"), 0, "READY")
-    second = StockResourceSnapshot(pid("VAR-000002"), pid("VAR-000002"), qty("1"), qty("0"), qty("1"), 0, "READY")
+    first = StockResourceSnapshot(pid("VAR-000001"), pid("VAR-000001"), qty("1"), qty("0"), qty("1"), 0)
+    second = StockResourceSnapshot(pid("VAR-000002"), pid("VAR-000002"), qty("1"), qty("0"), qty("1"), 0)
     valid = PlanningInputSnapshot(**{**snapshot().__dict__, "stock": (first, second)})
     assert valid.stock == (first, second)
     with pytest.raises(InvalidProductionPlanningModelError):
         PlanningInputSnapshot(**{**snapshot().__dict__, "stock": (second, first)})
+
+
+def test_stock_snapshot_non_espone_readiness_artificiale() -> None:
+    assert "readiness_code" not in StockResourceSnapshot.__dataclass_fields__
 
 
 def test_active_allocation_usa_solo_tipo_e_stato_congelati() -> None:

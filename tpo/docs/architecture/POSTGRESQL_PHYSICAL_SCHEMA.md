@@ -697,6 +697,9 @@ Colonne:
 - `protocollo_versione_id bigint NOT NULL` FK;
 - `stato semina_state NOT NULL`;
 - `quantita_seme numeric(20,6) NOT NULL` > 0;
+- `expected_useful_quantity numeric(20,6) NULL` e `expected_useful_uom unit_of_measure NULL`, authority Planning commissionata come coppia;
+- `harvest_window_start timestamptz NULL` e `harvest_window_end timestamptz NULL`, authority Planning commissionata come coppia ordinata;
+- i quattro campi Planning authority sono tutti NULL oppure tutti valorizzati; nessun backfill o derivazione automatica;
 - `unita_misura unit_of_measure NOT NULL`, obbligatoriamente GRAM;
 - `data_avvio timestamp with time zone NOT NULL`;
 - `causa_origine text NOT NULL` non vuota;

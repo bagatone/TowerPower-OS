@@ -369,7 +369,9 @@ class PostgreSQLProductionPlanningCommitWriter:
         semine: dict[str, tuple[Any, ...]] = {}
         if semina_ids:
             cursor.execute(
-                """SELECT s.id,s.public_id,s.stato,s.version,pv.public_id
+                """SELECT s.id,s.public_id,s.stato,s.version,pv.public_id,
+                          s.expected_useful_quantity,s.expected_useful_uom,
+                          s.harvest_window_start,s.harvest_window_end
                    FROM tpo.semine s JOIN tpo.protocollo_versioni pv ON pv.id=s.protocollo_versione_id
                    WHERE s.public_id=ANY(%s) ORDER BY s.id FOR UPDATE OF s""",
                 (semina_ids,),
@@ -379,7 +381,16 @@ class PostgreSQLProductionPlanningCommitWriter:
                 raise _input("SEEDING_MISSING", "SEMINA Planning assente.")
             for snapshot in write_set.input_snapshot.in_progress:
                 row = semine[snapshot.semina_public_id.value]
-                if row[2] != snapshot.state.value or row[3] != snapshot.version or row[4] != snapshot.protocol_version_public_id.value:
+                if (
+                    row[2] != snapshot.state.value
+                    or row[3] != snapshot.version
+                    or row[4] != snapshot.protocol_version_public_id.value
+                    or row[5] is None
+                    or Decimal(row[5]) != snapshot.expected_useful.value
+                    or row[6] != snapshot.expected_useful.unit.value
+                    or row[7] != snapshot.harvest_window_start
+                    or row[8] != snapshot.harvest_window_end
+                ):
                     raise _conflict("SEEDING_CHANGED", "SEMINA modificata dopo lo snapshot.")
 
         harvest_ids = sorted({item.harvest_public_id.value for item in write_set.input_snapshot.harvests})
@@ -1041,12 +1052,12 @@ class PostgreSQLProductionPlanningCommitWriter:
                 """INSERT INTO tpo.replanning_snapshot_stock
                    (snapshot_id,posizione,stock_resource_public_id,variety_public_id,
                     eligible_quantity,allocated_quantity,allocable_residual,
-                    resource_version,readiness_code)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    resource_version)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (snapshot_id, position, item.resource_public_id.value,
                  item.variety_public_id.value, item.eligible.value,
                  item.allocated.value, item.allocable_residual.value,
-                 item.version, item.readiness_code),
+                 item.version),
             )
         for position, item in enumerate(snapshot.in_progress, 1):
             cursor.execute(

@@ -890,3 +890,43 @@ La suite deve combinare:
 Ogni test negativo deve verificare categoria, RUN finale, assenza di write parziali e riutilizzabilità della connessione. Skip del PostgreSQL reale non equivale a validazione GREEN.
 
 APPLICATION FREEZE READY FOR REVIEW
+## Addendum 5.0B3 — Replanning disposition persistence authority
+
+`AllocationDispositionDecision` è una decisione autorevole PRE-COMMIT. Non è
+deducibile da reason code, stato allocation/source/protocollo, snapshot,
+transition committed o audit. Initial planning usa sempre la tuple vuota;
+replanning carica una tuple completa, unica e ordinata per allocation public ID
+da un disposition set PostgreSQL `AUTHORIZED`.
+
+`AllocationReplacementSpecification` non contiene public ID ALL/RPS finali.
+Contiene `replacement_allocation_slot_key` e
+`destination_planning_line_slot_key`, oltre a tipo, source, destination order
+line, quantità/UOM e provenance. Le grammatiche V1 sono:
+
+```text
+RECORD("PRODUCTION-PLANNING-LINE-SLOT-V1",
+       previous_plan_revision_public_id,
+       destination_order_line_public_id)
+
+RECORD("PRODUCTION-REPLACEMENT-ALLOCATION-SLOT-V1",
+       parent_allocation_public_id,
+       replacement_allocation_type,
+       replacement_source_public_id,
+       destination_order_line_public_id,
+       destination_planning_line_slot_key)
+```
+
+`RECORD` riusa il framing canonico length-prefix UTF-8; non applica trimming,
+case folding o escaping provider-specific. `ProductionPlanningIdentitySlot`
+usa queste business key rispettivamente per `PLANNING_LINE` replanning e
+`REPLACEMENT_ALLOCATION`; la posizione densa è derivata soltanto dopo sorting e
+non appartiene alla key. Materialize risolve ogni key 1:1 nel PublicId RPS/ALL
+allocato; missing, duplicate o extra mapping falliscono chiusi.
+
+Il `decision_set_key` è SHA-256 del record header versionato
+`PRODUCTION-REPLANNING-DISPOSITION-SET-V1` e della lista canonica delle decisioni
+ordinata per allocation public ID. Ogni record include, nell'ordine: allocation,
+expected version, cause, usability, observed remaining, consumed delta, target,
+reason, provenance, replacement-present e tutti i campi replacement nullable.
+Il key entra nel testo di `CanonicalReplanningSnapshot`, quindi modifica sia
+`canonical_snapshot_hash` sia `replanning_key_v1`.

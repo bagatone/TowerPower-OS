@@ -49,6 +49,9 @@ from src.tpo_core.application.production_planning.models import (
     RunMessage,
     SeedResourceDraft,
     StockResourceSnapshot,
+    canonical_frame,
+    planning_line_slot_key_v1,
+    replacement_allocation_slot_key_v1,
 )
 from src.tpo_core.application.production_planning.service import ProductionPlanningService
 from src.tpo_core.application.production_planning.assembler import ProductionPlanningCommitAssembler
@@ -108,6 +111,7 @@ def allocation_transition(**overrides) -> AllocationTransitionDraft:
         "released_quantity_delta": Decimal("0"),
         "transferred_quantity_delta": Decimal("0"),
         "invalidated_quantity_delta": Decimal("0"),
+        "replacement_allocation_slot_key": None,
         "replacement_allocation_public_id": None,
         "reason": "allocation lifecycle",
         "provenance": "planning snapshot",
@@ -117,12 +121,16 @@ def allocation_transition(**overrides) -> AllocationTransitionDraft:
 
 
 def replacement_specification(**overrides) -> AllocationReplacementSpecification:
+    destination_slot = planning_line_slot_key_v1(pid("RVP-000001"), pid("RO-000001"))
     values = {
-        "replacement_allocation_public_id": pid("ALL-000002"),
+        "replacement_allocation_slot_key": replacement_allocation_slot_key_v1(
+            pid("ALL-000001"), "DOMANDA", pid("RO-000001"),
+            pid("RO-000001"), destination_slot,
+        ),
         "allocation_type": "DOMANDA",
         "source_public_id": pid("RO-000001"),
         "destination_order_line_public_id": pid("RO-000001"),
-        "destination_planning_line_public_id": pid("RPS-000002"),
+        "destination_planning_line_slot_key": destination_slot,
         "quantity": qty("1"),
         "provenance": "replanning replacement",
     }
@@ -533,7 +541,8 @@ def test_allocation_disposition_replacement_esplicita(cause: str) -> None:
     transition = decision.to_transition_draft(allocation_snapshot())
     assert transition.target_state == "SOSTITUITA"
     assert transition.transferred_quantity_delta == Decimal("1")
-    assert transition.replacement_allocation_public_id == pid("ALL-000002")
+    assert transition.replacement_allocation_public_id is None
+    assert transition.replacement_allocation_slot_key == replacement_specification().replacement_allocation_slot_key
 
 
 @pytest.mark.parametrize(
@@ -789,7 +798,7 @@ def test_conditional_seed_contract_e_immutabile_e_provider_neutral() -> None:
 
 
 def test_replanning_snapshot_conserva_testo_hash_versioni_e_input_persistenti() -> None:
-    canonical_text = "TPO-REPLANNING-V1|ORDER=ORD-000001"
+    canonical_text = "TPO-REPLANNING-V1|ORDER=ORD-000001" + canonical_frame("c" * 64)
     value = CanonicalReplanningSnapshot(
         previous_revision_public_id=pid("RVP-000001"),
         previous_plan_revision_version=2,
@@ -816,6 +825,7 @@ def test_replanning_snapshot_conserva_testo_hash_versioni_e_input_persistenti() 
         stock=(),
         in_progress=(),
         allocations=(),
+        decision_set_key=CanonicalHash("c" * 64),
         canonical_text=canonical_text,
         canonical_snapshot_hash=CanonicalHash(hashlib.sha256(canonical_text.encode("utf-8")).hexdigest()),
         replanning_key_v1=CanonicalHash("b" * 64),

@@ -2247,3 +2247,35 @@ WHERE c.stato = 'CONSEGNATA'
 Le branch sono concatenate esclusivamente nell'ordine normativo mostrato e la
 view non contiene `ORDER BY`. La branch CONSEGNA non promuove `data_prevista` a
 timestamp e non modifica il Register `tpo.consegne`.
+## Addendum 5.0B3 — Authority fisica disposition pre-commit
+
+La sola authority delle disposition di replanning è il set composto da
+`tpo.replanning_disposition_sets`, `tpo.replanning_disposition_decisions` e
+`tpo.replanning_disposition_replacements`. Le `transizioni_allocazione` restano
+esclusivamente effetti committed e non sono input decisionali.
+
+`replanning_disposition_sets` possiede PK tecnica, `decision_set_key` SHA-256
+unico, FK a revisione precedente e riga ordine, reason code, correlation ID,
+state `DRAFT|AUTHORIZED`, authorization timestamp/actor, provenance e audit di
+creazione. È unica per `(previous_plan_revision_id,order_line_id,correlation_id)`.
+DRAFT vieta authorization fields; AUTHORIZED li richiede. Dopo authorization il
+set e tutti i child sono immutable e undeletable.
+
+`replanning_disposition_decisions` possiede posizione densa canonica, FK set e
+allocation, expected version, cause, usability, observed remaining, consumed
+delta, target disposition, reason e provenance. È unica per allocation e
+posizione nel set. Quantità e combinazioni cause/usability/target replicano il
+contratto applicativo fail-closed. L'ordine autorevole è allocation public ID.
+
+`replanning_disposition_replacements` è 0..1 per decisione ed esiste se e solo
+se il target è SOSTITUITA. Persiste le due slot key canoniche V1, tipo, source
+public ID, FK destination order line, quantità positiva, UOM e provenance; non
+possiede colonne ALL/RPS finali. La replacement slot key è globalmente unica.
+
+`replanning_snapshots.disposition_set_key` è FK nullable al set. È NULL per
+initial e historical data; ogni nuovo replanning autorevole la valorizza e la
+usa una sola volta. Nessun backfill o ricostruzione da transition/audit è
+ammesso. Il downgrade da 0014 fallisce chiuso in presenza di set o link usati.
+
+Le slot grammar, framing, ordering e inclusione del `decision_set_key` nei due
+hash replanning sono quelle congelate nell'Application Freeze addendum 5.0B3.

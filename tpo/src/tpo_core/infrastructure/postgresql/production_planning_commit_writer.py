@@ -1012,9 +1012,9 @@ class PostgreSQLProductionPlanningCommitWriter:
                 quantitative_buffer_policy_value,temporal_buffer_minutes,
                 production_granularity,previous_plan_revision_public_id,
                 previous_plan_revision_version,replanning_reason_code,
-                canonical_text,canonical_hash,created_at,created_by)
+                disposition_set_key,canonical_text,canonical_hash,created_at,created_by)
                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
             (
                 snapshot.order_line_public_id.value, snapshot.order_public_id.value,
                 snapshot.order_state.value, snapshot.order_version,
@@ -1030,6 +1030,7 @@ class PostgreSQLProductionPlanningCommitWriter:
                 snapshot.production_granularity,
                 snapshot.previous_revision_public_id.value,
                 snapshot.previous_plan_revision_version, snapshot.reason_code,
+                snapshot.decision_set_key.value,
                 snapshot.canonical_text, snapshot.canonical_snapshot_hash.value,
                 persistence_at, actor,
             ),

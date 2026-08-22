@@ -26,6 +26,7 @@ from src.tpo_core.application.production_planning.models import (
     PolicyVersionReference,
     ProductionPlanningRunSnapshot,
     PublicId,
+    canonical_frame,
 )
 from src.tpo_core.domain.states import OrdineState
 from src.tpo_core.infrastructure.postgresql.alembic import make_config
@@ -187,6 +188,21 @@ def _open_run(engine, number: int) -> ProductionPlanningRunSnapshot:
           WHERE policy_set_code='DEFAULT' AND numero_versione=1
         """), {"public_id": public_id})
     return ProductionPlanningRunSnapshot(PublicId(public_id), 0, "OPEN")
+
+
+def _authorize_empty_disposition_set(engine, key: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(sa.text("""
+          INSERT INTO tpo.replanning_disposition_sets
+            (decision_set_key,previous_plan_revision_id,order_line_id,
+             replanning_reason_code,correlation_id,state,authorized_at,
+             authorized_by,provenance,created_by)
+          SELECT :key,r.id,ro.id,'STOCK_CHANGED','writer-replan-001',
+                 'AUTHORIZED',CURRENT_TIMESTAMP,'test','writer-test','test'
+          FROM tpo.piano_produzione_revisioni r
+          JOIN tpo.righe_ordine ro ON ro.public_id='RO-000001'
+          WHERE r.public_id='RVP-000001'
+        """), {"key": key})
 
 
 def _transition_write_set(engine, transition, *, replacement=None, run_number=2):
@@ -619,9 +635,10 @@ def test_version_increments_exactly_once_per_affected_aggregate(writer_database)
 
 def test_replanning_snapshot_0011_balances_are_persisted_field_by_field(writer_database) -> None:
     _commit(writer_database)
+    _authorize_empty_disposition_set(writer_database, "c" * 64)
     run = _open_run(writer_database, 2)
     base = write_set(run)
-    canonical_text = "TPO-REPLANNING-V1|ORDER=ORD-000001"
+    canonical_text = "TPO-REPLANNING-V1|ORDER=ORD-000001" + canonical_frame("c" * 64)
     snapshot = CanonicalReplanningSnapshot(
         previous_revision_public_id=PublicId("RVP-000001"),
         previous_plan_revision_version=0,
@@ -636,6 +653,7 @@ def test_replanning_snapshot_0011_balances_are_persisted_field_by_field(writer_d
         quantitative_buffer_type="NONE", quantitative_buffer_value=None,
         temporal_buffer_minutes=0, production_granularity=Decimal("0.5"),
         stock=(), in_progress=(), allocations=(allocation_snapshot(),),
+        decision_set_key=CanonicalHash("c" * 64),
         canonical_text=canonical_text,
         canonical_snapshot_hash=CanonicalHash(hashlib.sha256(canonical_text.encode()).hexdigest()),
         replanning_key_v1=CanonicalHash("b" * 64),

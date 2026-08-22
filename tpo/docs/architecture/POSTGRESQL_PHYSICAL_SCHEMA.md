@@ -1537,3 +1537,19 @@ Le fonti autorevoli sono le tabelle PostgreSQL governate da questo documento. Le
 Il presente documento costituisce l’autorità ufficiale per gli Sprint PostgreSQL successivi ed è dichiarato:
 
 **POSTGRESQL PHYSICAL SCHEMA FREEZE v1.0**
+## Production Planning 5.0B3 — Replanning disposition authority
+
+La revision `20260822_0014` aggiunge, schema-only:
+
+- `tpo.replanning_disposition_sets`, header DRAFT/AUTHORIZED idempotente;
+- `tpo.replanning_disposition_decisions`, decisioni ordinate per allocation;
+- `tpo.replanning_disposition_replacements`, specifica logica 0..1 senza
+  public ID ALL/RPS preallocati;
+- `tpo.replanning_snapshots.disposition_set_key`, FK alla precisa authority
+  usata dal replanning.
+
+I set AUTHORIZED e i child sono immutabili; constraint deferred verificano
+posizioni canoniche dense e cardinalità replacement. La migration non contiene
+business DML, seed o backfill. Il downgrade rifiuta la perdita di authority
+utilizzata. La decisione pre-commit resta distinta dalle append-only
+`transizioni_allocazione`, che rappresentano soltanto l'effetto committed.

@@ -33,6 +33,8 @@ from src.tpo_core.application.production_planning.models import (
     PublicId,
     ReplanProductionPlanningCommand,
     StockResourceSnapshot,
+    planning_line_slot_key_v1,
+    replacement_allocation_slot_key_v1,
 )
 from src.tpo_core.domain.identifiers import ActorId
 from src.tpo_core.domain.quantities import UnitOfMeasure
@@ -139,6 +141,26 @@ def assembly_input(
 
 def assemble(**kwargs):
     return ProductionPlanningCommitAssembler().assemble(assembly_input(**kwargs))
+
+
+def replanning_value(base):
+    previous = pid("RVP-900001")
+    snapshot = replace(
+        base.snapshot,
+        current_plans=(CurrentPlanSnapshot(pid("PP-000001"), 1, previous, 0, 1),),
+        current_planning_lines=(CurrentPlanningLineSnapshot(
+            pid("RPS-900001"), previous, pid("RO-000001"), "PIANIFICATA", 0,
+        ),),
+    )
+    command = ReplanProductionPlanningCommand(
+        BUSINESS_AT, snapshot.policy.reference,
+        PlanningExecutionContext(ActorId("tpo.planning"), "replanning", "corr-1"),
+        previous, pid("RO-000001"), "MANUAL_REPLAN_AUTHORIZED",
+    )
+    return replace(
+        base, command=command, snapshot=snapshot,
+        candidates=tuple(ProductionPlanningEngine().calculate(snapshot)),
+    )
 
 
 def test_full_stock_coverage_crea_linea_zero_senza_seed_o_produzione() -> None:
@@ -400,15 +422,21 @@ def test_disposition_invalidation_e_assemblata(cause, usability, target, delta_n
 
 
 def test_disposition_replacement_crea_transition_e_allocation_distinta() -> None:
-    base = assembly_input(allocation_count=1)
+    base = replanning_value(assembly_input(allocation_count=1))
     observed = ActiveAllocationSnapshot(
         pid("ALL-900001"), "STOCK", pid("STK-000001"), pid("RO-000001"),
         qty("1"), qty("0.25"), qty("0"), qty("0"), qty("0"), qty("0.75"),
         "ATTIVA", 4,
     )
+    line_slot = planning_line_slot_key_v1(
+        base.command.previous_revision_public_id, pid("RO-000001")
+    )
     replacement = AllocationReplacementSpecification(
-        pid("ALL-900002"), "STOCK", pid("STK-000001"), pid("RO-000001"),
-        pid("RPS-000001"), qty("0.5"), "replacement destination",
+        replacement_allocation_slot_key_v1(
+            observed.allocation_public_id, "STOCK", pid("STK-000001"),
+            pid("RO-000001"), line_slot,
+        ), "STOCK", pid("STK-000001"), pid("RO-000001"),
+        line_slot, qty("0.5"), "replacement destination",
     )
     decision = AllocationDispositionDecision(
         observed.allocation_public_id, 4, "REALLOCATION_REQUIRED",
@@ -432,15 +460,21 @@ def test_disposition_replacement_crea_transition_e_allocation_distinta() -> None
 
 
 def test_replacement_destination_planning_line_mismatch_e_rifiutato() -> None:
-    base = assembly_input(allocation_count=1)
+    base = replanning_value(assembly_input(allocation_count=1))
     observed = ActiveAllocationSnapshot(
         pid("ALL-900001"), "STOCK", pid("STK-000001"), pid("RO-000001"),
         qty("1"), qty("0"), qty("0"), qty("0"), qty("0"), qty("1"),
         "ATTIVA", 0,
     )
+    wrong_line_slot = planning_line_slot_key_v1(
+        pid("RVP-999999"), pid("RO-000001")
+    )
     replacement = AllocationReplacementSpecification(
-        pid("ALL-900002"), "STOCK", pid("STK-000001"), pid("RO-000001"),
-        pid("RPS-999999"), qty("1"), "replacement destination",
+        replacement_allocation_slot_key_v1(
+            observed.allocation_public_id, "STOCK", pid("STK-000001"),
+            pid("RO-000001"), wrong_line_slot,
+        ), "STOCK", pid("STK-000001"), pid("RO-000001"),
+        wrong_line_slot, qty("1"), "replacement destination",
     )
     decision = AllocationDispositionDecision(
         observed.allocation_public_id, 0, "REALLOCATION_REQUIRED",

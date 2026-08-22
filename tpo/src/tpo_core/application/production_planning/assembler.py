@@ -28,6 +28,8 @@ from .models import (
     PublicId,
     ReplanProductionPlanningCommand,
     SeedResourceDraft,
+    disposition_set_key_v1,
+    planning_line_slot_key_v1,
 )
 
 
@@ -43,10 +45,14 @@ class ProductionPlanningCommitAssembler:
         allocation_capacity = len(candidates) + len(value.snapshot.stock) + len(
             value.snapshot.harvests
         ) + len(value.snapshot.in_progress)
-        replacement_ids = tuple(
-            decision.replacement_specification.replacement_allocation_public_id
+        replacement_keys = tuple(sorted(
+            decision.replacement_specification.replacement_allocation_slot_key
             for decision in value.allocation_dispositions
             if decision.replacement_specification is not None
+        ))
+        replacement_placeholders = tuple(
+            PublicId(f"ALL-{950000 + index:06d}")
+            for index in range(len(replacement_keys))
         )
         plan_ids = (
             (value.snapshot.current_plans[0].plan_public_id,)
@@ -58,7 +64,7 @@ class ProductionPlanningCommitAssembler:
             (PublicId("RVP-900000"),),
             tuple(PublicId(f"RPS-{900000 + index:06d}") for index in range(len(candidates))),
             tuple(PublicId(f"ALL-{900000 + index:06d}") for index in range(allocation_capacity)),
-            tuple(sorted(replacement_ids, key=lambda item: item.value)),
+            replacement_placeholders,
         )
         template = self._assemble_with_identities(
             replace(value, candidates=candidates, identities=placeholders),
@@ -71,17 +77,35 @@ class ProductionPlanningCommitAssembler:
         slots = []
         for sequence_name, kind, values in (
             ("ALLOCAZIONE_ID", "ALLOCATION", generated_allocation_ids),
-            ("ALLOCAZIONE_ID", "REPLACEMENT_ALLOCATION", replacement_ids),
+            ("ALLOCAZIONE_ID", "REPLACEMENT_ALLOCATION", replacement_keys),
             ("PIANO_PRODUZIONE_ID", "PLAN", () if isinstance(value.command, ReplanProductionPlanningCommand) else placeholders.plan_public_ids),
             ("REVISIONE_PIANO_PRODUZIONE_ID", "REVISION", placeholders.revision_public_ids),
             ("RIGA_PIANO_SEMINA_ID", "PLANNING_LINE", placeholders.planning_line_public_ids),
         ):
-            for position, _ in enumerate(values):
+            for position, slot_value in enumerate(values):
+                canonical_slot_key = f"{kind}:{position:06d}"
+                if kind == "REPLACEMENT_ALLOCATION":
+                    canonical_slot_key = slot_value
                 slots.append(
                     ProductionPlanningIdentitySlot(
-                        sequence_name, kind, f"{kind}:{position:06d}", position
+                        sequence_name, kind, canonical_slot_key, position
                     )
                 )
+        if isinstance(value.command, ReplanProductionPlanningCommand):
+            slots = [slot for slot in slots if slot.slot_kind != "PLANNING_LINE"]
+            line_keys = sorted(
+                planning_line_slot_key_v1(
+                    value.command.previous_revision_public_id,
+                    candidate.demand.order_line_public_id,
+                )
+                for candidate in candidates
+            )
+            slots.extend(
+                ProductionPlanningIdentitySlot(
+                    "RIGA_PIANO_SEMINA_ID", "PLANNING_LINE", key, position
+                )
+                for position, key in enumerate(line_keys)
+            )
         return ProductionPlanningAssemblyPlan(
             value.command,
             value.run,
@@ -109,10 +133,14 @@ class ProductionPlanningCommitAssembler:
             code = "IDENTITY_SLOT_MISSING" if missing else "IDENTITY_SLOT_EXTRA" if extra else "IDENTITY_SLOT_ORDER_MISMATCH"
             raise _input_error(code, "Identity bundle non coincide con gli slot canonici.")
         template = assembly_plan._materialization_template
-        replacement_placeholders = tuple(
-            decision.replacement_specification.replacement_allocation_public_id
+        replacement_keys = tuple(sorted(
+            decision.replacement_specification.replacement_allocation_slot_key
             for decision in assembly_plan.allocation_dispositions
             if decision.replacement_specification is not None
+        ))
+        replacement_placeholders = tuple(
+            item.public_id for item in template.allocations
+            if item.public_id.value.startswith("ALL-95")
         )
         placeholder_by_slot = {
             "PLAN": tuple(item.plan_public_id for item in template.revisions),
@@ -124,25 +152,27 @@ class ProductionPlanningCommitAssembler:
             ),
             "REPLACEMENT_ALLOCATION": replacement_placeholders,
         }
+        placeholders_by_key = {}
+        if isinstance(assembly_plan.command, ReplanProductionPlanningCommand):
+            for candidate, line in zip(assembly_plan.candidates, template.revisions[0].lines):
+                key = planning_line_slot_key_v1(
+                    assembly_plan.command.previous_revision_public_id,
+                    candidate.demand.order_line_public_id,
+                )
+                placeholders_by_key[("PLANNING_LINE", key)] = line.public_id
+        for key, placeholder in zip(replacement_keys, replacement_placeholders):
+            placeholders_by_key[("REPLACEMENT_ALLOCATION", key)] = placeholder
         mapping = {}
         for slot, public_id in identity_bundle.slot_assignments:
-            placeholder = placeholder_by_slot[slot.slot_kind][slot.position]
+            placeholder = placeholders_by_key.get((slot.slot_kind, slot.canonical_slot_key))
+            if placeholder is None:
+                placeholder = placeholder_by_slot[slot.slot_kind][slot.position]
             mapping[placeholder.value] = public_id.value
         return _replace_identity_values(template, mapping)
 
     def assemble(self, value: ProductionPlanningAssemblyInput) -> ProductionPlanningCommit:
         if value.identities is None:
             raise _input_error("IDENTITY_BUNDLE_REQUIRED", "assemble richiede Identity preallocate.")
-        final_line_ids = set(value.identities.planning_line_public_ids)
-        if any(
-            decision.replacement_specification is not None
-            and decision.replacement_specification.destination_planning_line_public_id not in final_line_ids
-            for decision in value.allocation_dispositions
-        ):
-            raise _allocation_error(
-                "REPLACEMENT_DESTINATION_INVALID",
-                "Replacement priva di riga Planning della revisione corrente.",
-            )
         plan = self.plan(replace(value, identities=None))
         assignments = []
         ids_by_kind = {
@@ -188,21 +218,25 @@ class ProductionPlanningCommitAssembler:
             raise _input_error("IDENTITY_CARDINALITY_MISMATCH", "Numero identita revisione incoerente.")
         if len(identities.planning_line_public_ids) != len(candidates):
             raise _input_error("IDENTITY_CARDINALITY_MISMATCH", "Numero identita riga incoerente.")
-        expected_replacements = tuple(
-            sorted(
-                (
-                    decision.replacement_specification.replacement_allocation_public_id
-                    for decision in value.allocation_dispositions
-                    if decision.replacement_specification is not None
-                ),
-                key=lambda item: item.value,
-            )
-        )
-        if identities.replacement_allocation_public_ids != expected_replacements:
+        replacement_specs = tuple(sorted(
+            (
+                decision.replacement_specification
+                for decision in value.allocation_dispositions
+                if decision.replacement_specification is not None
+            ),
+            key=lambda item: item.replacement_allocation_slot_key,
+        ))
+        if len(identities.replacement_allocation_public_ids) != len(replacement_specs):
             raise _input_error(
                 "IDENTITY_CARDINALITY_MISMATCH",
                 "Identity replacement non coincidono con le disposition.",
             )
+        replacement_ids = {
+            specification.replacement_allocation_slot_key: public_id
+            for specification, public_id in zip(
+                replacement_specs, identities.replacement_allocation_public_ids
+            )
+        }
 
         allocation_ids = iter(identities.allocation_public_ids)
         line_ids = iter(identities.planning_line_public_ids)
@@ -257,25 +291,31 @@ class ProductionPlanningCommitAssembler:
                 destination_line = lines_by_order_line.get(
                     replacement.destination_order_line_public_id.value
                 )
-                if allow_unused_identities and destination_line is not None:
-                    replacement = replace(
-                        replacement,
-                        destination_planning_line_public_id=destination_line.public_id,
-                    )
+                expected_line_slot = planning_line_slot_key_v1(
+                    value.command.previous_revision_public_id,
+                    replacement.destination_order_line_public_id,
+                ) if isinstance(value.command, ReplanProductionPlanningCommand) else None
                 if (
                     destination_line is None
-                    or replacement.destination_planning_line_public_id
-                    != destination_line.public_id
+                    or replacement.destination_planning_line_slot_key != expected_line_slot
                 ):
                     raise _allocation_error(
                         "REPLACEMENT_DESTINATION_INVALID",
                         "Replacement priva di riga Planning della revisione corrente.",
                     )
+                replacement_public_id = replacement_ids[
+                    replacement.replacement_allocation_slot_key
+                ]
+                transitions[-1] = replace(
+                    transition,
+                    replacement_allocation_slot_key=None,
+                    replacement_allocation_public_id=replacement_public_id,
+                )
                 allocations.append(
                     AllocationDraft(
-                        public_id=replacement.replacement_allocation_public_id,
+                        public_id=replacement_public_id,
                         allocation_type=replacement.allocation_type,
-                        planning_line_public_id=replacement.destination_planning_line_public_id,
+                        planning_line_public_id=destination_line.public_id,
                         source_public_id=replacement.source_public_id,
                         destination_order_line_public_id=replacement.destination_order_line_public_id,
                         quantity=replacement.quantity,
@@ -627,6 +667,13 @@ def _replanning_snapshot(assembly, line, previous_version):
     stock = tuple(item for item in assembly.snapshot.stock if item.variety_public_id == demand.variety_public_id)
     progress = tuple(item for item in assembly.snapshot.in_progress if item.variety_public_id == demand.variety_public_id)
     allocations = tuple(item for item in assembly.snapshot.allocations if item.destination_order_line_public_id == demand.order_line_public_id)
+    decision_set_key = disposition_set_key_v1(
+        previous_plan_revision_public_id=command.previous_revision_public_id,
+        order_line_public_id=demand.order_line_public_id,
+        replanning_reason_code=command.replanning_reason_code,
+        correlation_id=command.context.correlation_id,
+        decisions=assembly.allocation_dispositions,
+    )
     canonical_text = _record(
         "production-replanning-snapshot-v1",
         command.previous_revision_public_id.value,
@@ -652,6 +699,7 @@ def _replanning_snapshot(assembly, line, previous_version):
         _decimal_text(assembly.snapshot.policy.quantitative_buffer_value) if assembly.snapshot.policy.quantitative_buffer_value is not None else None,
         str(knowledge.temporal_buffer_minutes),
         _decimal_text(knowledge.production_granularity),
+        decision_set_key.value,
     ) + _snapshot_collections(stock, progress, allocations)
     snapshot_hash = _hash(canonical_text)
     replanning_key = _hash(
@@ -691,6 +739,7 @@ def _replanning_snapshot(assembly, line, previous_version):
         stock=stock,
         in_progress=progress,
         allocations=allocations,
+        decision_set_key=decision_set_key,
         canonical_text=canonical_text,
         canonical_snapshot_hash=snapshot_hash,
         replanning_key_v1=replanning_key,

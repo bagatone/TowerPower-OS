@@ -64,6 +64,11 @@ _INVALIDATION_CAUSES = frozenset(
 PRODUCTION_PLANNING_PRIORITY_POLICY_V1 = "DELIVERY_THEN_PUBLIC_ID"
 PRODUCTION_PLANNING_ALGORITHM_VERSION_V1 = "production-planning-v1"
 HARVEST_TARGET_STRATEGY_V1 = "EARLIEST_APPROVED_WINDOW"
+PLANNING_LINE_SLOT_MARKER_V1 = "PRODUCTION-PLANNING-LINE-SLOT-V1"
+REPLACEMENT_ALLOCATION_SLOT_MARKER_V1 = (
+    "PRODUCTION-REPLACEMENT-ALLOCATION-SLOT-V1"
+)
+DISPOSITION_SET_MARKER_V1 = "PRODUCTION-REPLANNING-DISPOSITION-SET-V1"
 
 
 def _text(name: str, value: object, *, optional: bool = False) -> None:
@@ -97,6 +102,98 @@ def _decimal(name: str, value: object, *, positive: bool = False) -> Decimal:
         qualifier = "positivo" if positive else "non negativo"
         raise InvalidProductionPlanningModelError(f"{name} deve essere {qualifier}.")
     return parsed
+
+
+def canonical_frame(value: str | None) -> str:
+    if value is None:
+        return "-1:"
+    if not isinstance(value, str):
+        raise InvalidProductionPlanningModelError("Canonical frame richiede testo o NULL.")
+    return f"{len(value.encode('utf-8'))}:{value}"
+
+
+def canonical_record(*values: str | None) -> str:
+    return "".join(canonical_frame(value) for value in values)
+
+
+def canonical_list(values: tuple[str, ...]) -> str:
+    return f"{len(values)};" + "".join(canonical_frame(value) for value in values)
+
+
+def parse_canonical_slot_key(
+    value: str, *, marker: str, field_count: int,
+) -> tuple[str, ...]:
+    if not isinstance(value, str) or not value:
+        raise InvalidProductionPlanningModelError("Canonical slot key non valida.")
+    fields: list[str] = []
+    offset = 0
+    raw = value.encode("utf-8")
+    while offset < len(raw):
+        colon = raw.find(b":", offset)
+        if colon < 0:
+            raise InvalidProductionPlanningModelError("Canonical slot framing non valido.")
+        length_text = raw[offset:colon]
+        if not length_text or not length_text.isdigit() or (
+            len(length_text) > 1 and length_text.startswith(b"0")
+        ):
+            raise InvalidProductionPlanningModelError("Canonical slot length non valida.")
+        length = int(length_text)
+        start = colon + 1
+        end = start + length
+        if end > len(raw):
+            raise InvalidProductionPlanningModelError("Canonical slot field troncato.")
+        try:
+            fields.append(raw[start:end].decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            raise InvalidProductionPlanningModelError("Canonical slot UTF-8 non valido.") from exc
+        offset = end
+    result = tuple(fields)
+    if len(result) != field_count or result[0] != marker or canonical_record(*result) != value:
+        raise InvalidProductionPlanningModelError("Canonical slot key non canonica.")
+    if any(not field or field != field.strip() for field in result):
+        raise InvalidProductionPlanningModelError("Canonical slot field non normalizzato.")
+    return result
+
+
+def planning_line_slot_key_v1(
+    previous_plan_revision_public_id: PublicId,
+    destination_order_line_public_id: PublicId,
+) -> str:
+    if not isinstance(previous_plan_revision_public_id, PublicId) or not isinstance(
+        destination_order_line_public_id, PublicId
+    ):
+        raise InvalidProductionPlanningModelError("Planning-line slot identity non valida.")
+    return canonical_record(
+        PLANNING_LINE_SLOT_MARKER_V1,
+        previous_plan_revision_public_id.value,
+        destination_order_line_public_id.value,
+    )
+
+
+def replacement_allocation_slot_key_v1(
+    parent_allocation_public_id: PublicId,
+    replacement_allocation_type: str,
+    replacement_source_public_id: PublicId,
+    destination_order_line_public_id: PublicId,
+    destination_planning_line_slot_key: str,
+) -> str:
+    if not all(isinstance(item, PublicId) for item in (
+        parent_allocation_public_id, replacement_source_public_id,
+        destination_order_line_public_id,
+    )) or replacement_allocation_type not in ALLOCATION_TYPES:
+        raise InvalidProductionPlanningModelError("Replacement slot identity non valida.")
+    parse_canonical_slot_key(
+        destination_planning_line_slot_key,
+        marker=PLANNING_LINE_SLOT_MARKER_V1, field_count=3,
+    )
+    return canonical_record(
+        REPLACEMENT_ALLOCATION_SLOT_MARKER_V1,
+        parent_allocation_public_id.value,
+        replacement_allocation_type,
+        replacement_source_public_id.value,
+        destination_order_line_public_id.value,
+        destination_planning_line_slot_key,
+    )
 
 
 @dataclass(frozen=True)
@@ -701,6 +798,7 @@ class CanonicalReplanningSnapshot:
     stock: tuple[StockResourceSnapshot, ...]
     in_progress: tuple[InProgressResourceSnapshot, ...]
     allocations: tuple[ActiveAllocationSnapshot, ...]
+    decision_set_key: CanonicalHash
     canonical_text: str
     canonical_snapshot_hash: CanonicalHash
     replanning_key_v1: CanonicalHash
@@ -731,6 +829,12 @@ class CanonicalReplanningSnapshot:
             object.__setattr__(self, "quantitative_buffer_value", _decimal("quantitative_buffer_value", self.quantitative_buffer_value))
         object.__setattr__(self, "production_granularity", _decimal("production_granularity", self.production_granularity, positive=True))
         _text("canonical_text", self.canonical_text)
+        if not isinstance(self.decision_set_key, CanonicalHash):
+            raise InvalidProductionPlanningModelError("Decision set key replanning non valida.")
+        if canonical_frame(self.decision_set_key.value) not in self.canonical_text:
+            raise InvalidProductionPlanningModelError(
+                "Canonical replanning snapshot privo del decision set key."
+            )
         calculated_hash = hashlib.sha256(self.canonical_text.encode("utf-8")).hexdigest()
         if self.canonical_snapshot_hash.value != calculated_hash:
             raise InvalidProductionPlanningModelError("canonical_text e canonical_hash non coincidono.")
@@ -851,26 +955,30 @@ class AllocationDraft:
 
 @dataclass(frozen=True)
 class AllocationReplacementSpecification:
-    replacement_allocation_public_id: PublicId
+    replacement_allocation_slot_key: str
     allocation_type: str
     source_public_id: PublicId
     destination_order_line_public_id: PublicId
-    destination_planning_line_public_id: PublicId
+    destination_planning_line_slot_key: str
     quantity: ExactQuantity
     provenance: str
 
     def __post_init__(self) -> None:
-        if not all(
-            isinstance(value, PublicId)
-            for value in (
-                self.replacement_allocation_public_id,
-                self.source_public_id,
-                self.destination_order_line_public_id,
-                self.destination_planning_line_public_id,
-            )
-        ) or not isinstance(self.quantity, ExactQuantity):
+        if not all(isinstance(value, PublicId) for value in (
+            self.source_public_id, self.destination_order_line_public_id,
+        )) or not isinstance(self.quantity, ExactQuantity):
             raise InvalidProductionPlanningModelError(
                 "Replacement allocation contiene riferimenti o quantità non validi."
+            )
+        _text("replacement allocation slot key", self.replacement_allocation_slot_key)
+        _text("destination planning-line slot key", self.destination_planning_line_slot_key)
+        destination_fields = parse_canonical_slot_key(
+            self.destination_planning_line_slot_key,
+            marker=PLANNING_LINE_SLOT_MARKER_V1, field_count=3,
+        )
+        if destination_fields[2] != self.destination_order_line_public_id.value:
+            raise InvalidProductionPlanningModelError(
+                "Destination planning-line slot key incoerente."
             )
         if self.allocation_type not in ALLOCATION_TYPES:
             raise InvalidProductionPlanningModelError("Tipo replacement allocation non congelato.")
@@ -933,14 +1041,18 @@ class AllocationDispositionDecision:
                 "Replacement obbligatoria soltanto per SOSTITUITA."
             )
         if self.replacement_specification is not None:
-            if (
-                self.replacement_specification.replacement_allocation_public_id
-                == self.allocation_public_id
-            ):
+            replacement = self.replacement_specification
+            expected_slot_key = replacement_allocation_slot_key_v1(
+                self.allocation_public_id, replacement.allocation_type,
+                replacement.source_public_id,
+                replacement.destination_order_line_public_id,
+                replacement.destination_planning_line_slot_key,
+            )
+            if replacement.replacement_allocation_slot_key != expected_slot_key:
                 raise InvalidProductionPlanningModelError(
-                    "Replacement allocation deve essere distinta dal parent."
+                    "Replacement allocation slot key incoerente."
                 )
-            if self.replacement_specification.quantity.value != self.disposition_quantity:
+            if replacement.quantity.value != self.disposition_quantity:
                 raise InvalidProductionPlanningModelError(
                     "Quantità replacement diversa dal delta trasferito."
                 )
@@ -988,12 +1100,68 @@ class AllocationDispositionDecision:
             released_quantity_delta=disposition_deltas[0],
             transferred_quantity_delta=disposition_deltas[1],
             invalidated_quantity_delta=disposition_deltas[2],
-            replacement_allocation_public_id=(
-                replacement.replacement_allocation_public_id if replacement else None
+            replacement_allocation_slot_key=(
+                replacement.replacement_allocation_slot_key if replacement else None
             ),
+            replacement_allocation_public_id=None,
             reason=self.reason,
             provenance=self.provenance,
         )
+
+
+def disposition_set_key_v1(
+    *,
+    previous_plan_revision_public_id: PublicId,
+    order_line_public_id: PublicId,
+    replanning_reason_code: str,
+    correlation_id: str,
+    decisions: tuple[AllocationDispositionDecision, ...],
+) -> CanonicalHash:
+    if replanning_reason_code not in REPLANNING_REASONS:
+        raise InvalidProductionPlanningModelError("Reason disposition set non congelata.")
+    _text("correlation_id", correlation_id)
+    if not isinstance(decisions, tuple):
+        raise InvalidProductionPlanningModelError("Disposition set decisions deve essere tuple.")
+    ordered = tuple(sorted(decisions, key=lambda item: item.allocation_public_id.value))
+    if ordered != decisions or len({item.allocation_public_id for item in decisions}) != len(decisions):
+        raise InvalidProductionPlanningModelError("Disposition set non ordinato o duplicato.")
+    records = []
+    for decision in decisions:
+        replacement = decision.replacement_specification
+        records.append(canonical_record(
+            decision.allocation_public_id.value,
+            str(decision.expected_version),
+            decision.disposition_cause,
+            decision.source_usability,
+            _canonical_decimal(decision.observed_remaining_quantity),
+            _canonical_decimal(decision.consumed_quantity_delta),
+            decision.target_disposition,
+            decision.reason,
+            decision.provenance,
+            "true" if replacement is not None else "false",
+            replacement.replacement_allocation_slot_key if replacement else None,
+            replacement.destination_planning_line_slot_key if replacement else None,
+            replacement.allocation_type if replacement else None,
+            replacement.source_public_id.value if replacement else None,
+            replacement.destination_order_line_public_id.value if replacement else None,
+            _canonical_decimal(replacement.quantity.value) if replacement else None,
+            replacement.quantity.unit.value if replacement else None,
+            replacement.provenance if replacement else None,
+        ))
+    canonical = canonical_record(
+        DISPOSITION_SET_MARKER_V1,
+        previous_plan_revision_public_id.value,
+        order_line_public_id.value,
+        replanning_reason_code,
+        correlation_id,
+        canonical_list(tuple(records)),
+    )
+    return CanonicalHash(hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+
+
+def _canonical_decimal(value: Decimal) -> str:
+    normalized = value.normalize()
+    return "0" if normalized == 0 else format(normalized, "f")
 
 
 @dataclass(frozen=True)
@@ -1012,6 +1180,7 @@ class AllocationTransitionDraft:
     released_quantity_delta: Decimal
     transferred_quantity_delta: Decimal
     invalidated_quantity_delta: Decimal
+    replacement_allocation_slot_key: str | None
     replacement_allocation_public_id: PublicId | None
     reason: str
     provenance: str
@@ -1064,9 +1233,14 @@ class AllocationTransitionDraft:
             raise InvalidProductionPlanningModelError("Disposizioni allocation mutuamente esclusive.")
         if sum(deltas) > self.observed_remaining_quantity:
             raise InvalidProductionPlanningModelError("Delta oltre il residuo observed.")
-        has_replacement = self.replacement_allocation_public_id is not None
-        if (self.transferred_quantity_delta > 0) != has_replacement:
+        replacement_references = sum(item is not None for item in (
+            self.replacement_allocation_slot_key,
+            self.replacement_allocation_public_id,
+        ))
+        if (self.transferred_quantity_delta > 0) != (replacement_references == 1):
             raise InvalidProductionPlanningModelError("Replacement incoerente con il transfer.")
+        if self.replacement_allocation_slot_key is not None:
+            _text("replacement_allocation_slot_key", self.replacement_allocation_slot_key)
         expected_remaining_after = self.observed_remaining_quantity - sum(deltas)
         if expected_remaining_after > 0:
             expected_target = "ATTIVA"

@@ -14,6 +14,9 @@ from .orders_repository import PostgreSQLOrdineRepository
 from .programmi_repository import PostgreSQLVersionedProgrammaFornituraRepository
 from .production_planning_identity import PostgreSQLProductionPlanningIdentityAdapter
 from .production_planning_input import PostgreSQLProductionPlanningInputAdapter
+from .production_planning_policy_commissioning import (
+    PostgreSQLProductionPlanningPolicyCommissioningWriter,
+)
 from .production_planning_run import PostgreSQLProductionPlanningRunAdapter
 from .run_tracking_repository import PostgreSQLSchedulingRunRepository
 from .settings import PostgreSQLSettings
@@ -32,6 +35,7 @@ __all__ = [
     "PostgreSQLOrdineRepository",
     "PostgreSQLProductionPlanningIdentityAdapter",
     "PostgreSQLProductionPlanningInputAdapter",
+    "PostgreSQLProductionPlanningPolicyCommissioningWriter",
     "PostgreSQLProductionPlanningRunAdapter",
     "PostgreSQLVersionedProgrammaFornituraRepository",
     "PostgreSQLSchedulingRunRepository",

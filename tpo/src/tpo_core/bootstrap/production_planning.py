@@ -10,6 +10,9 @@ from ..application.ports.clock import Clock
 from ..application.production_planning.assembler import ProductionPlanningCommitAssembler
 from ..application.production_planning.engine import ProductionPlanningEngine
 from ..application.production_planning.service import ProductionPlanningService
+from ..application.policy_commissioning.service import (
+    ProductionPlanningPolicyCommissioningService,
+)
 from ..infrastructure.clock import SystemClock
 from ..infrastructure.postgresql.connection import PostgreSQLConnectionFactory
 from ..infrastructure.postgresql.identity_repository import PostgreSQLPersistentIdRepository
@@ -21,6 +24,9 @@ from ..infrastructure.postgresql.production_planning_identity import (
 )
 from ..infrastructure.postgresql.production_planning_input import (
     PostgreSQLProductionPlanningInputAdapter,
+)
+from ..infrastructure.postgresql.production_planning_policy_commissioning import (
+    PostgreSQLProductionPlanningPolicyCommissioningWriter,
 )
 from ..infrastructure.postgresql.production_planning_run import (
     PostgreSQLProductionPlanningRunAdapter,
@@ -77,4 +83,23 @@ def build_production_planning_runtime_from_environment(
     source = os.environ if environment is None else environment
     return build_production_planning_runtime(
         PostgreSQLSettings.from_environment(source), clock=clock,
+    )
+
+
+def build_production_planning_policy_commissioner(
+    postgresql_settings: PostgreSQLSettings,
+    *,
+    clock: Clock | None = None,
+) -> ProductionPlanningPolicyCommissioningService:
+    """Compose the explicit PostgreSQL policy commissioning authority."""
+
+    if not isinstance(postgresql_settings, PostgreSQLSettings):
+        raise TypeError("postgresql_settings deve essere PostgreSQLSettings.")
+    official_clock = clock or SystemClock()
+    connection_factory = PostgreSQLConnectionFactory(postgresql_settings)
+    return ProductionPlanningPolicyCommissioningService(
+        writer=PostgreSQLProductionPlanningPolicyCommissioningWriter(
+            connection_factory,
+        ),
+        clock=official_clock,
     )

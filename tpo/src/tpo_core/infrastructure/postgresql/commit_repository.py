@@ -20,7 +20,7 @@ from ...application.committer.models import CommitOutcomeUncertain
 from ...application.ports.clock import Clock
 from ...application.run_tracking.models import SchedulingRunCompletion
 from ...application.write_plan.models import ValidatedWritePlan
-from ...domain.identifiers import RunId
+from ...domain.identifiers import RigaOrdineId, RunId
 from ...domain.states import OrdineCreationType, RunState
 from ...domain.time_reference import CurrentSystemDate
 from .connection import PostgreSQLConnectionFactory
@@ -170,6 +170,9 @@ class PostgreSQLCommitRepository:
         variety_ids = self._lookup(cursor, "varieta", {line.varieta_id.value for r in plan.records for line in r.ordine.righe})
         program_ids = self._programs(cursor, plan.records, client_ids)
         program_lines = self._program_lines(cursor, plan.records, program_ids, client_ids)
+        order_line_ids = iter(self._allocate_order_line_ids(
+            cursor, plan.expected_logical_row_count, request.actor.value,
+        ))
 
         physical_lines = 0
         inserted_keys = []
@@ -194,14 +197,15 @@ class PostgreSQLCommitRepository:
             order_pk = returned[0]
             line_ids = {}
             for position, line in enumerate(order.righe, 1):
+                public_id = next(order_line_ids)
                 cursor.execute(
                     """INSERT INTO tpo.righe_ordine
-                       (ordine_id, posizione, varieta_id, quantita, unita_misura)
-                       VALUES (%s,%s,%s,%s,%s) RETURNING id, posizione""",
-                    (order_pk, position, variety_ids[line.varieta_id.value], line.quantita.value, line.quantita.unit.value),
+                       (ordine_id, posizione, varieta_id, quantita, unita_misura,public_id)
+                       VALUES (%s,%s,%s,%s,%s,%s) RETURNING id, posizione,public_id""",
+                    (order_pk, position, variety_ids[line.varieta_id.value], line.quantita.value, line.quantita.unit.value, public_id.value),
                 )
                 row = cursor.fetchone()
-                if cursor.rowcount != 1 or row is None or not _positive(row[0]) or row[1] != position:
+                if cursor.rowcount != 1 or row is None or not _positive(row[0]) or row[1:] != (position, public_id.value):
                     raise CommitExecutionError("RETURNING RIGA_ORDINE incoerente.")
                 line_ids[position] = row[0]
                 physical_lines += 1
@@ -262,6 +266,34 @@ class PostgreSQLCommitRepository:
             appended_physical_row_count=physical_lines,
             reconciled_idempotency_keys=tuple(inserted_keys),
         )
+
+    @staticmethod
+    def _allocate_order_line_ids(cursor: Any, count: int, actor: str) -> tuple[RigaOrdineId, ...]:
+        if count <= 0:
+            raise CommitExecutionError("Conteggio RIGA_ORDINE da allocare non valido.")
+        cursor.execute(
+            """SELECT sequence_name,identifier_type,prefix,next_value,version
+               FROM tpo.id_sequences WHERE sequence_name=%s FOR UPDATE""",
+            (RigaOrdineId.sequence_name,),
+        )
+        row = cursor.fetchone()
+        if row is None or row[:3] != (
+            RigaOrdineId.sequence_name, RigaOrdineId.__name__, RigaOrdineId.prefix,
+        ):
+            raise CommitExecutionError("Autorità RIGA_ORDINE_ID assente o incoerente.")
+        identifiers = tuple(
+            RigaOrdineId(f"{RigaOrdineId.prefix}-{value:06d}")
+            for value in range(row[3], row[3] + count)
+        )
+        cursor.execute(
+            """UPDATE tpo.id_sequences SET next_value=%s,version=version+%s,
+                      updated_at=CURRENT_TIMESTAMP,updated_by=%s
+               WHERE sequence_name=%s AND next_value=%s AND version=%s""",
+            (row[3] + count, count, actor, RigaOrdineId.sequence_name, row[3], row[4]),
+        )
+        if cursor.rowcount != 1:
+            raise CommitExecutionError("Conflitto allocazione RIGA_ORDINE_ID.")
+        return identifiers
 
     @staticmethod
     def _lookup(cursor: Any, table: str, public_ids: set[str]) -> dict[str, int]:

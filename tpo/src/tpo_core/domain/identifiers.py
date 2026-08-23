@@ -97,6 +97,12 @@ class OrdineId(PermanentId):
 
 
 @dataclass(frozen=True)
+class RigaOrdineId(PermanentId):
+    prefix: ClassVar[str] = "RO"
+    sequence_name: ClassVar[str] = "RIGA_ORDINE_ID"
+
+
+@dataclass(frozen=True)
 class ConsegnaId(PermanentId):
     prefix: ClassVar[str] = "CON"
 

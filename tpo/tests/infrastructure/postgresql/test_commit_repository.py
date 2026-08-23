@@ -108,6 +108,8 @@ def operation(sql: str) -> str:
     if "FROM tpo.varieta" in sql: return "VARIETIES"
     if "FROM tpo.programmi_fornitura" in sql and "JOIN" not in sql: return "PROGRAMS"
     if sql.startswith("SELECT rp.id"): return "LOCATOR"
+    if "FROM tpo.id_sequences" in sql: return "LINE_SEQUENCE"
+    if sql.startswith("UPDATE tpo.id_sequences"): return "UPDATE_LINE_SEQUENCE"
     if sql.startswith("INSERT INTO tpo.ordini"): return "ORDER"
     if sql.startswith("INSERT INTO tpo.righe_ordine"): return "LINE"
     if sql.startswith("INSERT INTO tpo.origini"): return "PROVENANCE"
@@ -145,6 +147,7 @@ class Cursor:
             values = self.database.locators[self.locator_number]
             self.locator_number += 1
             self.many = values
+        elif op == "LINE_SEQUENCE": self.one = self.database.line_sequence
         elif op == "ORDER": self.one = self.database.order_returning
         elif op == "LINE":
             self.one = self.database.line_returning[self.line_number]
@@ -190,7 +193,8 @@ class Database:
         self.programs = [("PF-000001", 40, 20)]
         self.locators = [[(50,)], [(51,)]]
         self.order_returning = (60, "ORD-000001")
-        self.line_returning = [(70, 1), (71, 2)]
+        self.line_sequence = ("RIGA_ORDINE_ID", "RigaOrdineId", "RO", 1, 0)
+        self.line_returning = [(70, 1, "RO-000001"), (71, 2, "RO-000002")]
         self.update_returning = ("RUN-000001", 4, instant(6).datetime, "SUCCESS_WITH_WARNINGS")
         self.rowcount_override = {}; self.fail_on = None
         self.failure = psycopg.DatabaseError("driver password")
@@ -257,7 +261,8 @@ def test_transazione_completa_receipt_query_e_parametri(
     assert connection.cursor_instance.closed == 1 and connection.autocommit is False
     assert [q[0] for q in database.queries] == [
         "RUN", "IDEMPOTENCY", "CLIENTS", "VARIETIES", "PROGRAMS",
-        "LOCATOR", "LOCATOR", "ORDER", "LINE", "LINE", "PROVENANCE",
+        "LOCATOR", "LOCATOR", "LINE_SEQUENCE", "UPDATE_LINE_SEQUENCE",
+        "ORDER", "LINE", "LINE", "PROVENANCE",
         "PROVENANCE", "AUDIT", "UPDATE_RUN", "MESSAGE", "AUDIT",
     ]
     assert "FOR UPDATE" in database.queries[0][1]
@@ -267,7 +272,7 @@ def test_transazione_completa_receipt_query_e_parametri(
         date(2026, 8, 7), "APERTO", "AUTOMATICO", "key-001",
         instant(8).datetime, "actor-test")
     line_params = [q[2] for q in database.queries if q[0] == "LINE"]
-    assert line_params == [(60, 1, 30, Decimal("2.5"), "GRAM"), (60, 2, 31, Decimal("3"), "SET")]
+    assert line_params == [(60, 1, 30, Decimal("2.5"), "GRAM", "RO-000001"), (60, 2, 31, Decimal("3"), "SET", "RO-000002")]
     assert receipt.appended_physical_row_count == 2
     assert receipt.reconciled_idempotency_keys == ("key-001",)
     assert receipt.commit_completed_at == instant(9) and receipt.reconciliation_complete
@@ -341,7 +346,7 @@ def test_returning_ordine_incoerente(repository, database, returning):
     assert database.connections[0].rollbacks == 1
 
 
-@pytest.mark.parametrize("returning", [None, (0,1), (70,2)])
+@pytest.mark.parametrize("returning", [None, (0,1,"RO-000001"), (70,2,"RO-000001")])
 def test_returning_riga_incoerente(repository, database, returning):
     database.line_returning[0] = returning
     with pytest.raises(CommitExecutionError): repository.execute_commit(valid_request())

@@ -451,7 +451,9 @@ class ProductionPlanningCommitAssembler:
             )
             seed = SeedResourceDraft(
                 planning_line_public_id=line_id,
-                required_grams=productive * candidate.knowledge.seed_grams_per_set,
+                required_grams=_seed_required_grams(
+                    productive, candidate.knowledge.seed_grams_per_set,
+                ),
                 grams_per_set=candidate.knowledge.seed_grams_per_set,
             )
         else:
@@ -622,6 +624,20 @@ def _production_quantity(deficit, buffer_type, buffer_value, granularity):
         * granularity
     )
     return calculated, pre_granularity, productive
+
+
+def _seed_required_grams(
+    productive_quantity: Decimal, seed_grams_per_set: Decimal,
+) -> Decimal:
+    """Normalize exact seed demand conservatively to frozen numeric scale 6."""
+    if not isinstance(productive_quantity, Decimal) or not isinstance(
+        seed_grams_per_set, Decimal
+    ):
+        raise TypeError("Seed quantity calculation requires Decimal operands.")
+    raw = productive_quantity * seed_grams_per_set
+    if raw.as_tuple().exponent >= -6:
+        return raw
+    return raw.quantize(Decimal("0.000001"), rounding=ROUND_CEILING)
 
 
 def _next_allocation_id(values):

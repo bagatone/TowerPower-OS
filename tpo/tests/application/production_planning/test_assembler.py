@@ -9,6 +9,7 @@ import pytest
 
 from src.tpo_core.application.production_planning.assembler import (
     ProductionPlanningCommitAssembler,
+    _seed_required_grams,
 )
 from src.tpo_core.application.production_planning.engine import ProductionPlanningEngine
 from src.tpo_core.application.production_planning.errors import ProductionPlanningError
@@ -141,6 +142,35 @@ def assembly_input(
 
 def assemble(**kwargs):
     return ProductionPlanningCommitAssembler().assemble(assembly_input(**kwargs))
+
+
+def test_seed_required_grams_preserves_products_at_or_below_scale_six() -> None:
+    exact = _seed_required_grams(Decimal("1.25"), Decimal("2"))
+    assert exact == Decimal("2.50")
+    assert exact.as_tuple().exponent == -2
+
+
+def test_seed_required_grams_scale_six_is_conservative_and_deterministic() -> None:
+    productive = Decimal("0.333333")
+    grams_per_set = Decimal("0.333333")
+    raw = productive * grams_per_set
+    first = _seed_required_grams(productive, grams_per_set)
+    second = _seed_required_grams(productive, grams_per_set)
+    assert raw == Decimal("0.111110888889")
+    assert first == second == Decimal("0.111111")
+    assert first >= raw
+    assert first.as_tuple().exponent == -6
+
+
+def test_seed_required_grams_accepts_decimal_only() -> None:
+    with pytest.raises(TypeError, match="Decimal"):
+        _seed_required_grams(1.0, Decimal("25"))
+
+
+def test_positive_production_with_database_scale_operands_creates_valid_seed() -> None:
+    assert _seed_required_grams(
+        Decimal("1.000000"), Decimal("25.000000"),
+    ) == Decimal("25.000000")
 
 
 def replanning_value(base):

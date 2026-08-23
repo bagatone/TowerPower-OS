@@ -86,6 +86,12 @@ class ProgrammaFornituraId(PermanentId):
 
 
 @dataclass(frozen=True)
+class ProtocolloVersioneId(PermanentId):
+    prefix: ClassVar[str] = "PV"
+    sequence_name: ClassVar[str] = "PROTOCOLLO_VERSIONE_ID"
+
+
+@dataclass(frozen=True)
 class OrdineId(PermanentId):
     prefix: ClassVar[str] = "ORD"
 

@@ -6,6 +6,7 @@ import os
 from typing import Mapping
 
 from ..application.identity.service import PersistentIdAllocator
+from ..application.agronomic_commissioning.service import AgronomicProtocolCommissioningService
 from ..application.ports.clock import Clock
 from ..application.production_planning.assembler import ProductionPlanningCommitAssembler
 from ..application.production_planning.engine import ProductionPlanningEngine
@@ -15,6 +16,7 @@ from ..application.policy_commissioning.service import (
 )
 from ..infrastructure.clock import SystemClock
 from ..infrastructure.postgresql.connection import PostgreSQLConnectionFactory
+from ..infrastructure.postgresql.agronomic_commissioning import PostgreSQLAgronomicProtocolCommissioningWriter
 from ..infrastructure.postgresql.identity_repository import PostgreSQLPersistentIdRepository
 from ..infrastructure.postgresql.production_planning_commit_writer import (
     PostgreSQLProductionPlanningCommitWriter,
@@ -102,4 +104,19 @@ def build_production_planning_policy_commissioner(
             connection_factory,
         ),
         clock=official_clock,
+    )
+
+
+def build_agronomic_protocol_commissioner(
+    postgresql_settings: PostgreSQLSettings,
+    *,
+    clock: Clock | None = None,
+) -> AgronomicProtocolCommissioningService:
+    """Compose the explicit PostgreSQL agronomic commissioning authority."""
+    if not isinstance(postgresql_settings, PostgreSQLSettings):
+        raise TypeError("postgresql_settings deve essere PostgreSQLSettings.")
+    factory = PostgreSQLConnectionFactory(postgresql_settings)
+    return AgronomicProtocolCommissioningService(
+        writer=PostgreSQLAgronomicProtocolCommissioningWriter(factory),
+        clock=clock or SystemClock(),
     )

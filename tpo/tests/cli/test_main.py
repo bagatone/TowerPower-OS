@@ -57,6 +57,50 @@ def test_parser_execute_registrato_con_soli_argomenti_congelati(monkeypatch) -> 
     assert not hasattr(received[0], "run_id")
 
 
+@pytest.mark.parametrize("operation", ["initial", "replan"])
+def test_parser_production_planning_registra_help_e_argomenti_obbligatori(
+    monkeypatch, operation,
+) -> None:
+    received = []
+    monkeypatch.setattr(
+        main_module, "run_production_planning_command",
+        lambda args, **kwargs: received.append(args) or 0,
+    )
+    argv = [
+        "production-planning", operation,
+        "--business-at", "2026-08-23T12:00:00+01:00",
+        "--policy-set-code", "DEFAULT", "--policy-version", "1",
+        "--actor", "planner", "--reason", "planning",
+        "--correlation-id", "corr-1",
+    ]
+    if operation == "replan":
+        argv.extend([
+            "--previous-revision-public-id", "RVP-000001",
+            "--order-line-public-id", "RO-000001",
+            "--replanning-reason-code", "STOCK_CHANGED",
+        ])
+    assert main_module.main(argv) == 0
+    assert len(received) == 1
+    assert received[0].production_planning_command == operation
+
+
+def test_production_planning_help_is_stable():
+    help_text = main_module._parser().format_help()
+    assert "production-planning" in help_text
+
+
+@pytest.mark.parametrize("operation", ["initial", "replan"])
+def test_production_planning_missing_required_argument_fails_closed(
+    monkeypatch, operation,
+) -> None:
+    monkeypatch.setattr(
+        main_module,
+        "run_production_planning_command",
+        lambda *args, **kwargs: pytest.fail("Il runtime non deve essere invocato"),
+    )
+    assert main_module.main(["production-planning", operation]) == 2
+
+
 @pytest.mark.parametrize(
     "missing",
     ("--settings", "--business-date", "--business-time", "--identity", "--confirm"),

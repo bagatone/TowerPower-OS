@@ -4,6 +4,7 @@ from .container import ApplicationContainer
 from .errors import OperationalRuntimeUnavailableError
 from .factory import _build_operational_application, build_application
 from .identity import build_identity_registration_commissioner
+from .onboarding import build_operational_data_onboarding_service
 from .production_planning import (
     build_production_planning_policy_commissioner,
     build_production_planning_runtime,
@@ -18,6 +19,7 @@ __all__ = [
     "OperationalRuntimeUnavailableError",
     "build_application",
     "build_identity_registration_commissioner",
+    "build_operational_data_onboarding_service",
     "build_operational_application",
     "build_production_planning_runtime",
     "build_production_planning_policy_commissioner",

@@ -61,6 +61,7 @@ class PermanentId:
 @dataclass(frozen=True)
 class VarietaId(PermanentId):
     prefix: ClassVar[str] = "VAR"
+    sequence_name: ClassVar[str] = "VARIETA_ID"
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,7 @@ class MovimentoId(PermanentId):
 @dataclass(frozen=True)
 class ProgrammaFornituraId(PermanentId):
     prefix: ClassVar[str] = "PF"
+    sequence_name: ClassVar[str] = "PROGRAMMA_FORNITURA_ID"
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,7 @@ class RunId(PermanentId):
 @dataclass(frozen=True)
 class ClienteId(PermanentId):
     prefix: ClassVar[str] = "CLI"
+    sequence_name: ClassVar[str] = "CLIENTE_ID"
 
 
 @dataclass(frozen=True)

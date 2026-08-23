@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import sys
 
+from ..domain.states import VarietaState
 from .scheduling import run_scheduling_command
 from .preflight import run_preflight_command
 from .operational import run_operational_scheduling_command
 from .production_planning import run_production_planning_command
+from .onboarding import run_onboarding_command
 
 
 class _UsageError(ValueError):
@@ -66,6 +68,30 @@ def _parser() -> argparse.ArgumentParser:
             command.add_argument("--previous-revision-public-id", required=True)
             command.add_argument("--order-line-public-id", required=True)
             command.add_argument("--replanning-reason-code", required=True)
+    onboarding = commands.add_parser("onboarding", help="Onboarding dati operativi autorevoli.")
+    onboarding_commands = onboarding.add_subparsers(dest="onboarding_command", required=True)
+    customer = onboarding_commands.add_parser("customer")
+    customer.add_argument("--customer-id", required=True)
+    customer.add_argument("--denomination", required=True)
+    variety = onboarding_commands.add_parser("variety")
+    variety.add_argument("--variety-id", required=True)
+    variety.add_argument("--denomination", required=True)
+    variety.add_argument("--state", required=True, choices=[item.value for item in VarietaState])
+    program = onboarding_commands.add_parser("supply-program")
+    program.add_argument("--program-id", required=True)
+    program.add_argument("--customer-id", required=True)
+    program.add_argument("--version", required=True, type=int)
+    program.add_argument("--state", required=True, choices=["ATTIVO", "SOSPESO", "TERMINATO"])
+    program.add_argument("--start-date", required=True)
+    program.add_argument("--end-date")
+    program.add_argument("--generation-time", required=True)
+    program.add_argument("--operational-window-days", required=True, type=int)
+    program.add_argument("--valid-from", required=True)
+    program.add_argument("--line", required=True, action="append")
+    for command in (customer, variety, program):
+        command.add_argument("--actor", required=True)
+        command.add_argument("--reason", required=True)
+        command.add_argument("--correlation-id", required=True)
     return parser
 
 
@@ -81,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_production_planning_command(
             args, stdout=sys.stdout, stderr=sys.stderr,
         )
+    if args.command == "onboarding":
+        return run_onboarding_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "preflight":
         return run_preflight_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "execute":

@@ -27,7 +27,20 @@ import or call Application, Engine, Assembler, Commit Writer, repositories, or
 PostgreSQL directly. It does not invoke CLI parsing as shared business logic.
 
 The concrete LaunchAgent and launcher belong to Sprint 5.3B and are not
-created by this freeze.
+part of the Application runtime. Their frozen deployment identities are:
+
+| Artifact | Frozen value |
+|---|---|
+| LaunchAgent label | `com.towerpower.production-planning-scheduler` |
+| launcher | `scripts/run_production_planning_schedule.sh` |
+| occurrence helper | `scripts/production_planning_occurrence.py` |
+| lock | `runtime/production-planning-scheduler.lock` |
+| logs | `runtime/logs/production-planning-scheduler-*.log` |
+| secrets | `runtime/secrets/production-planning-scheduler.env` |
+
+The secrets file follows the existing seven-key PostgreSQL whitelist and
+owner-only `0600` contract. It is provisioned manually and is never generated,
+copied, repaired, or logged by the launcher or installer.
 
 ## 3. Occurrence and business reference
 

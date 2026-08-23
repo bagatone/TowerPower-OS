@@ -49,9 +49,9 @@ def test_existing_operational_scheduling_occurrence_is_unchanged():
     assert "tpo schedule execute" in text
 
 
-def test_no_automation_or_schema_artifact_was_added_for_5_3a():
-    assert not (ROOT / "scripts/run_production_planning_schedule.sh").exists()
-    assert not (ROOT / "deploy/macos/com.towerpower.production-planning-scheduler.plist").exists()
+def test_5_3b_automation_adds_no_schema_or_business_seed():
+    assert (ROOT / "scripts/run_production_planning_schedule.sh").is_file()
+    assert (ROOT / "deploy/macos/com.towerpower.production-planning-scheduler.plist").is_file()
     migration_sources = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (ROOT / "migrations/versions").glob("*.py")

@@ -1,9 +1,12 @@
 """Real PostgreSQL commissioning and Planning Input round-trip."""
 
 from dataclasses import replace
+from argparse import Namespace
 from datetime import date, datetime, timezone
 from pathlib import Path
 import uuid
+import importlib.util
+from io import StringIO
 
 from alembic import command as alembic_command
 import pytest
@@ -28,8 +31,20 @@ from src.tpo_core.infrastructure.postgresql.production_planning_input import (
 from src.tpo_core.infrastructure.postgresql.production_planning_policy_commissioning import (
     PostgreSQLProductionPlanningPolicyCommissioningWriter,
 )
+from src.tpo_core.bootstrap.production_planning import build_production_planning_runtime
+from src.tpo_core.cli.production_planning import (
+    ProductionPlanningCliDependencies,
+    run_production_planning_command,
+)
+from src.tpo_core.infrastructure.postgresql.connection import PostgreSQLConnectionFactory
+from tests.bootstrap.test_production_planning_runtime import _settings
 from tests.infrastructure.postgresql.test_production_planning_commit_writer import (
     _Factory,
+    writer_cluster,
+    writer_database as scheduled_planning_database,
+)
+from tests.integration.postgresql.test_production_planning_end_to_end import (
+    _seed_identity,
 )
 from tests.infrastructure.postgresql.test_production_planning_migrations import (
     isolated_postgresql as migration_postgresql,
@@ -145,3 +160,70 @@ def test_commissioning_import_graph_has_no_google_or_sheets_dependency():
     )
     assert "google" not in sources.lower()
     assert "sheets" not in sources.lower()
+
+
+class _RuntimeClock:
+    def now(self):
+        return CurrentSystemDate(datetime(2026, 8, 23, 7, 0, tzinfo=timezone.utc))
+
+
+def test_scheduled_cli_commissions_policy_and_replay_reuses_revision(
+    scheduled_planning_database, monkeypatch,
+):
+    with scheduled_planning_database.begin() as connection:
+        connection.exec_driver_sql("DELETE FROM tpo.production_planning_runs")
+        connection.exec_driver_sql("DELETE FROM tpo.production_planning_policy_versions")
+        connection.exec_driver_sql("UPDATE tpo.stock SET disponibile=0")
+    factory = _Factory(scheduled_planning_database)
+    ProductionPlanningPolicyCommissioningService(
+        writer=PostgreSQLProductionPlanningPolicyCommissioningWriter(factory),
+        clock=_Clock(),
+    ).commission(_command())
+    _seed_identity(scheduled_planning_database)
+    monkeypatch.setattr(
+        PostgreSQLConnectionFactory, "connect", lambda unused: factory.connect(),
+    )
+    helper_path = Path(__file__).resolve().parents[3] / "scripts/production_planning_occurrence.py"
+    spec = importlib.util.spec_from_file_location("scheduled_occurrence", helper_path)
+    occurrence = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(occurrence)
+    business_at = occurrence.canonical_business_at(date(2026, 8, 23))
+    correlation = f"production-planning-auto-v1:{business_at}"
+    args = Namespace(
+        production_planning_command="initial", business_at=business_at,
+        policy_set_code="DEFAULT", policy_version=1,
+        actor="tpo.production-planning-scheduler",
+        reason="Automated Production Planning V1", correlation_id=correlation,
+    )
+
+    def invoke():
+        stdout, stderr = StringIO(), StringIO()
+        code = run_production_planning_command(
+            args, stdout=stdout, stderr=stderr,
+            dependencies=ProductionPlanningCliDependencies(
+                lambda: build_production_planning_runtime(
+                    _settings(), clock=_RuntimeClock(),
+                )
+            ),
+        )
+        assert code == 0 and stderr.getvalue() == ""
+        return stdout.getvalue()
+
+    assert "STATUS: COMMITTED" in invoke()
+    with scheduled_planning_database.connect() as connection:
+        assert connection.exec_driver_sql(
+            "SELECT count(*) FROM tpo.production_planning_runs"
+        ).scalar_one() == 1
+        assert connection.exec_driver_sql(
+            "SELECT count(*) FROM tpo.piano_produzione_revisioni"
+        ).scalar_one() == 1
+
+    assert "STATUS: COMMITTED" in invoke()
+    with scheduled_planning_database.connect() as connection:
+        assert connection.exec_driver_sql(
+            "SELECT count(*) FROM tpo.production_planning_runs"
+        ).scalar_one() == 2
+        assert connection.exec_driver_sql(
+            "SELECT count(*) FROM tpo.piano_produzione_revisioni"
+        ).scalar_one() == 1

@@ -5,9 +5,17 @@ from __future__ import annotations
 from typing import TypeVar
 
 from ...domain.identifiers import PermanentId
-from .errors import IdentifierSequenceConflictError, InvalidIdentifierSequenceError
-from .models import AllocatedIdentifier, IdentifierSequence
-from .ports import IdentifierSequenceRepository
+from .errors import (
+    IdentifierSequenceConflictError,
+    InvalidIdentifierSequenceError,
+    InvalidIdentityCommissioningCommandError,
+)
+from .models import (
+    AllocatedIdentifier,
+    CommissionIdentityRegistration,
+    IdentifierSequence,
+)
+from .ports import IdentityRegistrationCommissioningWriter, IdentifierSequenceRepository
 
 
 IdentifierT = TypeVar("IdentifierT", bound=PermanentId)
@@ -51,3 +59,17 @@ class PersistentIdAllocator:
     def next_id(self, identifier_type: type[IdentifierT]) -> IdentifierT:
         """Implementa la porta IdGenerator consumando permanentemente la sequenza."""
         return self.allocate(identifier_type).identifier
+
+
+class IdentityRegistrationCommissioningService:
+    """Commissiona esplicitamente una registrazione senza allocare identificativi."""
+
+    def __init__(self, writer: IdentityRegistrationCommissioningWriter) -> None:
+        self._writer = writer
+
+    def commission(
+        self, command: CommissionIdentityRegistration,
+    ) -> CommissionedIdentityRegistration:
+        if not isinstance(command, CommissionIdentityRegistration):
+            raise InvalidIdentityCommissioningCommandError("command non valido.")
+        return self._writer.commission(command)

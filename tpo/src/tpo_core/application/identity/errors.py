@@ -15,3 +15,25 @@ class IdentifierSequenceConflictError(IdentityAllocationError):
 
 class InvalidIdentifierSequenceError(IdentityAllocationError, ValueError):
     """Sequenza persistente incoerente o non valida."""
+
+
+class IdentityCommissioningError(RuntimeError):
+    """Errore provider-neutral del commissioning Identity esplicito."""
+
+
+class InvalidIdentityCommissioningCommandError(
+    IdentityCommissioningError, ValueError,
+):
+    """Il comando di commissioning non rappresenta un'identità congelata."""
+
+
+class IdentityCommissioningConflictError(IdentityCommissioningError):
+    """La registrazione richiesta confligge con l'autorità persistita."""
+
+
+class IdentityCommissioningPersistenceError(IdentityCommissioningError):
+    """Il commissioning non è stato persistito e il rollback è certo."""
+
+
+class IdentityCommissioningOutcomeUncertain(IdentityCommissioningError):
+    """L'esito del commit di commissioning richiede riconciliazione."""

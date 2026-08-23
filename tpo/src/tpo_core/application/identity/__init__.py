@@ -5,15 +5,25 @@ from .errors import (
     IdentifierSequenceNotFoundError,
     IdentityAllocationError,
     InvalidIdentifierSequenceError,
+    IdentityCommissioningConflictError,
+    IdentityCommissioningError,
+    IdentityCommissioningOutcomeUncertain,
+    IdentityCommissioningPersistenceError,
+    InvalidIdentityCommissioningCommandError,
 )
-from .models import AllocatedIdentifier, IdentifierSequence
-from .ports import IdentifierSequenceRepository
+from .models import (
+    AllocatedIdentifier,
+    CommissionedIdentityRegistration,
+    CommissionIdentityRegistration,
+    IdentifierSequence,
+)
+from .ports import IdentityRegistrationCommissioningWriter, IdentifierSequenceRepository
 from .production_planning import (
     PRODUCTION_PLANNING_IDENTIFIER_TYPES,
     PRODUCTION_PLANNING_SEQUENCE_TYPES,
     production_planning_identifier_type,
 )
-from .service import PersistentIdAllocator
+from .service import IdentityRegistrationCommissioningService, PersistentIdAllocator
 
 __all__ = (
     "AllocatedIdentifier",
@@ -21,6 +31,15 @@ __all__ = (
     "IdentifierSequenceConflictError",
     "IdentifierSequenceNotFoundError",
     "IdentifierSequenceRepository",
+    "IdentityRegistrationCommissioningWriter",
+    "CommissionIdentityRegistration",
+    "CommissionedIdentityRegistration",
+    "IdentityRegistrationCommissioningService",
+    "IdentityCommissioningError",
+    "IdentityCommissioningConflictError",
+    "IdentityCommissioningPersistenceError",
+    "IdentityCommissioningOutcomeUncertain",
+    "InvalidIdentityCommissioningCommandError",
     "IdentityAllocationError",
     "InvalidIdentifierSequenceError",
     "PersistentIdAllocator",

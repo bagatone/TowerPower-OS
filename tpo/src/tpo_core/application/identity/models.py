@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
-from ...domain.identifiers import PermanentId
-from .errors import InvalidIdentifierSequenceError
+from ...domain.identifiers import ActorId, PermanentId
+from .errors import (
+    InvalidIdentifierSequenceError,
+    InvalidIdentityCommissioningCommandError,
+)
 
 
 @dataclass(frozen=True)
@@ -47,3 +51,69 @@ class AllocatedIdentifier:
             raise InvalidIdentifierSequenceError("La sequenza successiva deve conservare tipo e prefix.")
         if after.next_value != before.next_value + 1 or after.version != before.version + 1:
             raise InvalidIdentifierSequenceError("La transizione deve avanzare valore e versione di una unità.")
+
+
+@dataclass(frozen=True)
+class CommissionIdentityRegistration:
+    """Autorità esplicita necessaria ad aggiungere una sola sequenza tipizzata."""
+
+    sequence_name: str
+    permanent_id_type: type[PermanentId]
+    prefix: str
+    actor: ActorId
+
+    def __post_init__(self) -> None:
+        identifier_type = self.permanent_id_type
+        if (
+            not isinstance(identifier_type, type)
+            or not issubclass(identifier_type, PermanentId)
+            or identifier_type is PermanentId
+        ):
+            raise InvalidIdentityCommissioningCommandError(
+                "permanent_id_type deve essere un tipo PermanentId concreto."
+            )
+        if (
+            not isinstance(self.sequence_name, str)
+            or not self.sequence_name
+            or self.sequence_name != self.sequence_name.strip()
+            or self.sequence_name != identifier_type.sequence_name
+        ):
+            raise InvalidIdentityCommissioningCommandError(
+                "sequence_name non coincide con il tipo congelato."
+            )
+        if (
+            not isinstance(self.prefix, str)
+            or not self.prefix
+            or self.prefix != self.prefix.strip()
+            or self.prefix != identifier_type.prefix
+        ):
+            raise InvalidIdentityCommissioningCommandError(
+                "prefix non coincide con il tipo congelato."
+            )
+        if not isinstance(self.actor, ActorId):
+            raise InvalidIdentityCommissioningCommandError("actor non valido.")
+
+
+@dataclass(frozen=True)
+class CommissionedIdentityRegistration:
+    """Registrazione persistita, nuova oppure riletta come replay compatibile."""
+
+    command: CommissionIdentityRegistration
+    sequence: IdentifierSequence
+    commissioned_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.command, CommissionIdentityRegistration):
+            raise InvalidIdentityCommissioningCommandError("command non valido.")
+        if self.sequence.identifier_type != self.command.permanent_id_type.__name__:
+            raise InvalidIdentityCommissioningCommandError("identifier_type persistito incoerente.")
+        if self.sequence.prefix != self.command.prefix:
+            raise InvalidIdentityCommissioningCommandError("prefix persistito incoerente.")
+        if (
+            not isinstance(self.commissioned_at, datetime)
+            or self.commissioned_at.tzinfo is None
+            or self.commissioned_at.utcoffset() is None
+        ):
+            raise InvalidIdentityCommissioningCommandError(
+                "commissioned_at deve essere timezone-aware."
+            )

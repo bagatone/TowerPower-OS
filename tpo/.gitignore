@@ -3,7 +3,7 @@ config/google-service-account.json
 *service-account*.json
 config/*credentials*.json
 config/settings.yaml
-runtime/secrets/operational-scheduler.env
+runtime/secrets/*.env
 .env
 .env.*
 

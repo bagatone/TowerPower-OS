@@ -1,9 +1,13 @@
 from typing import Protocol
 
-from .models import CommissionCustomer, CommissionSupplyProgram, CommissionVariety, OnboardingResult
+from .models import (CommissionCustomer, CommissionSupplyProgram, CommissionVariety,
+                     CorrectNeverEffectiveSupplyProgramVersion, OnboardingResult)
 
 
 class OperationalDataOnboardingWriter(Protocol):
     def commission_customer(self, command: CommissionCustomer) -> OnboardingResult: ...
     def commission_variety(self, command: CommissionVariety) -> OnboardingResult: ...
     def commission_supply_program(self, command: CommissionSupplyProgram) -> OnboardingResult: ...
+    def correct_never_effective_supply_program_version(
+        self, command: CorrectNeverEffectiveSupplyProgramVersion
+    ) -> OnboardingResult: ...

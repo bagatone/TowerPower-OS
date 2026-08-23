@@ -188,6 +188,75 @@ def test_programma_prima_della_data_inizio_ignorato() -> None:
     assert execute(giorno=date(2026, 7, 5)).ordini_generati == ()
 
 
+def test_data_inizio_futura_dentro_orizzonte_genera_prima_occorrenza() -> None:
+    p = programma(data_inizio=date(2026, 7, 9), finestra_operativa_giorni=4)
+    result = execute(giorno=date(2026, 7, 6), programmi=(p,))
+    assert [x.data_consegna_prevista for x in result.ordini_generati] == [
+        date(2026, 7, 9)
+    ]
+
+
+def test_data_inizio_futura_dopo_orizzonte_esclusa() -> None:
+    p = programma(data_inizio=date(2026, 7, 10), finestra_operativa_giorni=3)
+    assert execute(giorno=date(2026, 7, 6), programmi=(p,)).ordini_generati == ()
+
+
+def test_data_inizio_sul_confine_inclusivo_orizzonte_e_inclusa() -> None:
+    p = programma(data_inizio=date(2026, 7, 9), finestra_operativa_giorni=3)
+    result = execute(giorno=date(2026, 7, 6), programmi=(p,))
+    assert [x.data_consegna_prevista for x in result.ordini_generati] == [
+        date(2026, 7, 9)
+    ]
+
+
+def test_finestra_non_genera_occorrenze_prima_di_data_inizio() -> None:
+    p = programma(
+        data_inizio=date(2026, 7, 8), finestra_operativa_giorni=4,
+        righe=(riga(configurazione=config(
+            TipoRicorrenza.GIORNI_SETTIMANA, giorni_settimana=(1, 2, 3, 4, 5, 6, 7),
+        )),),
+    )
+    dates = [x.data_consegna_prevista for x in execute(
+        giorno=date(2026, 7, 6), programmi=(p,),
+    ).ordini_generati]
+    assert dates == [date(2026, 7, 8), date(2026, 7, 9), date(2026, 7, 10)]
+
+
+def test_fase_settimanale_non_si_sposta_con_inizio_futuro() -> None:
+    p = programma(data_inizio=date(2026, 7, 8), finestra_operativa_giorni=9)
+    dates = [x.data_consegna_prevista for x in execute(
+        giorno=date(2026, 7, 6), programmi=(p,),
+    ).ordini_generati]
+    assert dates == [date(2026, 7, 8), date(2026, 7, 15)]
+
+
+def test_fase_ogni_quattordici_giorni_non_si_sposta() -> None:
+    p = programma(
+        data_inizio=date(2026, 7, 8), finestra_operativa_giorni=20,
+        righe=(riga(configurazione=config(
+            TipoRicorrenza.OGNI_X_GIORNI, intervallo_giorni=14,
+        )),),
+    )
+    dates = [x.data_consegna_prevista for x in execute(
+        giorno=date(2026, 7, 6), programmi=(p,),
+    ).ordini_generati]
+    assert dates == [date(2026, 7, 8), date(2026, 7, 22)]
+
+
+def test_data_fine_dentro_orizzonte_limita_occorrenze_future() -> None:
+    p = programma(
+        data_inizio=date(2026, 7, 8), data_fine=date(2026, 7, 9),
+        finestra_operativa_giorni=4,
+        righe=(riga(configurazione=config(
+            TipoRicorrenza.GIORNI_SETTIMANA, giorni_settimana=(1, 2, 3, 4, 5, 6, 7),
+        )),),
+    )
+    dates = [x.data_consegna_prevista for x in execute(
+        giorno=date(2026, 7, 6), programmi=(p,),
+    ).ordini_generati]
+    assert dates == [date(2026, 7, 8), date(2026, 7, 9)]
+
+
 def test_programma_dopo_data_fine_ignorato() -> None:
     p = programma(data_fine=date(2026, 7, 6))
     assert execute(giorno=date(2026, 7, 7), programmi=(p,)).ordini_generati == ()

@@ -1,5 +1,6 @@
 from .errors import InvalidOnboardingCommandError
-from .models import CommissionCustomer, CommissionSupplyProgram, CommissionVariety, OnboardingResult
+from .models import (CommissionCustomer, CommissionSupplyProgram, CommissionVariety,
+                     CorrectNeverEffectiveSupplyProgramVersion, OnboardingResult)
 from .ports import OperationalDataOnboardingWriter
 
 
@@ -21,3 +22,10 @@ class OperationalDataOnboardingService:
         if not isinstance(command, CommissionSupplyProgram):
             raise InvalidOnboardingCommandError("command supply-program non valido.")
         return self._writer.commission_supply_program(command)
+
+    def correct_never_effective_supply_program_version(
+        self, command: CorrectNeverEffectiveSupplyProgramVersion
+    ) -> OnboardingResult:
+        if not isinstance(command, CorrectNeverEffectiveSupplyProgramVersion):
+            raise InvalidOnboardingCommandError("command correction non valido.")
+        return self._writer.correct_never_effective_supply_program_version(command)

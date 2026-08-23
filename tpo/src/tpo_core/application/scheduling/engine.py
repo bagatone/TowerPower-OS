@@ -119,9 +119,12 @@ class SchedulingEngine:
     def _elaborabile(programma: ProgrammaFornitura, current_date: date) -> bool:
         if programma.stato is not ProgrammaFornituraState.ATTIVO:
             return False
-        if current_date < programma.data_inizio:
+        horizon_end = current_date + timedelta(
+            days=programma.finestra_operativa_giorni
+        )
+        if programma.data_inizio > horizon_end:
             return False
-        return programma.data_fine is None or current_date <= programma.data_fine
+        return programma.data_fine is None or programma.data_fine >= current_date
 
     def _occorrenze_dovute(
         self,

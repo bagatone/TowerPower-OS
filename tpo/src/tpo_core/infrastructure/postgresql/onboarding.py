@@ -12,7 +12,8 @@ from ...application.onboarding.errors import (
     OnboardingConflictError, OnboardingOutcomeUncertain, OnboardingPersistenceError,
 )
 from ...application.onboarding.models import (
-    CommissionCustomer, CommissionSupplyProgram, CommissionVariety, OnboardingResult,
+    CommissionCustomer, CommissionSupplyProgram, CommissionVariety,
+    CorrectNeverEffectiveSupplyProgramVersion, OnboardingResult,
 )
 from ...domain.entities.programma_fornitura import TipoRicorrenza
 from .connection import PostgreSQLConnectionFactory
@@ -137,6 +138,165 @@ class PostgreSQLOperationalDataOnboardingWriter:
 
         return self._execute("PROGRAMMA_FORNITURA", program.id.value, payload, command.authority, operation)
 
+    def correct_never_effective_supply_program_version(
+        self, command: CorrectNeverEffectiveSupplyProgramVersion
+    ) -> OnboardingResult:
+        program = command.program
+        lines = tuple(enumerate(program.righe, 1))
+        new_version = command.expected_current_version + 1
+        payload = {
+            "category": "NEVER_EFFECTIVE",
+            "previous_version": command.expected_current_version,
+            "corrected_version": new_version,
+            "program": self._program_payload(program, new_version, command.valid_from, lines),
+        }
+
+        def operation(cursor: Any) -> bool:
+            cursor.execute(
+                """SELECT operation,after_data FROM tpo.audit_eventi
+                   WHERE entity_type='PROGRAMMA_FORNITURA_VERSION_CORRECTION'
+                     AND entity_public_id=%s AND correlation_id=%s
+                   ORDER BY id""",
+                (program.id.value, command.authority.correlation_id),
+            )
+            replay = cursor.fetchall()
+            if replay:
+                if len(replay) != 1 or replay[0] != ("STATE_TRANSITION", payload):
+                    raise OnboardingConflictError("Replay correzione incompatibile.")
+                cursor.execute(
+                    """SELECT pv.numero_versione FROM tpo.programmi_fornitura p
+                       JOIN tpo.programmi_fornitura_versioni pv
+                         ON pv.programma_fornitura_id=p.id
+                       WHERE p.public_id=%s AND pv.valida_al IS NULL
+                         AND pv.voided_at IS NULL""", (program.id.value,),
+                )
+                if cursor.fetchone() != (new_version,):
+                    raise OnboardingConflictError("Replay privo della versione corretta corrente.")
+                return False
+
+            cursor.execute(
+                """SELECT p.id,p.cliente_id,pv.id,pv.numero_versione,pv.valida_dal,
+                          pv.stato,pv.data_inizio,pv.data_fine,pv.orario_generazione,
+                          pv.finestra_operativa_giorni
+                   FROM tpo.programmi_fornitura p
+                   JOIN tpo.programmi_fornitura_versioni pv
+                     ON pv.programma_fornitura_id=p.id
+                   WHERE p.public_id=%s AND pv.valida_al IS NULL
+                     AND pv.voided_at IS NULL FOR UPDATE OF pv""", (program.id.value,),
+            )
+            current = cursor.fetchone()
+            if current is None or current[3] != command.expected_current_version:
+                raise OnboardingConflictError("Versione corrente attesa non disponibile.")
+            if current[4] <= _database_now(cursor):
+                raise OnboardingConflictError("La versione è già stata temporalmente efficace.")
+            if current[1] is None:
+                raise OnboardingConflictError("Autorità cliente del programma assente.")
+            cursor.execute(
+                """SELECT c.public_id FROM tpo.clienti c WHERE c.id=%s""", (current[1],),
+            )
+            if cursor.fetchone() != (program.cliente_id.value,):
+                raise OnboardingConflictError("Cliente corretto differente dall'autorità corrente.")
+            current_payload = self._load_program(cursor, program.id.value)
+            expected_old = self._program_payload(
+                program, command.expected_current_version, current[4], lines,
+            )
+            if current_payload != expected_old:
+                raise OnboardingConflictError("La correzione altera il payload commerciale.")
+
+            old_version_pk = current[2]
+            cursor.execute(
+                """SELECT EXISTS(
+                     SELECT 1 FROM tpo.origini_righe_ordine oro
+                     JOIN tpo.righe_programma_fornitura rp
+                       ON rp.id=oro.riga_programma_id
+                     WHERE rp.programma_versione_id=%s)""", (old_version_pk,),
+            )
+            if cursor.fetchone()[0]:
+                raise OnboardingConflictError("La versione ha prodotto ORDINI/downstream effects.")
+
+            cursor.execute(
+                """UPDATE tpo.programmi_fornitura_versioni
+                   SET voided_at=CURRENT_TIMESTAMP,voided_by=%s,void_reason=%s,
+                       void_correlation_id=%s
+                   WHERE id=%s AND voided_at IS NULL""",
+                (command.authority.actor.value, command.authority.reason,
+                 command.authority.correlation_id, old_version_pk),
+            )
+            if cursor.rowcount != 1:
+                raise OnboardingConflictError("Conflitto concorrente sulla versione corrente.")
+            cursor.execute(
+                """INSERT INTO tpo.programmi_fornitura_versioni
+                   (programma_fornitura_id,cliente_id,numero_versione,stato,data_inizio,
+                    data_fine,orario_generazione,finestra_operativa_giorni,valida_dal,
+                    valida_al,created_by)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s) RETURNING id""",
+                (current[0], current[1], new_version, program.stato.value,
+                 program.data_inizio, program.data_fine, program.orario_generazione,
+                 program.finestra_operativa_giorni, command.valid_from,
+                 command.authority.actor.value),
+            )
+            replacement_pk = cursor.fetchone()[0]
+            variety_ids: dict[str, int] = {}
+            for _, line in lines:
+                cursor.execute("SELECT id FROM tpo.varieta WHERE public_id=%s", (line.varieta_id.value,))
+                row = cursor.fetchone()
+                if row is None:
+                    raise OnboardingConflictError("VARIETA richiesta non esiste.")
+                variety_ids[line.varieta_id.value] = row[0]
+            for position, line in lines:
+                cursor.execute(
+                    """INSERT INTO tpo.righe_programma_fornitura
+                       (programma_versione_id,posizione,varieta_id,quantita,unita_misura,
+                        tipo_ricorrenza,intervallo_giorni)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (replacement_pk, position, variety_ids[line.varieta_id.value],
+                     line.quantita.value, line.quantita.unit.value,
+                     line.configurazione_temporale.tipo.value,
+                     line.configurazione_temporale.intervallo_giorni),
+                )
+                line_pk = cursor.fetchone()[0]
+                for day in sorted(line.configurazione_temporale.giorni_settimana):
+                    cursor.execute(
+                        "INSERT INTO tpo.righe_programma_giorni(riga_programma_id,giorno_iso) VALUES (%s,%s)",
+                        (line_pk, day),
+                    )
+            cursor.execute(
+                "UPDATE tpo.programmi_fornitura_versioni SET replacement_version_id=%s WHERE id=%s",
+                (replacement_pk, old_version_pk),
+            )
+            cursor.execute(
+                """INSERT INTO tpo.audit_eventi
+                   (occurred_at,actor,entity_type,entity_public_id,operation,reason,
+                    before_data,after_data,correlation_id,provenance)
+                   VALUES (CURRENT_TIMESTAMP,%s,'PROGRAMMA_FORNITURA_VERSION_CORRECTION',
+                           %s,'STATE_TRANSITION',%s,%s::jsonb,%s::jsonb,%s,
+                           'never-effective-correction')""",
+                (command.authority.actor.value, program.id.value,
+                 command.authority.reason,
+                 json.dumps({"previous_version": command.expected_current_version}, sort_keys=True),
+                 json.dumps(payload, sort_keys=True), command.authority.correlation_id),
+            )
+            return True
+
+        return self._execute(
+            "PROGRAMMA_FORNITURA_VERSION_CORRECTION", program.id.value,
+            payload, command.authority, operation, write_insert_audit=False,
+        )
+
+    @staticmethod
+    def _program_payload(program: Any, version: int, valid_from: Any,
+                         lines: tuple[tuple[int, Any], ...]) -> dict[str, Any]:
+        return {
+            "public_id": program.id.value, "cliente_id": program.cliente_id.value,
+            "version": version, "stato": program.stato.value,
+            "data_inizio": program.data_inizio.isoformat(),
+            "data_fine": program.data_fine.isoformat() if program.data_fine else None,
+            "orario_generazione": program.orario_generazione.isoformat(),
+            "finestra_operativa_giorni": program.finestra_operativa_giorni,
+            "valida_dal": _instant(valid_from),
+            "righe": [_line_payload(position, line) for position, line in lines],
+        }
+
     @staticmethod
     def _assert_audit(cursor: Any, entity_type: str, public_id: str,
                       payload: dict[str, Any], authority: Any) -> None:
@@ -181,14 +341,14 @@ class PostgreSQLOperationalDataOnboardingWriter:
         }
 
     def _execute(self, entity_type: str, public_id: str, payload: dict[str, Any], authority: Any,
-                 operation: Callable[[Any], bool]) -> OnboardingResult:
+                 operation: Callable[[Any], bool], *, write_insert_audit: bool = True) -> OnboardingResult:
         connection = self._factory.connect()
         cursor = None
         committed = False
         try:
             cursor = connection.cursor()
             inserted = operation(cursor)
-            if inserted:
+            if inserted and write_insert_audit:
                 cursor.execute(
                     """INSERT INTO tpo.audit_eventi
                        (occurred_at,actor,entity_type,entity_public_id,operation,reason,
@@ -235,3 +395,8 @@ def _decimal(value: Any) -> str:
 
 def _instant(value: Any) -> str:
     return value.astimezone(timezone.utc).isoformat()
+
+
+def _database_now(cursor: Any) -> Any:
+    cursor.execute("SELECT CURRENT_TIMESTAMP")
+    return cursor.fetchone()[0]

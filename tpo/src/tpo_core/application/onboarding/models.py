@@ -74,6 +74,26 @@ class CommissionSupplyProgram:
 
 
 @dataclass(frozen=True)
+class CorrectNeverEffectiveSupplyProgramVersion:
+    program: ProgrammaFornitura
+    expected_current_version: int
+    valid_from: datetime
+    authority: OnboardingAuthority
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.program, ProgrammaFornitura):
+            raise InvalidOnboardingCommandError("program non valido.")
+        if (not isinstance(self.expected_current_version, int)
+                or isinstance(self.expected_current_version, bool)
+                or self.expected_current_version <= 0):
+            raise InvalidOnboardingCommandError("expected_current_version deve essere positiva.")
+        if not isinstance(self.valid_from, datetime) or self.valid_from.tzinfo is None:
+            raise InvalidOnboardingCommandError("valid_from deve essere timezone-aware.")
+        if not isinstance(self.authority, OnboardingAuthority):
+            raise InvalidOnboardingCommandError("authority non valida.")
+
+
+@dataclass(frozen=True)
 class OnboardingResult:
     entity_type: str
     public_id: str

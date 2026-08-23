@@ -9,7 +9,8 @@ from typing import TextIO
 
 from ..application.onboarding.errors import OperationalDataOnboardingError
 from ..application.onboarding.models import (
-    CommissionCustomer, CommissionSupplyProgram, CommissionVariety, OnboardingAuthority,
+    CommissionCustomer, CommissionSupplyProgram, CommissionVariety,
+    CorrectNeverEffectiveSupplyProgramVersion, OnboardingAuthority,
 )
 from ..bootstrap import build_operational_data_onboarding_service
 from ..domain.entities.programma_fornitura import (
@@ -43,10 +44,17 @@ def run_onboarding_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) -
                 date.fromisoformat(args.end_date) if args.end_date else None,
                 time.fromisoformat(args.generation_time),
             )
-            command = CommissionSupplyProgram(
-                program, args.version, datetime.fromisoformat(args.valid_from), authority,
-            )
-            method = "commission_supply_program"
+            if args.onboarding_command == "supply-program":
+                command = CommissionSupplyProgram(
+                    program, args.version, datetime.fromisoformat(args.valid_from), authority,
+                )
+                method = "commission_supply_program"
+            else:
+                command = CorrectNeverEffectiveSupplyProgramVersion(
+                    program, args.expected_current_version,
+                    datetime.fromisoformat(args.valid_from), authority,
+                )
+                method = "correct_never_effective_supply_program_version"
         service = build_operational_data_onboarding_service(PostgreSQLSettings.from_environment())
         result = getattr(service, method)(command)
     except (ValueError, TypeError, OperationalDataOnboardingError) as exc:

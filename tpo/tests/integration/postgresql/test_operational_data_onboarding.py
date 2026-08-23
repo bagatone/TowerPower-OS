@@ -5,7 +5,8 @@ from alembic import command as alembic_command
 import pytest
 
 from src.tpo_core.application.identity import CommissionIdentityRegistration, IdentityRegistrationCommissioningService
-from src.tpo_core.application.onboarding import CommissionCustomer, CommissionSupplyProgram, CommissionVariety, OnboardingAuthority
+from src.tpo_core.application.onboarding import (CommissionCustomer, CommissionSupplyProgram,
+    CommissionVariety, CorrectNeverEffectiveSupplyProgramVersion, OnboardingAuthority)
 from src.tpo_core.application.onboarding.errors import OnboardingConflictError
 from src.tpo_core.domain.entities.programma_fornitura import ConfigurazioneTemporale, ProgrammaFornitura, RigaProgrammaFornitura, TipoRicorrenza
 from src.tpo_core.domain.entities.varieta import Varieta
@@ -71,3 +72,75 @@ def test_missing_customer_and_variety_fail_closed(environment):
     program = ProgrammaFornitura(ProgrammaFornituraId("PF-999999"), ClienteId("CLI-999999"), (line,), date(2026, 8, 24), ProgrammaFornituraState.ATTIVO, 7)
     with pytest.raises(OnboardingConflictError):
         writer.commission_supply_program(CommissionSupplyProgram(program, 1, datetime.now(timezone.utc), AUTH))
+
+
+def test_never_effective_correction_preserves_evidence_replay_and_scheduling_read(environment):
+    engine, factory, writer = environment
+    writer.commission_customer(CommissionCustomer(ClienteId("CLI-000001"), "Real Customer", AUTH))
+    writer.commission_variety(CommissionVariety(
+        Varieta(VarietaId("VAR-000001"), "Cilantro", VarietaState.ATTIVA), AUTH,
+    ))
+    line = RigaProgrammaFornitura(
+        VarietaId("VAR-000001"), Quantity(Decimal("1.5"), UnitOfMeasure.SET),
+        ConfigurazioneTemporale(TipoRicorrenza.GIORNI_SETTIMANA, giorni_settimana=(1,)),
+    )
+    program = ProgrammaFornitura(
+        ProgrammaFornituraId("PF-000001"), ClienteId("CLI-000001"), (line,),
+        date(2099, 8, 25), ProgrammaFornituraState.ATTIVO, 14, None, time(5),
+    )
+    writer.commission_supply_program(CommissionSupplyProgram(
+        program, 1, datetime(2099, 8, 25, tzinfo=timezone.utc), AUTH,
+    ))
+    authority = OnboardingAuthority(
+        ActorId("tpo.owner"), "Correct never effective", "correction:PF-000001",
+    )
+    correction = CorrectNeverEffectiveSupplyProgramVersion(
+        program, 1, datetime(2099, 8, 23, tzinfo=timezone.utc), authority,
+    )
+    assert writer.correct_never_effective_supply_program_version(correction).inserted
+    assert not writer.correct_never_effective_supply_program_version(correction).inserted
+    with pytest.raises(OnboardingConflictError):
+        writer.correct_never_effective_supply_program_version(
+            CorrectNeverEffectiveSupplyProgramVersion(
+                program, 1, datetime(2099, 8, 22, tzinfo=timezone.utc), authority,
+            )
+        )
+    with engine.connect() as connection:
+        versions = connection.exec_driver_sql(
+            """SELECT numero_versione,voided_at IS NOT NULL,replacement_version_id IS NOT NULL
+               FROM tpo.programmi_fornitura_versioni ORDER BY numero_versione"""
+        ).all()
+        audits = connection.exec_driver_sql(
+            """SELECT operation,after_data->>'category',correlation_id
+               FROM tpo.audit_eventi
+               WHERE entity_type='PROGRAMMA_FORNITURA_VERSION_CORRECTION'"""
+        ).all()
+    assert versions == [(1, True, True), (2, False, False)]
+    assert audits == [("STATE_TRANSITION", "NEVER_EFFECTIVE", "correction:PF-000001")]
+    loaded = PostgreSQLVersionedProgrammaFornituraRepository(factory).list_versioned_for_scheduling()
+    assert len(loaded) == 1 and loaded[0].version == 2
+
+
+def test_effective_never_effective_correction_is_rejected(environment):
+    _, _, writer = environment
+    writer.commission_customer(CommissionCustomer(ClienteId("CLI-000001"), "Real Customer", AUTH))
+    writer.commission_variety(CommissionVariety(
+        Varieta(VarietaId("VAR-000001"), "Cilantro", VarietaState.ATTIVA), AUTH,
+    ))
+    line = RigaProgrammaFornitura(
+        VarietaId("VAR-000001"), Quantity(Decimal("1"), UnitOfMeasure.SET),
+        ConfigurazioneTemporale(TipoRicorrenza.SETTIMANALE),
+    )
+    program = ProgrammaFornitura(
+        ProgrammaFornituraId("PF-000001"), ClienteId("CLI-000001"), (line,),
+        date(2020, 1, 1), ProgrammaFornituraState.ATTIVO, 14,
+    )
+    writer.commission_supply_program(CommissionSupplyProgram(
+        program, 1, datetime(2020, 1, 1, tzinfo=timezone.utc), AUTH,
+    ))
+    with pytest.raises(OnboardingConflictError, match="temporalmente efficace"):
+        writer.correct_never_effective_supply_program_version(
+            CorrectNeverEffectiveSupplyProgramVersion(
+                program, 1, datetime(2019, 1, 1, tzinfo=timezone.utc), AUTH,
+            )
+        )

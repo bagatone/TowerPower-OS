@@ -54,7 +54,7 @@ class PostgreSQLVersionedProgrammaFornituraRepository:
                     JOIN tpo.righe_programma_fornitura AS rp
                       ON rp.programma_versione_id = pv.id
                     JOIN tpo.varieta AS v ON v.id = rp.varieta_id
-                    WHERE pv.valida_al IS NULL
+                    WHERE pv.valida_al IS NULL AND pv.voided_at IS NULL
                     ORDER BY p.public_id, rp.posizione
                     """,
                     (),

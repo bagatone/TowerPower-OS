@@ -206,13 +206,18 @@ class PostgreSQLProductionPlanningCommitWriter:
         self._validate_replacements(write_set)
         self._revalidate_allocation_capacity(write_set)
 
-        revision_results, line_ids = self._persist_revisions(
+        (
+            revision_results,
+            line_ids,
+            replayed_lines,
+            persisted_line_public_ids,
+        ) = self._persist_revisions(
             cursor, write_set, run_id, policy_id, authority, plans, persistence_at
         )
-        allocation_ids = self._persist_allocations(
+        allocation_ids, persisted_allocation_public_ids = self._persist_allocations(
             cursor, write_set.allocations, line_ids, authority, persistence_at,
             write_set.context.actor.value, compatible_transition_epochs,
-            write_set.allocation_transitions,
+            write_set.allocation_transitions, replayed_lines,
         )
         self._persist_transitions(
             cursor, write_set, parents, allocation_ids, persistence_at
@@ -231,9 +236,13 @@ class PostgreSQLProductionPlanningCommitWriter:
             ),
             revision_results=tuple(revision_results),
             planning_line_public_ids=tuple(
-                line.public_id for revision in write_set.revisions for line in revision.lines
+                persisted_line_public_ids.get(line.public_id.value, line.public_id)
+                for revision in write_set.revisions for line in revision.lines
             ),
-            allocation_public_ids=tuple(item.public_id for item in write_set.allocations),
+            allocation_public_ids=tuple(
+                persisted_allocation_public_ids.get(item.public_id.value, item.public_id)
+                for item in write_set.allocations
+            ),
             committed_at=persistence_at,
             warnings=tuple(
                 item for item in write_set.messages if item.message_type == "WARNING"
@@ -749,9 +758,13 @@ class PostgreSQLProductionPlanningCommitWriter:
         self, cursor: Any, write_set: ProductionPlanningCommit, run_id: int,
         policy_id: int, authority: dict[str, dict[str, tuple[Any, ...]]],
         plans: dict[str, tuple[Any, ...]], persistence_at: datetime,
-    ) -> tuple[list[RevisionCommitResult], dict[str, int]]:
+    ) -> tuple[
+        list[RevisionCommitResult], dict[str, int], set[str], dict[str, Any]
+    ]:
         results: list[RevisionCommitResult] = []
         line_ids: dict[str, int] = {}
+        replayed_lines: set[str] = set()
+        persisted_line_public_ids: dict[str, Any] = {}
         actor = write_set.context.actor.value
         for draft in write_set.revisions:
             cursor.execute(
@@ -762,20 +775,26 @@ class PostgreSQLProductionPlanningCommitWriter:
             )
             replay = cursor.fetchone()
             if replay is not None:
-                if replay != (
-                    draft.revision_public_id.value, draft.plan_public_id.value,
-                    draft.request_key.value, draft.revision_number,
-                ):
+                if replay[2:] != (draft.request_key.value, draft.revision_number):
                     raise _conflict(
                         "REVISION_REPLAY_MISMATCH",
                         "Revision request key già associata a un payload incompatibile.",
                     )
-                line_ids.update(
-                    self._validate_replayed_revision(
-                        cursor, draft, replay[0], write_set.seed_resources
-                    )
+                replayed = self._validate_replayed_revision(
+                    cursor, draft, replay[0], write_set.seed_resources
                 )
-                results.append(_revision_result(draft, reused=True))
+                for draft_id, (line_pk, persisted_id) in replayed.items():
+                    line_ids[draft_id] = line_pk
+                    replayed_lines.add(draft_id)
+                    persisted_line_public_ids[draft_id] = type(draft.plan_public_id)(
+                        persisted_id
+                    )
+                results.append(_revision_result(
+                    draft,
+                    reused=True,
+                    plan_public_id=type(draft.plan_public_id)(replay[1]),
+                    revision_public_id=type(draft.revision_public_id)(replay[0]),
+                ))
                 continue
 
             if draft.revision_number == 1:
@@ -940,25 +959,24 @@ class PostgreSQLProductionPlanningCommitWriter:
                         "REVISION_CAS_FAILED", "CAS della revisione corrente fallita."
                     )
             results.append(_revision_result(draft, reused=False))
-        return results, line_ids
+        return results, line_ids, replayed_lines, persisted_line_public_ids
 
     @staticmethod
     def _validate_replayed_revision(
         cursor: Any, draft: PlanRevisionDraft, public_id: str,
         seed_resources: tuple[Any, ...],
-    ) -> dict[str, int]:
+    ) -> dict[str, tuple[int, str]]:
         cursor.execute(
             """SELECT rps.public_id,rps.planning_key,rps.id,
                       rps.quantita_produttiva_autorizzata,
                       rps.grammi_seme_richiesti
                FROM tpo.piano_produzione_revisioni r
                JOIN tpo.righe_piano_semina rps ON rps.piano_revisione_id=r.id
-               WHERE r.public_id=%s ORDER BY rps.public_id""", (public_id,),
+               WHERE r.public_id=%s ORDER BY rps.planning_key""", (public_id,),
         )
         observed = tuple(cursor.fetchall())
         expected = tuple(sorted(
             (
-                line.public_id.value,
                 line.planning_key.value,
                 line.authorized_productive_quantity.value,
                 (
@@ -970,17 +988,14 @@ class PostgreSQLProductionPlanningCommitWriter:
             )
             for line in draft.lines
         ))
-        if tuple((row[0], row[1], row[3], row[4]) for row in observed) != expected:
+        if tuple((row[1], row[3], row[4]) for row in observed) != expected:
             raise _conflict(
                 "REVISION_REPLAY_MISMATCH",
                 "Revisione committed incompatibile con il replay.",
             )
-        resources = {
-            item.planning_line_public_id.value: item
-            for item in seed_resources
-        }
-        lines = {line.public_id.value: line for line in draft.lines}
-        for line_public_id, _, line_id, _, _ in observed:
+        resources = {item.planning_line_public_id.value: item for item in seed_resources}
+        lines = {line.planning_key.value: line for line in draft.lines}
+        for line_public_id, planning_key, line_id, _, _ in observed:
             cursor.execute(
                 """SELECT grammi_richiesti,grammi_seme_per_set,unita_misura
                    FROM tpo.risorse_seme_pianificate
@@ -988,8 +1003,8 @@ class PostgreSQLProductionPlanningCommitWriter:
                 (line_id,),
             )
             children = tuple(cursor.fetchall())
-            line = lines[line_public_id]
-            resource = resources.get(line_public_id)
+            line = lines[planning_key]
+            resource = resources.get(line.public_id.value)
             if line.authorized_productive_quantity.value == 0:
                 if children or resource is not None:
                     raise _conflict(
@@ -1004,7 +1019,10 @@ class PostgreSQLProductionPlanningCommitWriter:
                     "REVISION_REPLAY_MISMATCH",
                     "Replay produttivo privo della risorsa seme compatibile.",
                 )
-        return {row[0]: row[2] for row in observed}
+        return {
+            lines[row[1]].public_id.value: (row[2], row[0])
+            for row in observed
+        }
 
     @staticmethod
     def _persist_replanning_snapshot(
@@ -1098,13 +1116,22 @@ class PostgreSQLProductionPlanningCommitWriter:
         cursor: Any, drafts: tuple[AllocationDraft, ...], line_ids: dict[str, int],
         authority: dict[str, dict[str, tuple[Any, ...]]], persistence_at: datetime,
         actor: str, compatible_transition_epochs: set[str],
-        transitions: tuple[AllocationTransitionDraft, ...],
-    ) -> dict[str, int]:
+        transitions: tuple[AllocationTransitionDraft, ...], replayed_lines: set[str],
+    ) -> tuple[dict[str, int], dict[str, Any]]:
         result: dict[str, int] = {}
+        persisted_public_ids: dict[str, Any] = {}
         replay_transitions = {
             item.allocation_public_id.value: item
             for item in transitions
             if item.allocation_public_id.value in compatible_transition_epochs
+        }
+        new_replacement_ids = {
+            item.replacement_allocation_public_id.value
+            for item in transitions
+            if (
+                item.replacement_allocation_public_id is not None
+                and item.allocation_public_id.value not in compatible_transition_epochs
+            )
         }
         for draft in drafts:
             line_id = line_ids.get(draft.planning_line_public_id.value)
@@ -1157,6 +1184,35 @@ class PostgreSQLProductionPlanningCommitWriter:
                     )
                 result[draft.public_id.value] = existing[0]
                 continue
+            if (
+                draft.planning_line_public_id.value in replayed_lines
+                and draft.public_id.value not in new_replacement_ids
+            ):
+                source_id = _allocation_source_id(cursor, draft, authority)
+                table, column, _ = _CHILDREN[draft.allocation_type]
+                cursor.execute(
+                    f"""SELECT a.id,a.public_id
+                         FROM tpo.allocazioni a
+                         JOIN tpo.{table} child ON child.allocation_id=a.id
+                         WHERE a.riga_piano_semina_id=%s
+                           AND a.allocation_type=%s AND a.quantity=%s
+                           AND a.unita_misura=%s AND a.state=%s
+                           AND child.{column}=%s
+                         ORDER BY a.public_id""",
+                    (line_id, draft.allocation_type, draft.quantity.value,
+                     draft.quantity.unit.value, draft.state, source_id),
+                )
+                matches = tuple(cursor.fetchall())
+                if len(matches) != 1:
+                    raise _allocation(
+                        "ALLOCATION_REPLAY_MISMATCH",
+                        "Allocazione committed incompatibile con il replay.",
+                    )
+                result[draft.public_id.value] = matches[0][0]
+                persisted_public_ids[draft.public_id.value] = type(draft.public_id)(
+                    matches[0][1]
+                )
+                continue
             cursor.execute(
                 """INSERT INTO tpo.allocazioni
                    (public_id,allocation_type,riga_piano_semina_id,quantity,
@@ -1174,7 +1230,7 @@ class PostgreSQLProductionPlanningCommitWriter:
                 f"INSERT INTO tpo.{table} (allocation_id,{column}) VALUES (%s,%s)",
                 (allocation_id, source_id),
             )
-        return result
+        return result, persisted_public_ids
 
     @staticmethod
     def _persist_transitions(
@@ -1364,11 +1420,14 @@ def _transition_facts(
     return tuple(sorted(facts, key=lambda item: item[0]))
 
 
-def _revision_result(draft: PlanRevisionDraft, *, reused: bool) -> RevisionCommitResult:
+def _revision_result(
+    draft: PlanRevisionDraft, *, reused: bool, plan_public_id=None,
+    revision_public_id=None,
+) -> RevisionCommitResult:
     replanning = draft.canonical_replanning_snapshot
     return RevisionCommitResult(
-        plan_public_id=draft.plan_public_id,
-        revision_public_id=draft.revision_public_id,
+        plan_public_id=plan_public_id or draft.plan_public_id,
+        revision_public_id=revision_public_id or draft.revision_public_id,
         revision_request_key=draft.request_key,
         planning_key_v1=draft.request_key if replanning is None else None,
         replanning_key_v1=(

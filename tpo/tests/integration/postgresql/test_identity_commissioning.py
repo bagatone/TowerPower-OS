@@ -14,7 +14,7 @@ from src.tpo_core.application.identity import (
 from src.tpo_core.application.identity.production_planning import (
     PRODUCTION_PLANNING_SEQUENCE_TYPES,
 )
-from src.tpo_core.domain.identifiers import ActorId
+from src.tpo_core.domain.identifiers import ActorId, RunPianificazioneProduzioneId
 from src.tpo_core.infrastructure.postgresql.alembic import make_config
 from src.tpo_core.infrastructure.postgresql.identity_commissioning import (
     PostgreSQLIdentityRegistrationCommissioningWriter,
@@ -101,7 +101,10 @@ def test_first_allocation_consumes_expected_id_only_in_test_database(database):
     service = IdentityRegistrationCommissioningService(
         PostgreSQLIdentityRegistrationCommissioningWriter(_Factory(database))
     )
-    command = _commands()[0]
+    command = next(
+        item for item in _commands()
+        if item.permanent_id_type is RunPianificazioneProduzioneId
+    )
     service.commission(command)
     allocated = PersistentIdAllocator(
         PostgreSQLPersistentIdRepository(_Factory(database))

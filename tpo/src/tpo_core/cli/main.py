@@ -11,6 +11,7 @@ from .preflight import run_preflight_command
 from .operational import run_operational_scheduling_command
 from .production_planning import run_production_planning_command
 from .onboarding import run_onboarding_command
+from .seed_lot import run_seed_lot_command
 
 
 class _UsageError(ValueError):
@@ -103,6 +104,23 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--actor", required=True)
         command.add_argument("--reason", required=True)
         command.add_argument("--correlation-id", required=True)
+    seed_lot = commands.add_parser("seed-lot", help="Commissioning governato LOTTO_SEME.")
+    seed_lot_commands = seed_lot.add_subparsers(dest="seed_lot_command", required=True)
+    commission_seed_lot = seed_lot_commands.add_parser("commission")
+    commission_seed_lot.add_argument("--seed-supplier", required=True)
+    commission_seed_lot.add_argument("--seed-commercial-reference", required=True)
+    commission_seed_lot.add_argument("--manufacturer-lot-number", required=True)
+    commission_seed_lot.add_argument("--received-date", required=True)
+    commission_seed_lot.add_argument("--expiry-date")
+    commission_seed_lot.add_argument("--initial-quantity", required=True)
+    commission_seed_lot.add_argument("--unit", required=True, choices=["GRAM"])
+    commission_seed_lot.add_argument("--anomaly")
+    commission_seed_lot.add_argument("--provenance", required=True)
+    commission_seed_lot.add_argument("--actor", required=True)
+    commission_seed_lot.add_argument("--reason", required=True)
+    commission_seed_lot.add_argument("--correlation-id", required=True)
+    commission_seed_lot.add_argument("--idempotency-key", required=True)
+    commission_seed_lot.add_argument("--confirm", action="store_true", required=True)
     return parser
 
 
@@ -120,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "onboarding":
         return run_onboarding_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "seed-lot":
+        return run_seed_lot_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "preflight":
         return run_preflight_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "execute":

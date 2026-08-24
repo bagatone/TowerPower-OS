@@ -437,6 +437,92 @@ def test_compatible_revision_replay_reuses_revision(writer_database) -> None:
         assert conn.exec_driver_sql("SELECT count(*) FROM tpo.piano_produzione_revisioni").scalar_one() == 1
 
 
+def test_compatible_revision_replay_ignores_new_writer_owned_result_ids(
+    writer_database,
+) -> None:
+    first, original = _commit(writer_database)
+    run = _open_run(writer_database, 2)
+    revision = original.revisions[0]
+    old_line = revision.lines[0]
+    new_line_id = PublicId("RPS-000002")
+    replay = replace(
+        original,
+        run=run,
+        revisions=(replace(
+            revision,
+            plan_public_id=PublicId("PP-000002"),
+            revision_public_id=PublicId("RVP-000002"),
+            lines=(replace(old_line, public_id=new_line_id),),
+        ),),
+        allocations=tuple(
+            replace(
+                allocation,
+                public_id=PublicId("ALL-000002"),
+                planning_line_public_id=new_line_id,
+            )
+            for allocation in original.allocations
+        ),
+        seed_resources=tuple(
+            replace(resource, planning_line_public_id=new_line_id)
+            for resource in original.seed_resources
+        ),
+    )
+
+    result = PostgreSQLProductionPlanningCommitWriter(_Factory(writer_database)).commit(
+        replay, completed_at=PERSISTENCE_AT
+    )
+
+    assert result.plan_public_ids == first.plan_public_ids
+    assert result.current_revision_public_ids == first.current_revision_public_ids
+    assert result.planning_line_public_ids == first.planning_line_public_ids
+    assert result.allocation_public_ids == first.allocation_public_ids
+    assert result.revision_results[0].reused_existing_revision is True
+    with writer_database.connect() as conn:
+        assert conn.exec_driver_sql(
+            "SELECT count(*) FROM tpo.piano_produzione_revisioni"
+        ).scalar_one() == 1
+        assert conn.exec_driver_sql(
+            "SELECT count(*) FROM tpo.righe_piano_semina"
+        ).scalar_one() == 1
+        assert conn.exec_driver_sql("SELECT count(*) FROM tpo.allocazioni").scalar_one() == 1
+
+
+def test_replayed_revision_rejects_changed_allocation_material_facts(
+    writer_database,
+) -> None:
+    _, original = _commit(writer_database)
+    old_revision = original.revisions[0]
+    old_line = old_revision.lines[0]
+    new_line_id = PublicId("RPS-000002")
+    replay = replace(
+        original,
+        run=_open_run(writer_database, 2),
+        revisions=(replace(
+            old_revision,
+            plan_public_id=PublicId("PP-000002"),
+            revision_public_id=PublicId("RVP-000002"),
+            lines=(replace(old_line, public_id=new_line_id),),
+        ),),
+        allocations=(replace(
+            original.allocations[0],
+            public_id=PublicId("ALL-000002"),
+            planning_line_public_id=new_line_id,
+            quantity=qty("0.5"),
+        ),),
+        seed_resources=tuple(
+            replace(resource, planning_line_public_id=new_line_id)
+            for resource in original.seed_resources
+        ),
+    )
+
+    with pytest.raises(ProductionPlanningError) as captured:
+        PostgreSQLProductionPlanningCommitWriter(_Factory(writer_database)).commit(
+            replay, completed_at=PERSISTENCE_AT
+        )
+
+    assert captured.value.code == "ALLOCATION_REPLAY_MISMATCH"
+
+
 def test_zero_production_replay_reuses_line_without_creating_seed_child(
     writer_database,
 ) -> None:

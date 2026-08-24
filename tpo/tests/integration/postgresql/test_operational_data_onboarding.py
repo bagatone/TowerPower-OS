@@ -1,8 +1,10 @@
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
+import uuid
 
 from alembic import command as alembic_command
 import pytest
+import sqlalchemy as sa
 
 from src.tpo_core.application.identity import CommissionIdentityRegistration, IdentityRegistrationCommissioningService
 from src.tpo_core.application.onboarding import (CommissionCustomer, CommissionSupplyProgram,
@@ -26,13 +28,23 @@ AUTH = OnboardingAuthority(ActorId("tpo.owner"), "First real onboarding", "onboa
 
 @pytest.fixture
 def environment(isolated_postgresql):
-    with isolated_postgresql.engine.begin() as connection:
+    cluster = isolated_postgresql.engine
+    name = f"tpo_onboarding_{uuid.uuid4().hex}"
+    with cluster.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.exec_driver_sql(f'CREATE DATABASE "{name}"')
+    engine = sa.create_engine(cluster.url.set(database=name))
+    with engine.begin() as connection:
         alembic_command.upgrade(make_config(connection=connection), "head")
-    factory = _Factory(isolated_postgresql.engine)
+    factory = _Factory(engine)
     identity = IdentityRegistrationCommissioningService(PostgreSQLIdentityRegistrationCommissioningWriter(factory))
     for identifier in (ClienteId, VarietaId, ProgrammaFornituraId):
         identity.commission(CommissionIdentityRegistration(identifier.sequence_name, identifier, identifier.prefix, ActorId("tpo.identity")))
-    return isolated_postgresql.engine, factory, PostgreSQLOperationalDataOnboardingWriter(factory)
+    try:
+        yield engine, factory, PostgreSQLOperationalDataOnboardingWriter(factory)
+    finally:
+        engine.dispose()
+        with cluster.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+            connection.exec_driver_sql(f'DROP DATABASE "{name}" WITH (FORCE)')
 
 
 def test_atomic_onboarding_replay_conflict_audit_and_scheduling_read(environment):

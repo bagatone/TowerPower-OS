@@ -207,7 +207,8 @@ def test_scheduled_cli_commissions_policy_and_replay_reuses_revision(
                 )
             ),
         )
-        assert code == 0 and stderr.getvalue() == ""
+        assert code == 0, stderr.getvalue()
+        assert stderr.getvalue() == ""
         return stdout.getvalue()
 
     assert "STATUS: COMMITTED" in invoke()

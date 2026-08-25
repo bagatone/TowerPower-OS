@@ -12,6 +12,7 @@ from .production_planning import (
 )
 from .seed_lot import build_seed_lot_commissioning_service
 from .semina import build_semina_commissioning_service
+from .semina_lifecycle import build_semina_lifecycle_service
 from .settings import ApplicationSettings, InvalidSettingsError, load_settings
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "build_production_planning_runtime_from_environment",
     "build_seed_lot_commissioning_service",
     "build_semina_commissioning_service",
+    "build_semina_lifecycle_service",
     "load_settings",
 ]
 

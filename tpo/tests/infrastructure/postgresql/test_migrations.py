@@ -44,10 +44,13 @@ PRODUCTION_PLANNING_TABLES = {
 }
 SEED_LOT_COMMISSIONING_TABLES = {"seed_lot_commissioning_requests"}
 SEMINA_COMMISSIONING_TABLES = {"semina_commissioning_requests"}
+SEMINA_LIFECYCLE_TABLES = {
+    "semina_lifecycle_transition_requests", "semina_lifecycle_eventi",
+}
 EXPECTED_TABLES = (
     FOUNDATION_TABLES | ORDER_COMMIT_TABLES | PREREQUISITE_TABLES
     | PRODUCTION_PLANNING_TABLES | SEED_LOT_COMMISSIONING_TABLES
-    | SEMINA_COMMISSIONING_TABLES
+    | SEMINA_COMMISSIONING_TABLES | SEMINA_LIFECYCLE_TABLES
 )
 
 
@@ -111,6 +114,7 @@ def test_migration_non_contiene_tabelle_vietate() -> None:
 def test_revision_chain_valida_e_lineare() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
     assert [revision.revision for revision in revisions] == [
+        "20260825_0020",
         "20260825_0019",
         "20260824_0018",
         "20260824_0017",

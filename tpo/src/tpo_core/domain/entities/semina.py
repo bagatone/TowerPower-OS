@@ -9,18 +9,11 @@ from typing import Any
 from ..errors import InvalidQuantityError, InvariantViolationError
 from ..identifiers import LottoSemeId, ProtocolloVersioneId, SeminaId, VarietaId
 from ..quantities import Quantity, UnitOfMeasure
-from ..states import SeminaState
+from ..states import SeminaFinalOutcome, SeminaState
 from ..time_reference import CurrentSystemDate
 
 
-_ESITI_FINALI = frozenset(
-    {
-        "raccolta completa",
-        "raccolta parziale con scarto",
-        "scarto totale",
-        "interruzione",
-    }
-)
+_ESITI_FINALI = frozenset(outcome.value for outcome in SeminaFinalOutcome)
 
 
 @dataclass(frozen=True, eq=False)

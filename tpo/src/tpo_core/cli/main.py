@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from ..domain.states import VarietaState
+from ..domain.states import SeminaFinalOutcome, SeminaState, VarietaState
 from .scheduling import run_scheduling_command
 from .preflight import run_preflight_command
 from .operational import run_operational_scheduling_command
@@ -142,6 +142,21 @@ def _parser() -> argparse.ArgumentParser:
     commission_semina.add_argument("--correlation-id", required=True)
     commission_semina.add_argument("--idempotency-key", required=True)
     commission_semina.add_argument("--confirm", action="store_true", required=True)
+    transition_semina = semina_commands.add_parser("transition")
+    transition_semina.add_argument("--semina", required=True)
+    transition_semina.add_argument("--expected-semina-version", required=True, type=int)
+    transition_semina.add_argument("--target-state", required=True,
+                                   choices=[state.value for state in SeminaState])
+    transition_semina.add_argument("--effective-at", required=True)
+    transition_semina.add_argument(
+        "--final-outcome", choices=[outcome.value for outcome in SeminaFinalOutcome],
+    )
+    transition_semina.add_argument("--provenance", required=True)
+    transition_semina.add_argument("--actor", required=True)
+    transition_semina.add_argument("--reason", required=True)
+    transition_semina.add_argument("--correlation-id", required=True)
+    transition_semina.add_argument("--idempotency-key", required=True)
+    transition_semina.add_argument("--confirm", action="store_true", required=True)
     return parser
 
 

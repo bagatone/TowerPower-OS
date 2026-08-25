@@ -19,6 +19,13 @@ class SeminaState(str, Enum):
     CHIUSA = "CHIUSA"
 
 
+class SeminaFinalOutcome(str, Enum):
+    RACCOLTA_COMPLETA = "raccolta completa"
+    RACCOLTA_PARZIALE_CON_SCARTO = "raccolta parziale con scarto"
+    SCARTO_TOTALE = "scarto totale"
+    INTERRUZIONE = "interruzione"
+
+
 class ProgrammaFornituraState(str, Enum):
     ATTIVO = "ATTIVO"
     SOSPESO = "SOSPESO"

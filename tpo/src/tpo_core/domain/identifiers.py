@@ -67,6 +67,7 @@ class VarietaId(PermanentId):
 @dataclass(frozen=True)
 class SeminaId(PermanentId):
     prefix: ClassVar[str] = "SEM"
+    sequence_name: ClassVar[str] = "SEMINA_ID"
 
 
 @dataclass(frozen=True)

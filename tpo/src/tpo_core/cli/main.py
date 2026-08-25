@@ -12,6 +12,7 @@ from .operational import run_operational_scheduling_command
 from .production_planning import run_production_planning_command
 from .onboarding import run_onboarding_command
 from .seed_lot import run_seed_lot_command
+from .semina import run_semina_command
 
 
 class _UsageError(ValueError):
@@ -121,6 +122,26 @@ def _parser() -> argparse.ArgumentParser:
     commission_seed_lot.add_argument("--correlation-id", required=True)
     commission_seed_lot.add_argument("--idempotency-key", required=True)
     commission_seed_lot.add_argument("--confirm", action="store_true", required=True)
+    semina = commands.add_parser("semina", help="Commissioning governato SEMINA.")
+    semina_commands = semina.add_subparsers(dest="semina_command", required=True)
+    commission_semina = semina_commands.add_parser("commission")
+    commission_semina.add_argument("--seed-lot", required=True)
+    commission_semina.add_argument("--expected-seed-lot-version", required=True, type=int)
+    commission_semina.add_argument("--protocol-version", required=True)
+    commission_semina.add_argument("--actual-seed-grams", required=True)
+    commission_semina.add_argument("--physical-started-at", required=True)
+    commission_semina.add_argument("--origin", required=True, choices=[
+        "PIANO_PRODUZIONE", "ORDINE_CLIENTE", "RIPRISTINO_STOCK",
+    ])
+    commission_semina.add_argument("--planning-line")
+    commission_semina.add_argument("--expected-planning-line-version", type=int)
+    commission_semina.add_argument("--started-quantity-set")
+    commission_semina.add_argument("--provenance", required=True)
+    commission_semina.add_argument("--actor", required=True)
+    commission_semina.add_argument("--reason", required=True)
+    commission_semina.add_argument("--correlation-id", required=True)
+    commission_semina.add_argument("--idempotency-key", required=True)
+    commission_semina.add_argument("--confirm", action="store_true", required=True)
     return parser
 
 
@@ -140,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_onboarding_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "seed-lot":
         return run_seed_lot_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "semina":
+        return run_semina_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "preflight":
         return run_preflight_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "execute":

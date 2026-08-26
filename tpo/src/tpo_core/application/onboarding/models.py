@@ -98,3 +98,20 @@ class OnboardingResult:
     entity_type: str
     public_id: str
     inserted: bool
+    updated: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.inserted, bool) or not isinstance(self.updated, bool):
+            raise InvalidOnboardingCommandError("Esito onboarding non valido.")
+        if self.inserted and self.updated:
+            raise InvalidOnboardingCommandError(
+                "Un esito onboarding non puo essere INSERTED e UPDATED insieme."
+            )
+
+    @property
+    def outcome(self) -> str:
+        if self.inserted:
+            return "INSERTED"
+        if self.updated:
+            return "UPDATED"
+        return "COMPATIBLE_REPLAY"

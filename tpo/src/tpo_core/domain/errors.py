@@ -21,6 +21,10 @@ class InvalidTimeReferenceError(DomainError):
     """Riferimento temporale ufficiale non valido."""
 
 
+class InvalidTraceabilityCodeError(DomainError):
+    """Codice autorevole di tracciabilita non valido."""
+
+
 class InvalidStateTransitionError(DomainError):
     """Transizione di stato non consentita."""
 

@@ -78,6 +78,7 @@ def _parser() -> argparse.ArgumentParser:
     variety = onboarding_commands.add_parser("variety")
     variety.add_argument("--variety-id", required=True)
     variety.add_argument("--denomination", required=True)
+    variety.add_argument("--traceability-code")
     variety.add_argument("--state", required=True, choices=[item.value for item in VarietaState])
     program = onboarding_commands.add_parser("supply-program")
     correction = onboarding_commands.add_parser("correct-never-effective-supply-program")

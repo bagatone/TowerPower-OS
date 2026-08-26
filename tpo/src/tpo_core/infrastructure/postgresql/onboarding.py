@@ -48,23 +48,63 @@ class PostgreSQLOperationalDataOnboardingWriter:
     def commission_variety(self, command: CommissionVariety) -> OnboardingResult:
         variety = command.variety
         payload = {"public_id": variety.id.value, "denominazione": variety.denominazione,
-                   "stato": variety.stato.value, "version": 0}
+                   "stato": variety.stato.value,
+                   "codice_tracciabilita": (variety.traceability_code.value
+                                              if variety.traceability_code else None),
+                   "version": 0}
 
-        def operation(cursor: Any) -> bool:
+        def operation(cursor: Any) -> bool | tuple[bool, bool]:
             cursor.execute(
                 """INSERT INTO tpo.varieta
-                     (public_id,denominazione,stato,created_by,updated_at,updated_by,version)
-                     VALUES (%s,%s,%s,%s,CURRENT_TIMESTAMP,%s,0)
+                     (public_id,denominazione,stato,codice_tracciabilita,created_by,updated_at,updated_by,version)
+                     VALUES (%s,%s,%s,%s,%s,CURRENT_TIMESTAMP,%s,0)
                      ON CONFLICT (public_id) DO NOTHING RETURNING id""",
                 (variety.id.value, variety.denominazione, variety.stato.value,
+                 variety.traceability_code.value if variety.traceability_code else None,
                  command.authority.actor.value, command.authority.actor.value),
             )
             inserted = cursor.fetchone() is not None
             if not inserted:
-                cursor.execute("SELECT denominazione,stato,version FROM tpo.varieta WHERE public_id=%s", (variety.id.value,))
-                if cursor.fetchone() != (variety.denominazione, variety.stato.value, 0):
+                cursor.execute("SELECT denominazione,stato,codice_tracciabilita,version FROM tpo.varieta WHERE public_id=%s FOR UPDATE", (variety.id.value,))
+                existing = cursor.fetchone()
+                requested = variety.traceability_code.value if variety.traceability_code else None
+                if existing[:2] != (variety.denominazione, variety.stato.value):
                     raise OnboardingConflictError("VARIETA esiste con payload differente.")
-                self._assert_audit(cursor, "VARIETA", variety.id.value, payload, command.authority)
+                if existing[2] is None and requested is not None:
+                    cursor.execute(
+                        "UPDATE tpo.varieta SET codice_tracciabilita=%s,version=version+1,updated_at=CURRENT_TIMESTAMP,updated_by=%s WHERE public_id=%s AND codice_tracciabilita IS NULL AND version=%s",
+                        (requested, command.authority.actor.value, variety.id.value, existing[3]),
+                    )
+                    if cursor.rowcount != 1:
+                        raise OnboardingConflictError("Commissioning codice VARIETA concorrente.")
+                    payload["version"] = existing[3] + 1
+                    cursor.execute(
+                        """INSERT INTO tpo.audit_eventi
+                           (occurred_at,actor,entity_type,entity_public_id,operation,reason,
+                            before_data,after_data,correlation_id)
+                           VALUES (CURRENT_TIMESTAMP,%s,'VARIETA',%s,'UPDATE',%s,%s::jsonb,%s::jsonb,%s)""",
+                        (command.authority.actor.value, variety.id.value, command.authority.reason,
+                         json.dumps({"codice_tracciabilita": None, "version": existing[3]}, sort_keys=True),
+                         json.dumps(payload, sort_keys=True), command.authority.correlation_id),
+                    )
+                    return False, True
+                if existing[2] != requested:
+                    raise OnboardingConflictError("Codice di tracciabilita VARIETA differente.")
+                payload["version"] = existing[3]
+                if existing[3] == 0:
+                    self._assert_audit(cursor, "VARIETA", variety.id.value, payload, command.authority)
+                else:
+                    cursor.execute(
+                        """SELECT actor,reason,after_data,correlation_id FROM tpo.audit_eventi
+                           WHERE entity_type='VARIETA' AND entity_public_id=%s
+                             AND operation='UPDATE' ORDER BY id DESC LIMIT 1""",
+                        (variety.id.value,),
+                    )
+                    audit = cursor.fetchone()
+                    if (audit is None or audit[0] != command.authority.actor.value
+                            or audit[1] != command.authority.reason or audit[2] != payload
+                            or audit[3] != command.authority.correlation_id):
+                        raise OnboardingConflictError("Provenance codice VARIETA differente.")
             return inserted
 
         return self._execute("VARIETA", variety.id.value, payload, command.authority, operation)
@@ -341,13 +381,18 @@ class PostgreSQLOperationalDataOnboardingWriter:
         }
 
     def _execute(self, entity_type: str, public_id: str, payload: dict[str, Any], authority: Any,
-                 operation: Callable[[Any], bool], *, write_insert_audit: bool = True) -> OnboardingResult:
+                 operation: Callable[[Any], bool | tuple[bool, bool]], *,
+                 write_insert_audit: bool = True) -> OnboardingResult:
         connection = self._factory.connect()
         cursor = None
         committed = False
         try:
             cursor = connection.cursor()
-            inserted = operation(cursor)
+            operation_result = operation(cursor)
+            if isinstance(operation_result, tuple):
+                inserted, updated = operation_result
+            else:
+                inserted, updated = operation_result, False
             if inserted and write_insert_audit:
                 cursor.execute(
                     """INSERT INTO tpo.audit_eventi
@@ -362,7 +407,7 @@ class PostgreSQLOperationalDataOnboardingWriter:
             except Exception as exc:
                 raise OnboardingOutcomeUncertain("Esito commit onboarding da riconciliare.") from exc
             committed = True
-            return OnboardingResult(entity_type, public_id, inserted)
+            return OnboardingResult(entity_type, public_id, inserted, updated)
         except OnboardingConflictError:
             raise
         except psycopg.IntegrityError as exc:

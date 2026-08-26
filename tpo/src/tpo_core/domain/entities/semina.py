@@ -11,6 +11,7 @@ from ..identifiers import LottoSemeId, ProtocolloVersioneId, SeminaId, VarietaId
 from ..quantities import Quantity, UnitOfMeasure
 from ..states import SeminaFinalOutcome, SeminaState
 from ..time_reference import CurrentSystemDate
+from ..traceability import SeminaTraceabilityCode
 
 
 _ESITI_FINALI = frozenset(outcome.value for outcome in SeminaFinalOutcome)
@@ -32,6 +33,7 @@ class Semina:
     causa_origine: str
     lotto_seme_id: LottoSemeId
     protocollo_versione_id: ProtocolloVersioneId
+    traceability_code: SeminaTraceabilityCode
     esito_finale: str | None = None
     version: int = 0
     expected_useful_quantity: Quantity | None = None
@@ -61,6 +63,8 @@ class Semina:
             self.protocollo_versione_id, ProtocolloVersioneId
         ):
             raise InvariantViolationError("Riferimento versione PROTOCOLLO non valido.")
+        if not isinstance(self.traceability_code, SeminaTraceabilityCode):
+            raise InvariantViolationError("SEMINA richiede il codice permanente AAA-GGMM-L.")
         if not isinstance(self.version, int) or isinstance(self.version, bool) or self.version < 0:
             raise InvariantViolationError("Versione SEMINA non valida.")
         predictive = (

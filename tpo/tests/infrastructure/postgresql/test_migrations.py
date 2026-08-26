@@ -114,6 +114,7 @@ def test_migration_non_contiene_tabelle_vietate() -> None:
 def test_revision_chain_valida_e_lineare() -> None:
     revisions = list(ScriptDirectory.from_config(make_config()).walk_revisions())
     assert [revision.revision for revision in revisions] == [
+        "20260826_0021",
         "20260825_0020",
         "20260825_0019",
         "20260824_0018",

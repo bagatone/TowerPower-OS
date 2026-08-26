@@ -74,6 +74,7 @@ def run_semina_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) -> in
     print(f"STATUS: {result.outcome}", file=stdout)
     print("ENTITY: SEMINA", file=stdout)
     print(f"PUBLIC_ID: {result.semina_id.value}", file=stdout)
+    print(f"TRACEABILITY_CODE: {result.traceability_code.value}", file=stdout)
     print(f"STATE: {result.state}", file=stdout)
     print(f"SEED_LOT: {result.seed_lot_id.value}", file=stdout)
     print(f"SEED_LOT_VERSION: {result.seed_lot_version}", file=stdout)

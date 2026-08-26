@@ -7,6 +7,7 @@ from src.tpo_core.domain.errors import InvariantViolationError
 from src.tpo_core.domain.identifiers import LottoSemeId, ProtocolloVersioneId, SeminaId, VarietaId
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
 from src.tpo_core.domain.states import SeminaState
+from src.tpo_core.domain.traceability import SeminaTraceabilityCode
 
 
 def _semina(**changes):
@@ -16,7 +17,8 @@ def _semina(**changes):
                   uso_produttivo="Microgreen", lotto_seme="LSE-000001",
                   versione_protocollo="PV-000001", causa_origine="ORDINE_CLIENTE",
                   lotto_seme_id=LottoSemeId("LSE-000001"),
-                  protocollo_versione_id=ProtocolloVersioneId("PV-000001"))
+                  protocollo_versione_id=ProtocolloVersioneId("PV-000001"),
+                  traceability_code=SeminaTraceabilityCode("AFI-2508-A"))
     return Semina(**(values | changes))
 
 

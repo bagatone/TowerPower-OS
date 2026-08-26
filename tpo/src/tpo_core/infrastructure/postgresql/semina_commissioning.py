@@ -16,12 +16,15 @@ from ...application.semina_commissioning.errors import (
     SeedLotNotFoundError, SeedLotVersionConflictError, SeminaCommitOutcomeUncertainError,
     SeminaCommitRolledBackError, SeminaIdempotencyConflictError,
     SeminaIdentityUnavailableError, SeminaReconciliationRequiredError,
+    TraceabilityCodeConflictError, TraceabilityDiscriminatorExhaustedError,
+    VarietyTraceabilityCodeUnavailableError,
 )
 from ...application.semina_commissioning.models import (
     CommissionSemina, CommissionSeminaResult, SeminaOrigin,
 )
 from ...domain.identifiers import LottoSemeId, RigaPianoSeminaId, SeminaId
 from ...domain.quantities import Quantity, UnitOfMeasure
+from ...domain.traceability import SeminaTraceabilityCode, VarietyTraceabilityCode
 from .connection import PostgreSQLConnectionFactory
 
 SCOPE = "SEMINA_COMMISSIONING_V1"
@@ -48,20 +51,23 @@ class PostgreSQLSeminaCommissioningWriter:
             context = self._context(cursor, command, lot[1])
             planning = self._planning(cursor, command, context) if command.planning_start else None
             public_id, sequence = self._allocate(cursor)
+            traceability_code = self._allocate_traceability(cursor, context[14], command.physical_started_at)
             cursor.execute(
                 """INSERT INTO tpo.semine
                 (public_id,varieta_id,cultivar_id,cultivar_uso_id,lotto_seme_id,
                  protocollo_versione_id,stato,quantita_seme,unita_misura,data_avvio,
                  causa_origine,esito_finale,cultivar_snapshot,uso_produttivo_snapshot,
                  lotto_seme_snapshot,protocollo_snapshot,created_by,version,
-                 expected_useful_quantity,expected_useful_uom,harvest_window_start,harvest_window_end)
+                 expected_useful_quantity,expected_useful_uom,harvest_window_start,harvest_window_end,
+                 codice_tracciabilita)
                 VALUES (%s,%s,%s,%s,%s,%s,'AVVIATA',%s,'GRAM',%s,%s,NULL,%s,%s,%s,%s,%s,0,
-                        NULL,NULL,NULL,NULL)
+                        NULL,NULL,NULL,NULL,%s)
                 RETURNING id,created_at""",
                 (public_id.value, context[1], context[2], context[3], lot[0], context[0],
                  command.actual_seed_quantity.value, command.physical_started_at,
                  command.origin.value, context[5], context[6], command.seed_lot_public_id.value,
-                 command.protocol_version_public_id.value, command.authority.actor.value),
+                 command.protocol_version_public_id.value, command.authority.actor.value,
+                 traceability_code.value),
             )
             semina_pk, recorded_at = cursor.fetchone()
             new_residual = lot[2] - command.actual_seed_quantity.value
@@ -96,7 +102,7 @@ class PostgreSQLSeminaCommissioningWriter:
                 if cursor.rowcount != 1:
                     raise PlanningLineVersionConflictError("RPS modificata concorrente.")
                 new_planning_version = planning[2] + 1
-            self._audit(cursor, public_id, semina_pk, command, lot, new_residual,
+            self._audit(cursor, public_id, traceability_code, semina_pk, command, lot, new_residual,
                         planning, new_planning_version, recorded_at)
             cursor.execute(
                 """UPDATE tpo.semina_commissioning_requests
@@ -119,7 +125,7 @@ class PostgreSQLSeminaCommissioningWriter:
                 raise SeminaIdentityUnavailableError("Conflitto contatore SEMINA_ID.")
             cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
             result = CommissionSeminaResult(
-                public_id, "INSERTED", "AVVIATA", command.seed_lot_public_id, lot[3] + 1,
+                public_id, traceability_code, "INSERTED", "AVVIATA", command.seed_lot_public_id, lot[3] + 1,
                 Quantity(new_residual, UnitOfMeasure.GRAM),
                 command.planning_start.planning_line_public_id if planning else None,
                 new_planning_version, recorded_at,
@@ -161,7 +167,7 @@ class PostgreSQLSeminaCommissioningWriter:
         if row:
             return row[0], None
         cursor.execute(
-            """SELECT r.canonical_payload_hash,r.outcome,s.public_id,l.public_id,l.version,
+            """SELECT r.canonical_payload_hash,r.outcome,s.public_id,s.codice_tracciabilita,l.public_id,l.version,
                       l.quantita_residua,rps.public_id,rps.version,r.recorded_at
                FROM tpo.semina_commissioning_requests r
                JOIN tpo.semine s ON s.id=r.semina_id
@@ -179,9 +185,9 @@ class PostgreSQLSeminaCommissioningWriter:
         if row[1] != "COMMITTED":
             raise SeminaReconciliationRequiredError("Reservation priva di risultato committed.")
         return None, CommissionSeminaResult(
-            SeminaId(row[2]), "COMPATIBLE_REPLAY", "AVVIATA", LottoSemeId(row[3]), row[4],
-            Quantity(row[5], UnitOfMeasure.GRAM), RigaPianoSeminaId(row[6]) if row[6] else None,
-            row[7], row[8],
+            SeminaId(row[2]), SeminaTraceabilityCode(row[3]), "COMPATIBLE_REPLAY", "AVVIATA",
+            LottoSemeId(row[4]), row[5], Quantity(row[6], UnitOfMeasure.GRAM),
+            RigaPianoSeminaId(row[7]) if row[7] else None, row[8], row[9],
         )
 
     @staticmethod
@@ -208,7 +214,8 @@ class PostgreSQLSeminaCommissioningWriter:
         business_date = command.physical_started_at.astimezone(CANARY).date()
         cursor.execute(
             """SELECT pv.id,v.id,c.id,cu.id,v.public_id,c.denominazione,u.denominazione,
-                      p.tipo,p.attivo,cu.stato_validazione,c.stato,v.stato,u.attivo,s.attiva
+                      p.tipo,p.attivo,cu.stato_validazione,c.stato,v.stato,u.attivo,s.attiva,
+                      v.codice_tracciabilita
                FROM tpo.protocollo_versioni pv
                JOIN tpo.protocolli p ON p.id=pv.protocollo_id
                JOIN tpo.cultivar_usi cu ON cu.id=p.cultivar_uso_id
@@ -238,6 +245,11 @@ class PostgreSQLSeminaCommissioningWriter:
         uses = cursor.fetchall()
         if len(uses) != 1 or uses[0][0] not in ("RACCOMANDATA", "UTILIZZABILE"):
             raise IncompatibleSeedLotError("LSE/SEMENTE incompatibile con il contesto PV.")
+        if row[14] is None:
+            raise VarietyTraceabilityCodeUnavailableError(
+                "VARIETA priva di codice di tracciabilita owner-authorized."
+            )
+        VarietyTraceabilityCode(row[14])
         return row
 
     @staticmethod
@@ -275,7 +287,27 @@ class PostgreSQLSeminaCommissioningWriter:
         return SeminaId(f"{row[2]}-{row[3]:06d}"), row
 
     @staticmethod
-    def _audit(cursor: Any, sem_id: SeminaId, sem_pk: int, command: CommissionSemina,
+    def _allocate_traceability(cursor: Any, raw_variety_code: str, started_at: Any):
+        variety_code = VarietyTraceabilityCode(raw_variety_code)
+        local_date = started_at.astimezone(CANARY).date()
+        scope = f"{variety_code.value}:{local_date.isoformat()}"
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", (scope,))
+        stem = f"{variety_code.value}-{local_date:%d%m}-"
+        cursor.execute(
+            "SELECT codice_tracciabilita FROM tpo.semine WHERE codice_tracciabilita LIKE %s",
+            (stem + "%",),
+        )
+        used = {row[0][-1] for row in cursor.fetchall()}
+        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            if letter not in used:
+                return SeminaTraceabilityCode.build(variety_code, started_at, letter)
+        raise TraceabilityDiscriminatorExhaustedError(
+            f"Discriminatori A..Z esauriti per {scope}."
+        )
+
+    @staticmethod
+    def _audit(cursor: Any, sem_id: SeminaId, traceability_code: SeminaTraceabilityCode,
+               sem_pk: int, command: CommissionSemina,
                lot: Any, new_residual: Any, planning: Any, new_planning_version: Any,
                recorded_at: Any) -> None:
         provenance = {k: v.value for k, v in command.provenance}
@@ -283,6 +315,7 @@ class PostgreSQLSeminaCommissioningWriter:
                   command.authority.correlation_id)
         events = [
             ("SEMINA", sem_id.value, "INSERT", None, {"public_id": sem_id.value,
+             "traceability_code": traceability_code.value,
              "state": "AVVIATA", "seed_lot": command.seed_lot_public_id.value,
              "protocol_version": command.protocol_version_public_id.value,
              "actual_seed_grams": str(command.actual_seed_quantity.value),
@@ -318,6 +351,8 @@ class PostgreSQLSeminaCommissioningWriter:
             return SeminaReconciliationRequiredError("Collisione idempotency da riconciliare.")
         if name in {"uq_semine_public_id", "ck_semine_public_id_format"}:
             return SeminaIdentityUnavailableError("Collisione SEM identity.")
+        if name in {"uq_semine_codice_tracciabilita", "ck_semine_codice_tracciabilita"}:
+            return TraceabilityCodeConflictError("Collisione codice di tracciabilita SEMINA.")
         if name.startswith("uq_righe_piano_semina_semine"):
             return ProtocolContextIncompatibleError("Link Planning non valido o duplicato.")
         return SeminaCommitRolledBackError("Vincolo SEMINA non soddisfatto.")

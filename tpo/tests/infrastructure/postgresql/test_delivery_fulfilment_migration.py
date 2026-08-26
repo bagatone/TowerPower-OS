@@ -59,7 +59,7 @@ def _ddl() -> str:
 
 def test_delivery_revision_is_single_head_after_0008() -> None:
     script = ScriptDirectory.from_config(make_config())
-    assert script.get_heads() == ["20260825_0020"]
+    assert script.get_heads() == ["20260826_0021"]
     revision = script.get_revision("20260812_0009")
     assert revision is not None
     assert revision.down_revision == "20260811_0008"

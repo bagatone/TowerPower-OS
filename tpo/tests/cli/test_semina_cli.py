@@ -8,6 +8,7 @@ from src.tpo_core.cli import main as main_module
 from src.tpo_core.cli.semina import run_semina_command
 from src.tpo_core.domain.identifiers import LottoSemeId, SeminaId
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
+from src.tpo_core.domain.traceability import SeminaTraceabilityCode
 
 
 def args(*extra):
@@ -34,7 +35,8 @@ def test_independent_happy_path_is_thin(monkeypatch):
         def commission(self, command):
             assert command.planning_start is None
             return CommissionSeminaResult(
-                SeminaId("SEM-000001"), "INSERTED", "AVVIATA", LottoSemeId("LSE-000001"),
+                SeminaId("SEM-000001"), SeminaTraceabilityCode("AFI-2508-A"),
+                "INSERTED", "AVVIATA", LottoSemeId("LSE-000001"),
                 1, Quantity(Decimal("8.75"), UnitOfMeasure.GRAM), None, None,
                 datetime.now(timezone.utc),
             )

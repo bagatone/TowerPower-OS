@@ -13,6 +13,7 @@ from src.tpo_core.domain.errors import (
 from src.tpo_core.domain.identifiers import LottoSemeId, ProtocolloVersioneId, SeminaId, VarietaId
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
 from src.tpo_core.domain.states import SeminaState
+from src.tpo_core.domain.traceability import SeminaTraceabilityCode
 from src.tpo_core.domain.time_reference import OFFICIAL_TIMEZONE_NAME
 
 
@@ -30,6 +31,7 @@ def build_semina(**overrides) -> Semina:
         "causa_origine": "produzione pianificata",
         "lotto_seme_id": LottoSemeId("LSE-000001"),
         "protocollo_versione_id": ProtocolloVersioneId("PV-000001"),
+        "traceability_code": SeminaTraceabilityCode("AFI-0107-A"),
     }
     data.update(overrides)
     return Semina(**data)

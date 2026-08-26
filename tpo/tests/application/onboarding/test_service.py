@@ -7,6 +7,7 @@ from src.tpo_core.application.onboarding import (
     CommissionCustomer, CommissionSupplyProgram, CommissionVariety,
     OnboardingAuthority, OnboardingResult, OperationalDataOnboardingService,
 )
+from src.tpo_core.application.onboarding.errors import InvalidOnboardingCommandError
 from src.tpo_core.domain.entities.programma_fornitura import (
     ConfigurazioneTemporale, ProgrammaFornitura, RigaProgrammaFornitura, TipoRicorrenza,
 )
@@ -34,6 +35,21 @@ def test_provider_neutral_service_delegates_explicit_customer_and_variety():
     assert service.commission_customer(customer).public_id == "CLI-000001"
     assert service.commission_variety(variety).public_id == "VAR-000001"
     assert writer.commands == [customer, variety]
+
+
+@pytest.mark.parametrize(("inserted", "updated", "outcome"), [
+    (True, False, "INSERTED"),
+    (False, True, "UPDATED"),
+    (False, False, "COMPATIBLE_REPLAY"),
+])
+def test_onboarding_result_distinguishes_material_outcomes(inserted, updated, outcome):
+    result = OnboardingResult("VARIETA", "VAR-000001", inserted, updated)
+    assert result.outcome == outcome
+
+
+def test_onboarding_result_rejects_two_material_outcomes():
+    with pytest.raises(InvalidOnboardingCommandError):
+        OnboardingResult("VARIETA", "VAR-000001", True, True)
 
 
 def test_supply_program_validates_positive_quantity_uom_and_recurrence():

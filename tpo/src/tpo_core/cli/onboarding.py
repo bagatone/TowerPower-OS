@@ -20,6 +20,7 @@ from ..domain.entities.varieta import Varieta
 from ..domain.identifiers import ActorId, ClienteId, ProgrammaFornituraId, VarietaId
 from ..domain.quantities import Quantity, UnitOfMeasure
 from ..domain.states import ProgrammaFornituraState, VarietaState
+from ..domain.traceability import VarietyTraceabilityCode
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 from .exit_codes import OperationalExitCode
 
@@ -32,7 +33,9 @@ def run_onboarding_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) -
             method = "commission_customer"
         elif args.onboarding_command == "variety":
             command = CommissionVariety(
-                Varieta(VarietaId(args.variety_id), args.denomination, VarietaState(args.state)), authority,
+                Varieta(VarietaId(args.variety_id), args.denomination, VarietaState(args.state),
+                        VarietyTraceabilityCode(args.traceability_code)
+                        if getattr(args, "traceability_code", None) else None), authority,
             )
             method = "commission_variety"
         else:
@@ -63,7 +66,7 @@ def run_onboarding_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) -
     except Exception:
         print("OPERATION_INTERNAL_ERROR", file=stderr)
         return OperationalExitCode.OPERATION_INTERNAL_ERROR
-    print(f"STATUS: {'INSERTED' if result.inserted else 'COMPATIBLE_REPLAY'}", file=stdout)
+    print(f"STATUS: {result.outcome}", file=stdout)
     print(f"ENTITY: {result.entity_type}", file=stdout)
     print(f"PUBLIC_ID: {result.public_id}", file=stdout)
     return OperationalExitCode.OPERATION_COMMITTED

@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import time, uuid
 from alembic import command as alembic_command
@@ -8,7 +8,7 @@ import sqlalchemy as sa
 
 from src.tpo_core.application.identity import CommissionIdentityRegistration, IdentityRegistrationCommissioningService
 from src.tpo_core.application.semina_commissioning import CommissionSemina, PlannedSeminaStart, SeminaCommissioningAuthority, SeminaFactSource, SeminaOrigin
-from src.tpo_core.application.semina_commissioning.errors import AnomalousSeedLotError, ExpiredSeedLotError, IncompatibleSeedLotError, InsufficientSeedError, PlanningLineNotFoundError, PlanningLineStateError, PlanningLineVersionConflictError, PlanningQuantityExceededError, ProtocolContextIncompatibleError, SeedLotVersionConflictError, SeminaCommitRolledBackError, SeminaIdempotencyConflictError
+from src.tpo_core.application.semina_commissioning.errors import AnomalousSeedLotError, ExpiredSeedLotError, IncompatibleSeedLotError, InsufficientSeedError, PlanningLineNotFoundError, PlanningLineStateError, PlanningLineVersionConflictError, PlanningQuantityExceededError, ProtocolContextIncompatibleError, SeedLotVersionConflictError, SeminaCommitRolledBackError, SeminaIdempotencyConflictError, VarietyTraceabilityCodeUnavailableError
 from src.tpo_core.domain.identifiers import ActorId, LottoSemeId, ProtocolloVersioneId, RigaPianoSeminaId, SeminaId
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
 from src.tpo_core.infrastructure.postgresql.alembic import make_config
@@ -28,6 +28,7 @@ def environment(isolated_postgresql):
     engine = sa.create_engine(cluster.url.set(database=name))
     with engine.begin() as c:
         alembic_command.upgrade(make_config(connection=c), "head"); _seed_authorities(c)
+        c.exec_driver_sql("UPDATE tpo.varieta SET codice_tracciabilita='AFI' WHERE public_id='VAR-000001'")
         c.exec_driver_sql("""
         INSERT INTO tpo.sementi(fornitore,referenza_commerciale,attiva,created_by,updated_at,updated_by,version)
         VALUES ('Supplier','REF',true,'test',CURRENT_TIMESTAMP,'test',0),('Other','OTHER',true,'test',CURRENT_TIMESTAMP,'test',0);
@@ -55,11 +56,11 @@ def environment(isolated_postgresql):
         with cluster.connect().execution_options(isolation_level="AUTOCOMMIT") as c: c.exec_driver_sql(f'DROP DATABASE "{name}" WITH (FORCE)')
 
 
-def command(*, key="idem", lot="LSE-000001", lse_version=0, grams="1.25", origin=SeminaOrigin.ORDINE_CLIENTE, rps_version=0, sets="0.4"):
+def command(*, key="idem", lot="LSE-000001", lse_version=0, grams="1.25", origin=SeminaOrigin.ORDINE_CLIENTE, rps_version=0, sets="0.4", started_at=STARTED_AT):
     planning = None; facts = list(FACTS)
     if origin is SeminaOrigin.PIANO_PRODUZIONE:
         planning = PlannedSeminaStart(RigaPianoSeminaId("RPS-000001"), rps_version, Quantity(Decimal(sets), UnitOfMeasure.SET)); facts.append("planned_started_quantity")
-    return CommissionSemina(LottoSemeId(lot), lse_version, ProtocolloVersioneId("PV-000001"), Quantity(Decimal(grams), UnitOfMeasure.GRAM), STARTED_AT, origin, planning, tuple((f, SeminaFactSource.OWNER_AUTHORIZED) for f in facts), SeminaCommissioningAuthority(ActorId("owner"), "physical start", f"corr-{key}", key))
+    return CommissionSemina(LottoSemeId(lot), lse_version, ProtocolloVersioneId("PV-000001"), Quantity(Decimal(grams), UnitOfMeasure.GRAM), started_at, origin, planning, tuple((f, SeminaFactSource.OWNER_AUTHORIZED) for f in facts), SeminaCommissioningAuthority(ActorId("owner"), "physical start", f"corr-{key}", key))
 
 
 def scalar(engine, sql):
@@ -74,6 +75,8 @@ def outcome(writer, cmd):
 def test_independent_success_identity_replay_audit_prediction_and_no_planning(environment):
     engine, writer = environment; first = writer.commission(command()); replay = writer.commission(command())
     assert first.semina_id == replay.semina_id == SeminaId("SEM-000001") and replay.outcome == "COMPATIBLE_REPLAY"
+    assert first.traceability_code == replay.traceability_code
+    assert first.traceability_code.value == "AFI-2508-A"
     with engine.connect() as c:
         semina = c.exec_driver_sql("SELECT stato,quantita_seme,unita_misura,esito_finale,expected_useful_quantity,expected_useful_uom,harvest_window_start,harvest_window_end FROM tpo.semine").one()
         lot = c.exec_driver_sql("SELECT quantita_residua,version FROM tpo.lotti_seme WHERE public_id='LSE-000001'").one()
@@ -124,6 +127,29 @@ def test_idempotency_conflict_and_audit_failure_rollback(environment):
         c.exec_driver_sql("CREATE TRIGGER fail_semina_audit BEFORE INSERT ON tpo.audit_eventi FOR EACH ROW EXECUTE FUNCTION tpo.fail_semina_audit()")
     with pytest.raises(SeminaCommitRolledBackError): writer.commission(command(key="audit-fail",lse_version=1))
     assert scalar(engine,"SELECT count(*) FROM tpo.semine") == 1 and scalar(engine,"SELECT quantita_residua FROM tpo.lotti_seme WHERE public_id='LSE-000001'") == Decimal("8.750000")
+    with engine.begin() as c: c.exec_driver_sql("DROP TRIGGER fail_semina_audit ON tpo.audit_eventi")
+    recovered = writer.commission(command(key="after-rollback", lot="LSE-000005"))
+    assert recovered.traceability_code.value == "AFI-2508-B"
+
+
+def test_same_variety_day_allocates_next_letter_and_new_day_restarts_at_a(environment):
+    _, writer = environment
+    first = writer.commission(command(key="day-a"))
+    second = writer.commission(command(key="day-b", lot="LSE-000005"))
+    assert (first.traceability_code.value, second.traceability_code.value) == (
+        "AFI-2508-A", "AFI-2508-B"
+    )
+
+
+def test_missing_variety_code_blocks_before_any_physical_write(environment):
+    engine, writer = environment
+    with engine.begin() as c:
+        c.exec_driver_sql("ALTER TABLE tpo.varieta DISABLE TRIGGER protect_varieta_traceability_code")
+        c.exec_driver_sql("UPDATE tpo.varieta SET codice_tracciabilita=NULL WHERE public_id='VAR-000001'")
+        c.exec_driver_sql("ALTER TABLE tpo.varieta ENABLE TRIGGER protect_varieta_traceability_code")
+    with pytest.raises(VarietyTraceabilityCodeUnavailableError):
+        writer.commission(command(key="missing-code"))
+    assert scalar(engine, "SELECT count(*) FROM tpo.semine") == 0
 
 
 def test_concurrent_lse_and_last_seed_serialize(environment):
@@ -132,6 +158,15 @@ def test_concurrent_lse_and_last_seed_serialize(environment):
     with ThreadPoolExecutor(max_workers=2) as pool: results = list(pool.map(lambda n: outcome(writer,command(key=f"race-{n}",grams="1")),range(2)))
     assert results.count("INSERTED") == 1 and results.count(SeedLotVersionConflictError) == 1
     assert scalar(engine,"SELECT quantita_residua FROM tpo.lotti_seme WHERE public_id='LSE-000001'") == 0
+
+
+def test_concurrent_independent_same_scope_gets_distinct_codes(environment):
+    engine, writer = environment
+    commands = (command(key="trace-race-a"), command(key="trace-race-b", lot="LSE-000005"))
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(writer.commission, commands))
+    assert {result.traceability_code.value for result in results} == {"AFI-2508-A", "AFI-2508-B"}
+    assert scalar(engine, "SELECT count(DISTINCT codice_tracciabilita) FROM tpo.semine") == 2
 
 
 def test_concurrent_partial_starts_never_exceed_rps(environment):

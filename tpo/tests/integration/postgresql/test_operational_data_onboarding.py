@@ -15,6 +15,7 @@ from src.tpo_core.domain.entities.varieta import Varieta
 from src.tpo_core.domain.identifiers import ActorId, ClienteId, ProgrammaFornituraId, VarietaId
 from src.tpo_core.domain.quantities import Quantity, UnitOfMeasure
 from src.tpo_core.domain.states import ProgrammaFornituraState, VarietaState
+from src.tpo_core.domain.traceability import VarietyTraceabilityCode
 from src.tpo_core.infrastructure.postgresql.alembic import make_config
 from src.tpo_core.infrastructure.postgresql.identity_commissioning import PostgreSQLIdentityRegistrationCommissioningWriter
 from src.tpo_core.infrastructure.postgresql.onboarding import PostgreSQLOperationalDataOnboardingWriter
@@ -84,6 +85,36 @@ def test_missing_customer_and_variety_fail_closed(environment):
     program = ProgrammaFornitura(ProgrammaFornituraId("PF-999999"), ClienteId("CLI-999999"), (line,), date(2026, 8, 24), ProgrammaFornituraState.ATTIVO, 7)
     with pytest.raises(OnboardingConflictError):
         writer.commission_supply_program(CommissionSupplyProgram(program, 1, datetime.now(timezone.utc), AUTH))
+
+
+def test_existing_variety_code_commissioning_reports_update_then_exact_replay(environment):
+    engine, _, writer = environment
+    plain = CommissionVariety(
+        Varieta(VarietaId("VAR-000001"), "Cilantro", VarietaState.ATTIVA), AUTH,
+    )
+    coded = CommissionVariety(
+        Varieta(VarietaId("VAR-000001"), "Cilantro", VarietaState.ATTIVA,
+                VarietyTraceabilityCode("CIL")), AUTH,
+    )
+    assert writer.commission_variety(plain).outcome == "INSERTED"
+    assert writer.commission_variety(coded).outcome == "UPDATED"
+    assert writer.commission_variety(coded).outcome == "COMPATIBLE_REPLAY"
+    with pytest.raises(OnboardingConflictError):
+        writer.commission_variety(CommissionVariety(
+            Varieta(VarietaId("VAR-000001"), "Cilantro", VarietaState.ATTIVA,
+                    VarietyTraceabilityCode("RAB")), AUTH,
+        ))
+    with engine.connect() as connection:
+        variety = connection.exec_driver_sql(
+            "SELECT codice_tracciabilita,version FROM tpo.varieta WHERE public_id='VAR-000001'"
+        ).one()
+        audits = connection.exec_driver_sql(
+            "SELECT operation,count(*) FROM tpo.audit_eventi "
+            "WHERE entity_type='VARIETA' AND entity_public_id='VAR-000001' "
+            "GROUP BY operation ORDER BY operation"
+        ).all()
+    assert variety == ("CIL", 1)
+    assert audits == [("INSERT", 1), ("UPDATE", 1)]
 
 
 def test_never_effective_correction_preserves_evidence_replay_and_scheduling_read(environment):

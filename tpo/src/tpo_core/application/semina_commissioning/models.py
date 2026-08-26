@@ -11,6 +11,7 @@ from ...domain.identifiers import (
     ActorId, LottoSemeId, ProtocolloVersioneId, RigaPianoSeminaId, SeminaId,
 )
 from ...domain.quantities import Quantity, UnitOfMeasure
+from ...domain.traceability import SeminaTraceabilityCode
 from .errors import (
     InvalidPhysicalStartError, InvalidSeminaCommandError, InvalidSeminaOriginError,
 )
@@ -144,6 +145,7 @@ class CommissionSemina:
 @dataclass(frozen=True)
 class CommissionSeminaResult:
     semina_id: SeminaId
+    traceability_code: SeminaTraceabilityCode
     outcome: str
     state: str
     seed_lot_id: LottoSemeId

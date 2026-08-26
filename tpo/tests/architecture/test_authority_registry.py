@@ -79,8 +79,7 @@ def test_unresolved_concepts_remain_explicit_and_have_owner_decisions():
     assert all(item["open_owner_decisions"] for item in unresolved)
     required_unresolved = {
         "PRODOTTO", "ARTICOLO", "ASSEGNAZIONE_FISICA", "FATTURA",
-        "INCASSO_PAGAMENTO", "TRACEABILITY_CODE", "MASTER_VARIETA_CODICE",
-        "LEGACY_ID_LOTTO", "AAA_GGMM_L", "HYDRATION_RULES",
+        "INCASSO_PAGAMENTO", "HYDRATION_RULES",
     }
     assert required_unresolved <= {item["concept_id"] for item in unresolved}
 
@@ -93,5 +92,25 @@ def test_governance_freeze_is_fail_closed_and_suspends_harvest_design():
         "PRIOR ART REVIEW PASSED", "PRIOR ART REVIEW BLOCKED", "fail-closed",
         "SPRINT 5.13 HARVEST DESIGN SUSPENDED PENDING AUTHORITY RECONCILIATION",
         "OWNER / ARCHITECTURE DECISION REQUIRED",
+    )
+    assert all(value in freeze for value in required)
+
+
+def test_semina_traceability_freeze_reconciles_only_the_authorized_scope():
+    freeze = (
+        ROOT / "docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md"
+    ).read_text(encoding="utf-8")
+    required = (
+        "PRIOR ART REVIEW PASSED",
+        "one SEM-* <-> exactly one AAA-GGMM-L",
+        "^[A-Z]{3}-[0-9]{4}-[A-Z]$",
+        "VARIETA Configuration",
+        "Atlantic/Canary",
+        "A, B, C, ... Z",
+        "OBSOLETE WITH EXPLICIT REPLACEMENT",
+        "PREDB is never generated for new production",
+        "`SEM-CIL` does not satisfy `SEM-[0-9]{6,}`",
+        "No `LOTTO_PRODUZIONE` aggregate",
+        "does not implement RACCOLTA, STOCK, CONSEGNA or FATTURA",
     )
     assert all(value in freeze for value in required)

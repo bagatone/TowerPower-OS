@@ -30,7 +30,7 @@ concepts:
     domain: PRODUCTION_KNOWLEDGE
     classification: configuration
     status: PARTIALLY MIGRATED
-    current_authorities: [{path: docs/architecture/VARIETA.md, section: "6", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/VARIETA.md, section: "6", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "6", kind: architecture_freeze}]
     core_implementations: [src/tpo_core/domain/entities/varieta.py]
     persistence_authorities: [tpo.varieta]
     identities: [{type: VarietaId, prefix: VAR, sequence: VARIETA_ID}]
@@ -38,8 +38,8 @@ concepts:
     preserved_rules: ["Varieta is the general productive identity and is distinct from Prodotto and Articolo."]
     explicitly_superseded_rules: []
     forbidden_duplicates: []
-    conflicts: ["The current Core has no canonical variety abbreviation field."]
-    open_owner_decisions: ["Choose the canonical authority for the preserved variety abbreviation."]
+    conflicts: ["The frozen VARIETA traceability-code authority is not yet implemented in Core persistence."]
+    open_owner_decisions: []
     correction_semantics: "Configuration changes require an authorized boundary."
     audit_authority: tpo.audit_eventi
     idempotency_authority: onboarding command boundary
@@ -114,16 +114,16 @@ concepts:
     domain: PHYSICAL_PRODUCTION
     classification: aggregate
     status: PRESERVED
-    current_authorities: [{path: docs/architecture/SEMINA_COMMISSIONING_BOUNDARY_FREEZE.md, section: "2", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/SEMINA_COMMISSIONING_BOUNDARY_FREEZE.md, section: "2", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "3", kind: architecture_freeze}]
     core_implementations: [src/tpo_core/domain/entities/semina.py, src/tpo_core/application/semina_commissioning/service.py]
     persistence_authorities: [tpo.semine, tpo.semina_commissioning_requests]
     identities: [{type: SeminaId, prefix: SEM, sequence: SEMINA_ID}]
     legacy_predecessors: [docs/architecture/SEMINE.md, docs/OPERATING_RULES.md]
-    preserved_rules: ["SEM is the permanent identity of one homogeneous physical production group."]
+    preserved_rules: ["SEM is the permanent identity of one homogeneous physical production group.", "Every future Semina under the traceability boundary has one immutable AAA-GGMM-L reference."]
     explicitly_superseded_rules: ["No separate LOTTO_PRODUZIONE aggregate exists."]
     forbidden_duplicates: [{alias: LOTTO_PRODUZIONE, reason: "It would duplicate the SEMINA aggregate."}]
-    conflicts: ["The relationship with legacy ID_LOTTO and AAA-GGMM-L is unresolved."]
-    open_owner_decisions: ["Reconcile SEM with the preserved operational traceability code."]
+    conflicts: ["Traceability persistence and atomic allocation are not yet implemented."]
+    open_owner_decisions: []
     correction_semantics: "Commissioning facts are immutable; lifecycle uses append-only events."
     audit_authority: tpo.audit_eventi
     idempotency_authority: tpo.semina_commissioning_requests
@@ -156,7 +156,7 @@ concepts:
     domain: PHYSICAL_PRODUCTION
     classification: fact
     status: PARTIALLY MIGRATED
-    current_authorities: [{path: docs/architecture/RACCOLTE.md, section: "Definizione", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/RACCOLTE.md, section: "Definizione", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}]
     core_implementations: [src/tpo_core/domain/entities/raccolta.py]
     persistence_authorities: [tpo.raccolte]
     identities: [{type: RaccoltaId, prefix: RAC, sequence: null}]
@@ -177,7 +177,7 @@ concepts:
     domain: INVENTORY
     classification: state
     status: CONFLICTING
-    current_authorities: [{path: docs/architecture/STOCK.md, section: "Principio fondativo", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/STOCK.md, section: "Principio fondativo", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}]
     core_implementations: [src/tpo_core/domain/entities/stock.py]
     persistence_authorities: [tpo.stock]
     identities: []
@@ -261,7 +261,7 @@ concepts:
     domain: COMMERCIAL
     classification: aggregate
     status: PRESERVED
-    current_authorities: [{path: docs/architecture/CONSEGNE.md, section: "Definizione", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/CONSEGNE.md, section: "Definizione", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}]
     core_implementations: [src/tpo_core/domain/entities/consegna.py, src/tpo_core/application/delivery_fulfilment/service.py]
     persistence_authorities: [tpo.consegne, tpo.consegne_ordini, tpo.righe_consegna]
     identities: [{type: ConsegnaId, prefix: CON, sequence: null}]
@@ -408,7 +408,7 @@ concepts:
     domain: ADMINISTRATION
     classification: document
     status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.3", kind: architecture_freeze}]
+    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.3", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}]
     core_implementations: []
     persistence_authorities: []
     identities: []
@@ -449,20 +449,20 @@ concepts:
     canonical_name: Operational Traceability Code
     domain: TRACEABILITY
     classification: identifier_alias
-    status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/OPERATING_RULES.md, section: "3", kind: current_operational_rule}]
+    status: PARTIALLY MIGRATED
+    current_authorities: [{path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "5", kind: architecture_freeze}, {path: docs/OPERATING_RULES.md, section: "3", kind: current_operational_rule}]
     core_implementations: []
     persistence_authorities: []
     identities: []
     legacy_predecessors: [docs/AGENTS.md]
-    preserved_rules: ["AAA-GGMM-L is a preserved operational traceability convention."]
-    explicitly_superseded_rules: []
+    preserved_rules: ["AAA-GGMM-L is the canonical immutable human-facing traceability code paired one-to-one with SEM."]
+    explicitly_superseded_rules: ["Hydration date is not used for GGMM; the Atlantic/Canary physical Semina start date is authoritative."]
     forbidden_duplicates: []
-    conflicts: ["No normative mapping exists between the operational code and SEM, RAC or LSE identities."]
-    open_owner_decisions: ["OWNER / ARCHITECTURE DECISION REQUIRED"]
-    correction_semantics: unresolved
+    conflicts: ["The frozen code and allocation authority are not yet implemented in Core persistence."]
+    open_owner_decisions: []
+    correction_semantics: "Immutable after Semina commissioning; wrong constitutive facts require a future preserving disposition boundary."
     audit_authority: not_implemented
-    idempotency_authority: not_applicable
+    idempotency_authority: future Semina commissioning request authority
     verification_tests: []
     reviewed_at_commit: 4e6a127
 
@@ -470,18 +470,19 @@ concepts:
     canonical_name: MASTER_VARIETA.CODICE
     domain: TRACEABILITY
     classification: configuration
-    status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/TPO_CORE_PRINCIPLES.md, section: "PRINCIPIO 5", kind: predecessor_domain_knowledge}]
+    status: OBSOLETE WITH EXPLICIT REPLACEMENT
+    current_authorities: [{path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "6", kind: architecture_freeze}]
     core_implementations: []
     persistence_authorities: []
     identities: []
     legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md, docs/OPERATING_RULES.md]
     preserved_rules: ["The variety abbreviation belongs to one canonical variety authority and must not be invented or hard-coded."]
-    explicitly_superseded_rules: []
+    explicitly_superseded_rules: ["MASTER_VARIETA is not the current runtime home; its CODICE business meaning moves to canonical VARIETA Configuration."]
     forbidden_duplicates: []
-    conflicts: ["MASTER_VARIETA is not represented in current PostgreSQL Core."]
-    open_owner_decisions: ["OWNER / ARCHITECTURE DECISION REQUIRED"]
-    correction_semantics: unresolved
+    conflicts: ["The replacement VARIETA Configuration property is not yet implemented."]
+    open_owner_decisions: []
+    replacement_or_decision_reference: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md#6-varieta-code-authority
+    correction_semantics: "Future governed VARIETA Configuration correction; existing Semina codes remain immutable."
     audit_authority: not_implemented
     idempotency_authority: not_applicable
     verification_tests: []
@@ -491,18 +492,19 @@ concepts:
     canonical_name: Legacy ID_LOTTO
     domain: TRACEABILITY
     classification: predecessor_concept
-    status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/OPERATING_RULES.md, section: "3", kind: predecessor_domain_knowledge}]
+    status: OBSOLETE WITH EXPLICIT REPLACEMENT
+    current_authorities: [{path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "11", kind: architecture_freeze}]
     core_implementations: []
     persistence_authorities: []
     identities: []
     legacy_predecessors: [docs/AGENTS.md, tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
     preserved_rules: ["One legacy production lot means same variety, same sowing and same operational moment."]
-    explicitly_superseded_rules: []
+    explicitly_superseded_rules: ["A single legacy ID_LOTTO field is replaced for new runtime production by SEM-* plus AAA-GGMM-L."]
     forbidden_duplicates: []
-    conflicts: ["Its exact equivalence or distinction from SEM is not frozen."]
-    open_owner_decisions: ["OWNER / ARCHITECTURE DECISION REQUIRED"]
-    correction_semantics: unresolved
+    conflicts: []
+    open_owner_decisions: []
+    replacement_or_decision_reference: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md#11-legacy-id_lotto-reconciliation
+    correction_semantics: "Legacy values remain historical; no retrospective commissioning is authorized."
     audit_authority: not_implemented
     idempotency_authority: not_applicable
     verification_tests: []
@@ -512,20 +514,20 @@ concepts:
     canonical_name: AAA-GGMM-L
     domain: TRACEABILITY
     classification: operational_code
-    status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/OPERATING_RULES.md, section: "3", kind: current_operational_rule}]
+    status: PARTIALLY MIGRATED
+    current_authorities: [{path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "5", kind: architecture_freeze}, {path: docs/OPERATING_RULES.md, section: "3", kind: current_operational_rule}]
     core_implementations: []
     persistence_authorities: []
     identities: []
     legacy_predecessors: [docs/AGENTS.md]
-    preserved_rules: ["AAA is a variety code, GGMM is sowing or hydration date, and L is a same-day discriminator.", "Approved PREDB historical codes must not be replaced."]
-    explicitly_superseded_rules: []
+    preserved_rules: ["AAA is authoritative VARIETA Configuration, GGMM is the Atlantic/Canary physical Semina start date, L is a mandatory A..Z discriminator per variety/day.", "Approved PREDB historical codes must not be replaced."]
+    explicitly_superseded_rules: ["The alternative use of hydration date for GGMM is superseded."]
     forbidden_duplicates: []
-    conflicts: ["The current Core stores only semantic-neutral permanent public identities."]
-    open_owner_decisions: ["OWNER / ARCHITECTURE DECISION REQUIRED"]
-    correction_semantics: unresolved
+    conflicts: ["The current Core does not yet persist or allocate the traceability code."]
+    open_owner_decisions: []
+    correction_semantics: "Immutable and never reassigned after successful Semina commissioning."
     audit_authority: not_implemented
-    idempotency_authority: not_applicable
+    idempotency_authority: future Semina commissioning request authority
     verification_tests: []
     reviewed_at_commit: 4e6a127
 
@@ -534,21 +536,42 @@ concepts:
     domain: INVENTORY
     classification: predecessor_identifier
     status: CONFLICTING
-    current_authorities: [{path: tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md, section: ANAGRAFICA_ARTICOLI, kind: test_only_fixture}]
+    current_authorities: [{path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "13", kind: architecture_freeze}, {path: tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md, section: ANAGRAFICA_ARTICOLI, kind: test_only_fixture}]
     core_implementations: [src/init_resource_engine.py]
     persistence_authorities: []
     identities: []
     legacy_predecessors: [src/init_resource_engine.py]
     preserved_rules: ["These strings identify legacy seed inventory articles, not physical Semina entities."]
-    explicitly_superseded_rules: []
+    explicitly_superseded_rules: ["Legacy SEM-CIL-style article values must never be parsed or migrated as SeminaId or AAA-GGMM-L."]
     forbidden_duplicates: [{alias: SEM_CIL_AS_SEMINA_ID, reason: "SEM-CIL does not satisfy or represent SeminaId."}]
-    conflicts: ["The SEM token now belongs to the current Semina public identity namespace."]
-    open_owner_decisions: ["Future Articolo authority must prevent collision with current public identity prefixes."]
+    conflicts: ["The historical SEM token overlaps visually with the current Semina namespace, but the values are explicitly confined to legacy article references."]
+    open_owner_decisions: []
     correction_semantics: not_applicable
     audit_authority: legacy_only
     idempotency_authority: not_applicable
     verification_tests: [tests/test_legacy_google_sheets_fixture_boundary.py]
     reviewed_at_commit: 4e6a127
+
+  - concept_id: PREDB
+    canonical_name: PREDB Historical Traceability Reference
+    domain: TRACEABILITY
+    classification: predecessor_identifier
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "12", kind: architecture_freeze}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [docs/OPERATING_RULES.md]
+    preserved_rules: ["Already approved PREDB references remain immutable historical references for pre-database production."]
+    explicitly_superseded_rules: ["PREDB must never be generated for new production or treated as a current Semina identity."]
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Preserve approved historical values; future import or mapping requires a dedicated Freeze."
+    audit_authority: legacy historical source
+    idempotency_authority: not_applicable
+    verification_tests: []
+    reviewed_at_commit: 62f691e
 
   - concept_id: HYDRATION_RULES
     canonical_name: Hydration Rules

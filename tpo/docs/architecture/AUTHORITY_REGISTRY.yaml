@@ -1,0 +1,572 @@
+schema_version: 1
+registry_name: TPO Architecture Authority Registry
+normative_governance: docs/architecture/ARCHITECTURE_AUTHORITY_GOVERNANCE_FREEZE.md
+reviewed_at_commit: 4e6a127
+
+concepts:
+  - concept_id: CLIENTE
+    canonical_name: Cliente
+    domain: COMMERCIAL
+    classification: entity
+    status: PRESERVED
+    current_authorities: [{path: docs/TPO_DATA_DICTIONARY.md, section: "4.1", kind: conceptual_authority}]
+    core_implementations: [src/tpo_core/application/onboarding/service.py]
+    persistence_authorities: [tpo.clienti]
+    identities: [{type: ClienteId, prefix: CLI, sequence: CLIENTE_ID}]
+    legacy_predecessors: [docs/OPERATING_RULES.md]
+    preserved_rules: ["A customer has an identity distinct from orders and production."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Governed onboarding; later change requires an explicit boundary."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: onboarding command boundary
+    verification_tests: [tests/integration/postgresql/test_operational_data_onboarding.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: VARIETA
+    canonical_name: Varieta
+    domain: PRODUCTION_KNOWLEDGE
+    classification: configuration
+    status: PARTIALLY MIGRATED
+    current_authorities: [{path: docs/architecture/VARIETA.md, section: "6", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/varieta.py]
+    persistence_authorities: [tpo.varieta]
+    identities: [{type: VarietaId, prefix: VAR, sequence: VARIETA_ID}]
+    legacy_predecessors: [docs/OPERATING_RULES.md, tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
+    preserved_rules: ["Varieta is the general productive identity and is distinct from Prodotto and Articolo."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["The current Core has no canonical variety abbreviation field."]
+    open_owner_decisions: ["Choose the canonical authority for the preserved variety abbreviation."]
+    correction_semantics: "Configuration changes require an authorized boundary."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: onboarding command boundary
+    verification_tests: [tests/domain/test_varieta.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: CULTIVAR
+    canonical_name: Cultivar
+    domain: PRODUCTION_KNOWLEDGE
+    classification: configuration
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/VARIETA.md, section: "7", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/agronomic_commissioning/service.py]
+    persistence_authorities: [tpo.cultivar, tpo.cultivar_usi]
+    identities: []
+    legacy_predecessors: [docs/TPO_DATA_DICTIONARY.md]
+    preserved_rules: ["Cultivar belongs to one Varieta and remains distinct from productive use."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Agronomic knowledge is versioned through governed protocols."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: agronomic commissioning request
+    verification_tests: [tests/integration/postgresql/test_agronomic_commissioning.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: SEMENTE
+    canonical_name: Semente
+    domain: PRODUCTION_KNOWLEDGE
+    classification: configuration
+    status: PARTIALLY MIGRATED
+    current_authorities: [{path: docs/architecture/VARIETA.md, section: "13", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/agronomic_commissioning/service.py]
+    persistence_authorities: [tpo.sementi, tpo.semente_impieghi]
+    identities: [{type: ProtocolloVersioneId, prefix: PV, sequence: PROTOCOLLO_VERSIONE_ID}]
+    legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
+    preserved_rules: ["Semente commercial reference is distinct from Varieta, Cultivar and physical seed lot."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["Its relationship with the generic legacy Articolo authority is not reconciled."]
+    open_owner_decisions: ["Decide whether Semente is also an inventory Articolo reference."]
+    correction_semantics: "Requires a dedicated configuration boundary."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: agronomic commissioning request
+    verification_tests: [tests/integration/postgresql/test_agronomic_commissioning.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: LOTTO_SEME
+    canonical_name: Lotto Seme
+    domain: PHYSICAL_PRODUCTION
+    classification: entity
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/SEED_LOT_COMMISSIONING_BOUNDARY_FREEZE.md, section: "3", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/lotto_seme.py, src/tpo_core/application/seed_lot_commissioning/service.py]
+    persistence_authorities: [tpo.lotti_seme, tpo.seed_lot_commissioning_requests]
+    identities: [{type: LottoSemeId, prefix: LSE, sequence: LOTTO_SEME_ID}]
+    legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
+    preserved_rules: ["LSE identifies one received physical seed lot and owns its residual GRAM balance."]
+    explicitly_superseded_rules: ["SEM is not a seed-lot identity."]
+    forbidden_duplicates: [{alias: SEM_FOR_SEED_LOT, reason: "SEM is reserved for Semina."}]
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Constitutive facts immutable; non-constitutive correction boundary deferred."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: tpo.seed_lot_commissioning_requests
+    verification_tests: [tests/integration/postgresql/test_seed_lot_commissioning.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: SEMINA
+    canonical_name: Semina
+    domain: PHYSICAL_PRODUCTION
+    classification: aggregate
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/SEMINA_COMMISSIONING_BOUNDARY_FREEZE.md, section: "2", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/semina.py, src/tpo_core/application/semina_commissioning/service.py]
+    persistence_authorities: [tpo.semine, tpo.semina_commissioning_requests]
+    identities: [{type: SeminaId, prefix: SEM, sequence: SEMINA_ID}]
+    legacy_predecessors: [docs/architecture/SEMINE.md, docs/OPERATING_RULES.md]
+    preserved_rules: ["SEM is the permanent identity of one homogeneous physical production group."]
+    explicitly_superseded_rules: ["No separate LOTTO_PRODUZIONE aggregate exists."]
+    forbidden_duplicates: [{alias: LOTTO_PRODUZIONE, reason: "It would duplicate the SEMINA aggregate."}]
+    conflicts: ["The relationship with legacy ID_LOTTO and AAA-GGMM-L is unresolved."]
+    open_owner_decisions: ["Reconcile SEM with the preserved operational traceability code."]
+    correction_semantics: "Commissioning facts are immutable; lifecycle uses append-only events."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: tpo.semina_commissioning_requests
+    verification_tests: [tests/integration/postgresql/test_semina_commissioning.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: SEMINA_LIFECYCLE
+    canonical_name: Semina Lifecycle Event Authority
+    domain: PHYSICAL_PRODUCTION
+    classification: fact
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/SEMINA_LIFECYCLE_EVENT_AUTHORITY_FREEZE.md, section: "3", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/semina_lifecycle/service.py]
+    persistence_authorities: [tpo.semina_lifecycle_eventi, tpo.semina_lifecycle_transition_requests]
+    identities: []
+    legacy_predecessors: [docs/AGENTS.md]
+    preserved_rules: ["Lifecycle changes are exact-timestamp append-only physical facts."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "No event overwrite; later correction requires a frozen boundary."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: tpo.semina_lifecycle_transition_requests
+    verification_tests: [tests/integration/postgresql/test_semina_lifecycle.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: RACCOLTA
+    canonical_name: Raccolta
+    domain: PHYSICAL_PRODUCTION
+    classification: fact
+    status: PARTIALLY MIGRATED
+    current_authorities: [{path: docs/architecture/RACCOLTE.md, section: "Definizione", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/raccolta.py]
+    persistence_authorities: [tpo.raccolte]
+    identities: [{type: RaccoltaId, prefix: RAC, sequence: null}]
+    legacy_predecessors: [docs/registers/RACCOLTE.md, tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
+    preserved_rules: ["A Raccolta is an immutable event; one Semina may have zero, one or many Raccolte."]
+    explicitly_superseded_rules: ["Raccolta is not a Semina lifecycle state."]
+    forbidden_duplicates: [{alias: RACCOLTA_AS_SEMINA_STATE, reason: "Raccolta is an independent physical fact."}]
+    conflicts: ["Schema and domain exist, but no governed commissioning boundary or commissioned identity sequence exists."]
+    open_owner_decisions: ["Freeze the creation, correction and stock-publication boundaries after authority reconciliation."]
+    correction_semantics: "Historical preservation required; exact correction command is not frozen."
+    audit_authority: not_implemented
+    idempotency_authority: not_implemented
+    verification_tests: [tests/domain/test_raccolta.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: STOCK
+    canonical_name: Physical Stock
+    domain: INVENTORY
+    classification: state
+    status: CONFLICTING
+    current_authorities: [{path: docs/architecture/STOCK.md, section: "Principio fondativo", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/stock.py]
+    persistence_authorities: [tpo.stock]
+    identities: []
+    legacy_predecessors: [docs/OPERATING_RULES.md, docs/TPO_DATA_DICTIONARY.md]
+    preserved_rules: ["Physical availability, reserved demand and sellable availability are distinct concepts."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["STOCK is physical authority in the current freeze, official commercial availability in legacy rules, and a derived commercial view in the Data Dictionary."]
+    open_owner_decisions: ["Name and freeze physical stock versus commercial DISPONIBILE/PRENOTATO/VENDIBILE projections."]
+    correction_semantics: "Physical changes require authorized movements; commercial corrections are separate."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: operation-specific writer authority
+    verification_tests: [tests/domain/test_stock.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: MOVIMENTO_MAGAZZINO
+    canonical_name: Movimento Magazzino
+    domain: INVENTORY
+    classification: fact
+    status: PARTIALLY MIGRATED
+    current_authorities: [{path: docs/architecture/MOVIMENTI_MAGAZZINO.md, section: "Definizione", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/movimento_magazzino.py]
+    persistence_authorities: [tpo.movimenti_magazzino]
+    identities: [{type: MovimentoId, prefix: MOV, sequence: null}]
+    legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
+    preserved_rules: ["A movement is an immutable physical stock variation fact."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["The current movement concerns sellable variety stock; generic article inventory remains unmigrated."]
+    open_owner_decisions: ["Define the boundary between product stock movements and generic inventory movements."]
+    correction_semantics: "RETTIFICA is a new fact, not overwrite."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: operation-specific writer authority
+    verification_tests: [tests/domain/test_movimento_magazzino.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: ORDINE
+    canonical_name: Ordine
+    domain: COMMERCIAL
+    classification: aggregate
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/ORDINI.md, section: "Definizione", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/ordine.py]
+    persistence_authorities: [tpo.ordini, tpo.righe_ordine, tpo.origini_righe_ordine]
+    identities: [{type: OrdineId, prefix: ORD, sequence: null}, {type: RigaOrdineId, prefix: RO, sequence: RIGA_ORDINE_ID}]
+    legacy_predecessors: [docs/registers/ORDINI.md, docs/registers/RIGHE_ORDINE.md]
+    preserved_rules: ["Order, line, delivery and invoice remain distinct authorities."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["Current order lines reference Varieta while the conceptual model requires Prodotto."]
+    open_owner_decisions: ["Reconcile the commercial object Varieta versus Prodotto."]
+    correction_semantics: "Delivery-line corrections are append-only signed facts."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: scheduling occurrence key
+    verification_tests: [tests/domain/test_ordine.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: PROGRAMMA_FORNITURA
+    canonical_name: Programma Fornitura
+    domain: COMMERCIAL
+    classification: aggregate
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/PROGRAMMI_FORNITURA.md, section: "Definizione", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/programma_fornitura.py]
+    persistence_authorities: [tpo.programmi_fornitura, tpo.programmi_fornitura_versioni, tpo.righe_programma_fornitura]
+    identities: [{type: ProgrammaFornituraId, prefix: PF, sequence: PROGRAMMA_FORNITURA_ID}]
+    legacy_predecessors: [docs/TPO_SHEETS_SCHEMA.md]
+    preserved_rules: ["A recurring program is distinct from each generated Order and uses append-only versions."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Append-only program versions."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: onboarding and scheduling authorities
+    verification_tests: [tests/integration/postgresql/test_operational_data_onboarding.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: CONSEGNA
+    canonical_name: Consegna
+    domain: COMMERCIAL
+    classification: aggregate
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/CONSEGNE.md, section: "Definizione", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/consegna.py, src/tpo_core/application/delivery_fulfilment/service.py]
+    persistence_authorities: [tpo.consegne, tpo.consegne_ordini, tpo.righe_consegna]
+    identities: [{type: ConsegnaId, prefix: CON, sequence: null}]
+    legacy_predecessors: [docs/registers/CONSEGNE.md]
+    preserved_rules: ["Consegna is distinct from Ordine, Fattura and stock movement."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: [{alias: CONSEGNA_AS_ORDINE_FATTURA_MOVIMENTO, reason: "These authorities must remain distinct."}]
+    conflicts: ["Physical Raccolta provenance is not yet represented end-to-end."]
+    open_owner_decisions: ["Define the future physical assignment/provenance link."]
+    correction_semantics: "Commercial correction is distinct from physical stock correction."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: delivery fulfilment request
+    verification_tests: [tests/infrastructure/postgresql/test_delivery_fulfilment_migration.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: PRODOTTO
+    canonical_name: Prodotto
+    domain: COMMERCIAL
+    classification: configuration
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/registers/PRODOTTI.md, section: "3", kind: architecture_freeze}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [docs/TPO_DATA_DICTIONARY.md]
+    preserved_rules: ["Prodotto is the commercial sellable reference and is distinct from Varieta and Articolo."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["Core commercial lines currently reference Varieta directly."]
+    open_owner_decisions: ["Decide whether V1 Varieta is an explicit temporary commercial reference or Prodotto must be introduced."]
+    correction_semantics: unresolved
+    audit_authority: not_implemented
+    idempotency_authority: not_implemented
+    verification_tests: []
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: ARTICOLO
+    canonical_name: Articolo
+    domain: INVENTORY
+    classification: configuration
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/TPO_DATA_DICTIONARY.md, section: "6.1", kind: conceptual_authority}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
+    preserved_rules: ["Articolo is a generic managed resource and is not necessarily a Prodotto."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["Legacy article codes overlap semantically with current identity prefixes."]
+    open_owner_decisions: ["Freeze generic article and inventory authority before migration."]
+    correction_semantics: unresolved
+    audit_authority: not_implemented
+    idempotency_authority: not_implemented
+    verification_tests: []
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: PRENOTAZIONE
+    canonical_name: Prenotazione Ordine
+    domain: COMMERCIAL
+    classification: derived_state
+    status: PARTIALLY MIGRATED
+    current_authorities: [{path: docs/architecture/ORDINI.md, section: "PRENOTAZIONI", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/ordine.py]
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [docs/OPERATING_RULES.md]
+    preserved_rules: ["Prenotazione is a logical reserve and does not change physical stock."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["The PRENOTATO and VENDIBILE projections are not implemented in Core."]
+    open_owner_decisions: ["Freeze the authoritative commercial availability read model."]
+    correction_semantics: "Derived from active demand; not directly corrected."
+    audit_authority: source order facts
+    idempotency_authority: not_applicable
+    verification_tests: [tests/domain/test_ordine.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: ASSEGNAZIONE_FISICA
+    canonical_name: Assegnazione Fisica
+    domain: COMMERCIAL_FULFILMENT
+    classification: fact
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/registers/ASSEGNAZIONI.md, section: "3", kind: architecture_freeze}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [docs/TPO_DATA_DICTIONARY.md]
+    preserved_rules: ["A physical assignment links one Raccolta quantity to one Riga Ordine and is not merely a reservation."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["Production Planning ALL identities are predictive allocations, not physical assignments."]
+    open_owner_decisions: ["Freeze physical assignment identity, events and delivery link after Harvest reconciliation."]
+    correction_semantics: "Expected append-only facts; implementation not frozen."
+    audit_authority: not_implemented
+    idempotency_authority: not_implemented
+    verification_tests: []
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: PRODUCTION_PLANNING
+    canonical_name: Production Planning
+    domain: PLANNING
+    classification: aggregate
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/PRODUCTION_PLANNING_APPLICATION_FREEZE.md, section: "Scope", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/production_planning/service.py]
+    persistence_authorities: [tpo.production_planning_runs, tpo.piani_produzione, tpo.piano_produzione_revisioni, tpo.righe_piano_semina, tpo.allocazioni]
+    identities: [{type: RunPianificazioneProduzioneId, prefix: RPP, sequence: RUN_PIANIFICAZIONE_PRODUZIONE_ID}, {type: PianoProduzioneId, prefix: PP, sequence: PIANO_PRODUZIONE_ID}, {type: RevisionePianoProduzioneId, prefix: RVP, sequence: REVISIONE_PIANO_PRODUZIONE_ID}, {type: RigaPianoSeminaId, prefix: RPS, sequence: RIGA_PIANO_SEMINA_ID}, {type: AllocazioneId, prefix: ALL, sequence: ALLOCAZIONE_ID}]
+    legacy_predecessors: [docs/AGENTS.md]
+    preserved_rules: ["Planning is predictive authority and does not prove physical execution."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: [{alias: ALL_AS_PHYSICAL_ASSIGNMENT, reason: "ALL is a Planning allocation, not ASSEGNAZIONE_FISICA."}]
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Append-only revisions and governed disposition transitions."
+    audit_authority: production planning run and snapshot authorities
+    idempotency_authority: production planning occurrence correlation
+    verification_tests: [tests/integration/postgresql/test_production_planning_end_to_end.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: SCHEDULING_RUN
+    canonical_name: Operational Scheduling Run
+    domain: SCHEDULING
+    classification: aggregate
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/AUTOMATED_OPERATIONAL_SCHEDULING_FREEZE.md, section: "Scope", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/operational_scheduling/orchestrator.py]
+    persistence_authorities: [tpo.runs]
+    identities: [{type: RunId, prefix: RUN, sequence: null}]
+    legacy_predecessors: [src/event_engine.py]
+    preserved_rules: ["A scheduling run is tracked and commits generated orders atomically."]
+    explicitly_superseded_rules: ["Google write paths are not runtime authority for PostgreSQL operational scheduling."]
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Runs are preserved; failed occurrences are reconciled, not rewritten."
+    audit_authority: tpo.runs and tpo.audit_eventi
+    idempotency_authority: scheduled occurrence keys
+    verification_tests: [tests/integration/postgresql/test_operational_data_onboarding.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: FATTURA
+    canonical_name: Fattura
+    domain: ADMINISTRATION
+    classification: document
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.3", kind: architecture_freeze}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [docs/registers/DOCUMENTO_DI_VENDITA.md]
+    preserved_rules: ["A definitive invoice is immutable and is distinct from Order, Delivery, sales document and Payment."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: [{alias: FATTURA_AS_CONSEGNA, reason: "Fattura and Consegna are distinct authorities."}]
+    conflicts: []
+    open_owner_decisions: ["Freeze invoice identity, lifecycle and commissioning boundary in a future administration sprint."]
+    correction_semantics: "Future corrections must preserve the definitive document and add authoritative facts."
+    audit_authority: not_implemented
+    idempotency_authority: not_implemented
+    verification_tests: []
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: INCASSO_PAGAMENTO
+    canonical_name: Incasso and Pagamento
+    domain: ADMINISTRATION
+    classification: fact
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.7", kind: architecture_freeze}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [docs/registers/INCASSI.md]
+    preserved_rules: ["Payment, receipt, invoice and payment allocation are distinct authorities."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: ["Freeze administration payment identities and facts."]
+    correction_semantics: "Expected append-only administrative facts; implementation not frozen."
+    audit_authority: not_implemented
+    idempotency_authority: not_implemented
+    verification_tests: []
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: TRACEABILITY_CODE
+    canonical_name: Operational Traceability Code
+    domain: TRACEABILITY
+    classification: identifier_alias
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/OPERATING_RULES.md, section: "3", kind: current_operational_rule}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [docs/AGENTS.md]
+    preserved_rules: ["AAA-GGMM-L is a preserved operational traceability convention."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["No normative mapping exists between the operational code and SEM, RAC or LSE identities."]
+    open_owner_decisions: ["OWNER / ARCHITECTURE DECISION REQUIRED"]
+    correction_semantics: unresolved
+    audit_authority: not_implemented
+    idempotency_authority: not_applicable
+    verification_tests: []
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: MASTER_VARIETA_CODICE
+    canonical_name: MASTER_VARIETA.CODICE
+    domain: TRACEABILITY
+    classification: configuration
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/TPO_CORE_PRINCIPLES.md, section: "PRINCIPIO 5", kind: predecessor_domain_knowledge}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md, docs/OPERATING_RULES.md]
+    preserved_rules: ["The variety abbreviation belongs to one canonical variety authority and must not be invented or hard-coded."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["MASTER_VARIETA is not represented in current PostgreSQL Core."]
+    open_owner_decisions: ["OWNER / ARCHITECTURE DECISION REQUIRED"]
+    correction_semantics: unresolved
+    audit_authority: not_implemented
+    idempotency_authority: not_applicable
+    verification_tests: []
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: LEGACY_ID_LOTTO
+    canonical_name: Legacy ID_LOTTO
+    domain: TRACEABILITY
+    classification: predecessor_concept
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/OPERATING_RULES.md, section: "3", kind: predecessor_domain_knowledge}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [docs/AGENTS.md, tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
+    preserved_rules: ["One legacy production lot means same variety, same sowing and same operational moment."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["Its exact equivalence or distinction from SEM is not frozen."]
+    open_owner_decisions: ["OWNER / ARCHITECTURE DECISION REQUIRED"]
+    correction_semantics: unresolved
+    audit_authority: not_implemented
+    idempotency_authority: not_applicable
+    verification_tests: []
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: AAA_GGMM_L
+    canonical_name: AAA-GGMM-L
+    domain: TRACEABILITY
+    classification: operational_code
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/OPERATING_RULES.md, section: "3", kind: current_operational_rule}]
+    core_implementations: []
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [docs/AGENTS.md]
+    preserved_rules: ["AAA is a variety code, GGMM is sowing or hydration date, and L is a same-day discriminator.", "Approved PREDB historical codes must not be replaced."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["The current Core stores only semantic-neutral permanent public identities."]
+    open_owner_decisions: ["OWNER / ARCHITECTURE DECISION REQUIRED"]
+    correction_semantics: unresolved
+    audit_authority: not_implemented
+    idempotency_authority: not_applicable
+    verification_tests: []
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: LEGACY_SEM_ARTICLE_CODES
+    canonical_name: Legacy SEM-CIL Article Codes
+    domain: INVENTORY
+    classification: predecessor_identifier
+    status: CONFLICTING
+    current_authorities: [{path: tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md, section: ANAGRAFICA_ARTICOLI, kind: test_only_fixture}]
+    core_implementations: [src/init_resource_engine.py]
+    persistence_authorities: []
+    identities: []
+    legacy_predecessors: [src/init_resource_engine.py]
+    preserved_rules: ["These strings identify legacy seed inventory articles, not physical Semina entities."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: [{alias: SEM_CIL_AS_SEMINA_ID, reason: "SEM-CIL does not satisfy or represent SeminaId."}]
+    conflicts: ["The SEM token now belongs to the current Semina public identity namespace."]
+    open_owner_decisions: ["Future Articolo authority must prevent collision with current public identity prefixes."]
+    correction_semantics: not_applicable
+    audit_authority: legacy_only
+    idempotency_authority: not_applicable
+    verification_tests: [tests/test_legacy_google_sheets_fixture_boundary.py]
+    reviewed_at_commit: 4e6a127
+
+  - concept_id: HYDRATION_RULES
+    canonical_name: Hydration Rules
+    domain: PHYSICAL_PRODUCTION
+    classification: business_rule
+    status: UNKNOWN / OWNER DECISION REQUIRED
+    current_authorities: [{path: docs/AGENTS.md, section: "Farm Manager Agent", kind: predecessor_domain_knowledge}]
+    core_implementations: [src/tpo_core/application/production_planning/engine.py]
+    persistence_authorities: [tpo.righe_piano_semina]
+    identities: []
+    legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
+    preserved_rules: ["Hydration duration participates in legacy production-cycle calculation."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: ["Planning has a predictive hydration timestamp, but Core has no frozen physical hydration-event authority."]
+    open_owner_decisions: ["Decide whether hydration is predictive knowledge, a Semina lifecycle fact, or an independent physical event."]
+    correction_semantics: unresolved
+    audit_authority: not_implemented_for_physical_event
+    idempotency_authority: not_implemented_for_physical_event
+    verification_tests: [tests/application/production_planning/test_engine.py]
+    reviewed_at_commit: 4e6a127

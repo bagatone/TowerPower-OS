@@ -80,6 +80,57 @@ def test_owner_approved_variety_traceability_code_master_is_exact_and_guarded():
     ]
 
 
+def test_owner_approved_raccolta_authority_is_exact_and_fail_closed():
+    authority = _registry()["raccolta_authority_v1"]
+    assert authority["status"] == "OWNER_APPROVED"
+    assert authority["prior_art_gate"] == "PASSED"
+    assert authority["identity"] == {
+        "type": "RaccoltaId", "format": "^RAC-[0-9]{6,}$",
+        "prefix": "RAC", "sequence": "RACCOLTA_ID",
+    }
+    assert authority["eligible_semina_states"] == ["PRONTA_ALLA_RACCOLTA"]
+    assert authority["automatic_semina_transition"] == "FORBIDDEN"
+    assert authority["automatic_semina_closure"] == "FORBIDDEN"
+    assert authority["mutability"] == {"update": "FORBIDDEN", "delete": "FORBIDDEN"}
+    assert authority["traceability"]["authoritative_raccolta_snapshot"] == "FORBIDDEN"
+    assert authority["traceability"]["second_production_lot"] == "FORBIDDEN"
+    assert authority["stock_boundary"] == {
+        "direct_stock_mutation": "FORBIDDEN", "automatic_movement": "FORBIDDEN",
+    }
+    assert authority["destination_as_assignment"] == "FORBIDDEN"
+    assert authority["quality_authority"] == "DEFERRED"
+    assert authority["correction_implementation"] == "DEFERRED"
+
+
+def test_raccolta_registry_entry_has_no_unresolved_authority():
+    raccolta = next(
+        item for item in _registry()["concepts"] if item["concept_id"] == "RACCOLTA"
+    )
+    assert raccolta["identities"] == [
+        {"type": "RaccoltaId", "prefix": "RAC", "sequence": "RACCOLTA_ID"}
+    ]
+    assert raccolta["conflicts"] == []
+    assert raccolta["open_owner_decisions"] == []
+    assert raccolta["audit_authority"] == "tpo.audit_eventi"
+    assert raccolta["idempotency_authority"] == "tpo.raccolta_recording_requests"
+
+
+def test_raccolta_freeze_preserves_all_owner_guards():
+    freeze = (
+        ROOT / "docs/architecture/RACCOLTA_AUTHORITY_FREEZE.md"
+    ).read_text(encoding="utf-8")
+    required = (
+        "PRIOR ART REVIEW PASSED", "RAC-[0-9]{6,}", "RACCOLTA_ID",
+        "PRONTA_ALLA_RACCOLTA", "UPDATE = FORBIDDEN", "DELETE = FORBIDDEN",
+        "COMPATIBLE_REPLAY", "tpo.raccolta_recording_requests",
+        "Atlantic/Canary", "numeric(20,6)", "0.5 SET", "LOTTO_PRODUZIONE",
+        "QUALITY AUTHORITY = DEFERRED", "non modifica STOCK",
+        "MOVIMENTO_MAGAZZINO nascosto", "non è ASSEGNAZIONE",
+        "correction/reversal/void",
+    )
+    assert all(value in freeze for value in required)
+
+
 def test_every_current_core_public_identity_prefix_is_registered():
     source = IDENTIFIERS_PATH.read_text(encoding="utf-8")
     core_prefixes = set(re.findall(r'prefix: ClassVar\[str\] = "([A-Z]+)"', source))
@@ -121,13 +172,15 @@ def test_unresolved_concepts_remain_explicit_and_have_owner_decisions():
     assert required_unresolved <= {item["concept_id"] for item in unresolved}
 
 
-def test_governance_freeze_is_fail_closed_and_suspends_harvest_design():
+def test_governance_freeze_is_fail_closed_and_reconciles_harvest_suspension():
     freeze = (ROOT / _registry()["normative_governance"]).read_text(encoding="utf-8")
     required = (
         "PostgreSQL Core is the current operational runtime authority",
         "Legacy Google documents and code may contain preserved domain knowledge",
         "PRIOR ART REVIEW PASSED", "PRIOR ART REVIEW BLOCKED", "fail-closed",
-        "SPRINT 5.13 HARVEST DESIGN SUSPENDED PENDING AUTHORITY RECONCILIATION",
+        "former suspension",
+        "RACCOLTA_AUTHORITY_FREEZE.md",
+        "Harvest design resumes only within",
         "OWNER / ARCHITECTURE DECISION REQUIRED",
     )
     assert all(value in freeze for value in required)

@@ -241,7 +241,10 @@ def test_movement_origin_check_rifiuta_matrice_invalida(movement_origin_check, v
 
 
 def test_migrazioni_non_contengono_seed_o_import_google(upgraded) -> None:
-    assert upgraded.execute(sa.text("SELECT count(*) FROM tpo.id_sequences")).scalar_one() == 0
+    assert upgraded.execute(sa.text(
+        "SELECT sequence_name,identifier_type,prefix,next_value,version "
+        "FROM tpo.id_sequences"
+    )).all() == [("RACCOLTA_ID", "RaccoltaId", "RAC", 1, 0)]
     for table in PREREQUISITE_TABLES:
         assert upgraded.execute(sa.text(f"SELECT count(*) FROM tpo.{table}")).scalar_one() == 0
     source = KNOWLEDGE_PATH.read_text(encoding="utf-8") + EXECUTION_PATH.read_text(encoding="utf-8")

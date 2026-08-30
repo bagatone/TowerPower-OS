@@ -10,6 +10,7 @@ from .production_planning import (
     build_production_planning_runtime,
     build_production_planning_runtime_from_environment,
 )
+from .raccolta import build_raccolta_service
 from .seed_lot import build_seed_lot_commissioning_service
 from .semina import build_semina_commissioning_service
 from .semina_lifecycle import build_semina_lifecycle_service
@@ -27,6 +28,7 @@ __all__ = [
     "build_production_planning_runtime",
     "build_production_planning_policy_commissioner",
     "build_production_planning_runtime_from_environment",
+    "build_raccolta_service",
     "build_seed_lot_commissioning_service",
     "build_semina_commissioning_service",
     "build_semina_lifecycle_service",

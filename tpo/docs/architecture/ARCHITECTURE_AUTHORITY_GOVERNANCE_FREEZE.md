@@ -11,10 +11,14 @@ authority. It prevents a current implementation from silently erasing,
 duplicating or reinventing business knowledge already present in the
 repository. It does not implement or authorize any operational domain command.
 
-`SPRINT 5.13 HARVEST DESIGN SUSPENDED PENDING AUTHORITY RECONCILIATION`
+The former suspension
+`SPRINT 5.13 HARVEST DESIGN SUSPENDED PENDING AUTHORITY RECONCILIATION` is
+superseded for RACCOLTA V1 by the owner-approved
+`docs/architecture/RACCOLTA_AUTHORITY_FREEZE.md`.
 
-No RACCOLTA implementation, schema change, migration, operational data change,
-Production Planning execution or authority commissioning is authorized here.
+This governance document does not itself authorize implementation or operational
+mutation. RACCOLTA implementation authority and scope come exclusively from the
+scope-specific owner-approved Freeze.
 
 ## 2. Source hierarchy
 
@@ -190,6 +194,8 @@ coverage or explicit unresolved status is violated.
 
 ## 9. Compliance statement
 
-This Freeze establishes governance only. It invents no business authority,
-does not resolve traceability, and does not resume Harvest design. Owner review
-is required before it becomes an approved normative architecture Freeze.
+This Freeze establishes governance only and invents no business authority.
+The scope-specific Semina Traceability and RACCOLTA freezes now contain the
+corresponding owner decisions. Harvest design resumes only within the exact
+boundary of `RACCOLTA_AUTHORITY_FREEZE.md`; all other unresolved concepts remain
+fail-closed.

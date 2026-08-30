@@ -41,6 +41,25 @@ variety_traceability_code_master:
   explicitly_not_authorized_or_reserved:
     - {code: BAR, name: Barilla}
 
+raccolta_authority_v1:
+  status: OWNER_APPROVED
+  prior_art_gate: PASSED
+  identity: {type: RaccoltaId, format: "^RAC-[0-9]{6,}$", prefix: RAC, sequence: RACCOLTA_ID}
+  cardinality: {semina_to_raccolta: "1:0..N", raccolta_to_semina: "N:1"}
+  eligible_semina_states: [PRONTA_ALLA_RACCOLTA]
+  automatic_semina_transition: FORBIDDEN
+  automatic_semina_closure: FORBIDDEN
+  quantity: {uom: SET, precision: 20, scale: 6, positive: true, fractional: true}
+  time_authority: {effective_at: tpo.raccolte.data_raccolta, recorded_at: tpo.raccolte.created_at, timezone: Atlantic/Canary}
+  traceability: {authority: tpo.semine.codice_tracciabilita, authoritative_raccolta_snapshot: FORBIDDEN, second_production_lot: FORBIDDEN}
+  mutability: {update: FORBIDDEN, delete: FORBIDDEN}
+  idempotency: {authority: tpo.raccolta_recording_requests, compatible_replay: SAME_RACCOLTA, changed_payload: TYPED_CONFLICT}
+  stock_boundary: {direct_stock_mutation: FORBIDDEN, automatic_movement: FORBIDDEN}
+  destination_as_assignment: FORBIDDEN
+  quality_authority: DEFERRED
+  correction_implementation: DEFERRED
+  actor_authority: CORE_AUTHORITY_CONTEXT
+
 concepts:
   - concept_id: CLIENTE
     canonical_name: Cliente
@@ -194,20 +213,20 @@ concepts:
     domain: PHYSICAL_PRODUCTION
     classification: fact
     status: PARTIALLY MIGRATED
-    current_authorities: [{path: docs/architecture/RACCOLTE.md, section: "Definizione", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/RACCOLTA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}]
     core_implementations: [src/tpo_core/domain/entities/raccolta.py]
     persistence_authorities: [tpo.raccolte]
-    identities: [{type: RaccoltaId, prefix: RAC, sequence: null}]
+    identities: [{type: RaccoltaId, prefix: RAC, sequence: RACCOLTA_ID}]
     legacy_predecessors: [docs/registers/RACCOLTE.md, tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
     preserved_rules: ["A Raccolta is an immutable event; one Semina may have zero, one or many Raccolte."]
-    explicitly_superseded_rules: ["Raccolta is not a Semina lifecycle state."]
-    forbidden_duplicates: [{alias: RACCOLTA_AS_SEMINA_STATE, reason: "Raccolta is an independent physical fact."}]
-    conflicts: ["Schema and domain exist, but no governed commissioning boundary or commissioned identity sequence exists."]
-    open_owner_decisions: ["Freeze the creation, correction and stock-publication boundaries after authority reconciliation."]
-    correction_semantics: "Historical preservation required; exact correction command is not frozen."
-    audit_authority: not_implemented
-    idempotency_authority: not_implemented
-    verification_tests: [tests/domain/test_raccolta.py]
+    explicitly_superseded_rules: ["Raccolta is not a Semina lifecycle state.", "A harvest record may be physically deleted when the event did not occur."]
+    forbidden_duplicates: [{alias: RACCOLTA_AS_SEMINA_STATE, reason: "Raccolta is an independent physical fact."}, {alias: LOTTO_PRODUZIONE_FOR_RACCOLTA, reason: "Semina remains the production-group authority."}, {alias: RACCOLTA_TRACEABILITY_SNAPSHOT_AUTHORITY, reason: "AAA-GGMM-L remains authoritative only on Semina."}, {alias: RACCOLTA_DIRECT_STOCK_WRITER, reason: "Inventory changes belong to Movimento Magazzino."}, {alias: RACCOLTA_DESTINATION_AS_ASSIGNMENT, reason: "Physical allocation belongs to the future Assegnazione authority."}, {alias: RACCOLTA_FREE_TEXT_QUALITY, reason: "Quality authority is deferred pending a controlled vocabulary."}]
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Append-only linked correction/reversal/void; implementation deferred. Original UPDATE and DELETE are forbidden."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: tpo.raccolta_recording_requests
+    verification_tests: [tests/domain/test_raccolta.py, tests/architecture/test_authority_registry.py]
     reviewed_at_commit: 4e6a127
 
   - concept_id: STOCK

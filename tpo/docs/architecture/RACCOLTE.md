@@ -1,6 +1,7 @@
 # RACCOLTE
 
-**Stato:** ARCHITECTURE FREEZE v1.0
+**Stato:** SUPERSEDED EXPLICITLY per il boundary RACCOLTA V1 da
+`docs/architecture/RACCOLTA_AUTHORITY_FREEZE.md`. Conservato come prior art.
 
 ## Scopo
 
@@ -55,7 +56,9 @@ L'evento si considera concluso nel momento in cui il prelievo è terminato e la 
 
 La RACCOLTA non può essere annullata dopo il verificarsi dell'evento reale.
 
-Una registrazione completamente errata può essere eliminata esclusivamente quando l'evento fisico non è mai avvenuto.
+La precedente facoltà di eliminare una registrazione completamente errata è
+superseded: il boundary V1 vieta sempre UPDATE e DELETE e rinvia le correzioni a
+una futura autorità append-only collegata.
 
 ## Relazioni Architetturali
 
@@ -112,7 +115,8 @@ La RACCOLTA non viene modificata dopo la registrazione dell'evento.
 
 Eventuali correzioni devono preservare integralmente la tracciabilità storica.
 
-L'eliminazione è consentita esclusivamente nel caso di una registrazione completamente errata quando l'evento fisico non è mai avvenuto.
+L'eliminazione non è consentita. Anche una registrazione errata resta evidenza
+permanente e richiederà una futura correzione/reversal/void append-only.
 
 ## Principi di Evoluzione
 

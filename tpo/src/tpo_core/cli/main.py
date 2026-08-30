@@ -10,6 +10,7 @@ from .scheduling import run_scheduling_command
 from .preflight import run_preflight_command
 from .operational import run_operational_scheduling_command
 from .production_planning import run_production_planning_command
+from .raccolta import run_raccolta_command
 from .onboarding import run_onboarding_command
 from .seed_lot import run_seed_lot_command
 from .semina import run_semina_command
@@ -158,6 +159,19 @@ def _parser() -> argparse.ArgumentParser:
     transition_semina.add_argument("--correlation-id", required=True)
     transition_semina.add_argument("--idempotency-key", required=True)
     transition_semina.add_argument("--confirm", action="store_true", required=True)
+    raccolta = commands.add_parser("raccolta", help="Registrazione governata RACCOLTA.")
+    raccolta_commands = raccolta.add_subparsers(dest="raccolta_command", required=True)
+    record_raccolta = raccolta_commands.add_parser("record")
+    record_raccolta.add_argument("--semina", required=True)
+    record_raccolta.add_argument("--quantity", required=True)
+    record_raccolta.add_argument("--uom", required=True, choices=["SET"])
+    record_raccolta.add_argument("--effective-at", required=True)
+    record_raccolta.add_argument("--notes")
+    record_raccolta.add_argument("--actor", required=True)
+    record_raccolta.add_argument("--reason", required=True)
+    record_raccolta.add_argument("--correlation-id", required=True)
+    record_raccolta.add_argument("--idempotency-key", required=True)
+    record_raccolta.add_argument("--confirm", action="store_true", required=True)
     return parser
 
 
@@ -179,6 +193,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_seed_lot_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "semina":
         return run_semina_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "raccolta":
+        return run_raccolta_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "preflight":
         return run_preflight_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "execute":

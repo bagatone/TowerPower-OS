@@ -79,6 +79,7 @@ class LottoSemeId(PermanentId):
 @dataclass(frozen=True)
 class RaccoltaId(PermanentId):
     prefix: ClassVar[str] = "RAC"
+    sequence_name: ClassVar[str] = "RACCOLTA_ID"
 
 
 @dataclass(frozen=True)

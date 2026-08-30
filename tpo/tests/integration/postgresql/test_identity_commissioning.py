@@ -64,7 +64,16 @@ def test_incremental_commissioning_replay_preserves_existing_and_counters(databa
     replay = tuple(service.commission(item) for item in _commands())
     after = _rows(database)
 
-    assert len(after) == 7
+    assert set(after) == {
+        "RACCOLTA_ID",
+        "RUN_ID",
+        "ORDINE_ID",
+        "ALLOCAZIONE_ID",
+        "PIANO_PRODUZIONE_ID",
+        "REVISIONE_PIANO_PRODUZIONE_ID",
+        "RIGA_PIANO_SEMINA_ID",
+        "RUN_PIANIFICAZIONE_PRODUZIONE_ID",
+    }
     assert after["RUN_ID"] == before["RUN_ID"]
     assert after["ORDINE_ID"] == before["ORDINE_ID"]
     assert all(item.sequence.next_value == 1 and item.sequence.version == 0

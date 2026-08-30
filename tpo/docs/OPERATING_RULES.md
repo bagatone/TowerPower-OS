@@ -103,6 +103,25 @@ Codici PREDB:
 PREDB = codici retroattivi eccezionali per raccolti/consegne storiche precedenti alla tracciabilità ufficiale.
 Non sostituire i codici PREDB già approvati.
 
+### Raccolte autorevoli dal cut-over
+
+- una RACCOLTA è un fatto fisico immutabile identificato da `RAC-*` e deriva
+  sempre da una sola SEMINA;
+- una SEMINA può produrre zero o più RACCOLTE;
+- una RACCOLTA può essere registrata soltanto quando la SEMINA è
+  `PRONTA_ALLA_RACCOLTA`;
+- registrare una RACCOLTA non transiziona né chiude automaticamente la SEMINA;
+- ogni RACCOLTA usa quantità positiva in `SET`; sono validi SET frazionari;
+- `AAA-GGMM-L` resta l'origine fisica autorevole della SEMINA e non viene
+  sostituito da `RAC-*` né copiato come seconda autorità;
+- RACCOLTA non modifica direttamente STOCK e non crea automaticamente un
+  MOVIMENTO_MAGAZZINO;
+- RACCOLTA non assegna prodotto a un cliente; l'ASSEGNAZIONE è un'autorità
+  separata;
+- RACCOLTA non può essere aggiornata o cancellata. Le future correzioni saranno
+  append-only e non riscriveranno la storia;
+- qualità e correzioni operative sono rinviate a future authority review.
+
 ## 4. Stock
 
 Definizioni ufficiali:

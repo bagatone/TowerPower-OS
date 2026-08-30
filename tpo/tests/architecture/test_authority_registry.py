@@ -17,6 +17,22 @@ REQUIRED_FIELDS = {
     "idempotency_authority", "verification_tests", "reviewed_at_commit",
 }
 UNRESOLVED = "UNKNOWN / OWNER DECISION REQUIRED"
+EXPECTED_VARIETY_CODES = {
+    "AFI": "Afila / Guisantes",
+    "RAB": "Rábano Morado",
+    "CIL": "Cilantro",
+    "MIZ": "Mizuna Roja",
+    "HIN": "Hinojo",
+    "ALB": "Albahaca",
+    "GIR": "Girasol",
+    "COL": "Col Roja",
+    "MOS": "Mostaza",
+    "LEN": "Lentejas",
+    "PAK": "Pak Choi",
+    "RUC": "Rúcula",
+    "AMA": "Amaranto Rojo",
+    "ACE": "Acedera / Vinagrera",
+}
 
 
 def _registry():
@@ -41,6 +57,27 @@ def test_forbidden_duplicate_aliases_are_unique():
         for guard in concept["forbidden_duplicates"]
     ]
     assert len(aliases) == len(set(aliases))
+
+
+def test_owner_approved_variety_traceability_code_master_is_exact_and_guarded():
+    master = _registry()["variety_traceability_code_master"]
+    mappings = {
+        item["code"]: item["variety"] for item in master["canonical_codes"]
+    }
+    assert master["status"] == "OWNER_APPROVED"
+    assert master["code_format"] == "^[A-Z]{3}$"
+    assert mappings == EXPECTED_VARIETY_CODES
+    assert len(mappings) == len(master["canonical_codes"]) == 14
+    assert all(re.fullmatch(r"[A-Z]{3}", code) for code in mappings)
+    forbidden = {
+        item["code"]: item for item in master["forbidden_new_production_codes"]
+    }
+    assert forbidden["BAS"]["canonical_replacement"] == "ALB"
+    assert forbidden["VIN"]["canonical_replacement"] == "ACE"
+    assert master["permanently_reserved_outside_production"] == ["MOS"]
+    assert master["explicitly_not_authorized_or_reserved"] == [
+        {"code": "BAR", "name": "Barilla"}
+    ]
 
 
 def test_every_current_core_public_identity_prefix_is_registered():

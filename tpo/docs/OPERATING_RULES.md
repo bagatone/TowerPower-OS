@@ -57,15 +57,41 @@ RAB-3006-B
 MIZ-2806-A
 
 Codici varietà ufficiali:
-AFI = Guisante Afila
-CIL = Cilantro
+AFI = Afila / Guisantes
 RAB = Rábano Morado
+CIL = Cilantro
 MIZ = Mizuna Roja
+HIN = Hinojo
+ALB = Albahaca
+GIR = Girasol
 COL = Col Roja
 MOS = Mostaza
-GIR = Girasole
-HIN = Hinojo
-LEN = Lenticchie
+LEN = Lentejas
+PAK = Pak Choi
+RUC = Rúcula
+AMA = Amaranto Rojo
+ACE = Acedera / Vinagrera
+
+Regole permanenti dei codici varietà:
+
+- ogni codice è configurazione esplicita di esattamente tre lettere ASCII
+  maiuscole e non viene derivato automaticamente dalla denominazione;
+- i codici sono univoci, permanenti dopo l'assegnazione e non riutilizzabili;
+- il codice resta riservato anche quando la varietà esce dalla produzione;
+- un cambio di denominazione commerciale o visualizzata non cambia il codice;
+- il codice è la componente `AAA` della tracciabilità `AAA-GGMM-L`.
+
+Equivalenze e guardie approvate:
+
+- `AFI` rappresenta un'unica varietà operativa Afila / Guisantes;
+- Rábano e Rábano Morado condividono il codice `RAB`;
+- Mizuna e Mizuna Roja condividono il codice `MIZ`;
+- Albahaca usa `ALB` anche se una denominazione esistente è Basilico; `BAS` è
+  legacy/demo e non è autorizzato per nuova produzione;
+- Acedera / Vinagrera condividono `ACE`; `VIN` non è un secondo codice;
+- `MOS` resta permanentemente riservato a Mostaza anche fuori produzione;
+- Barilla non appartiene al Master approvato e `BAR` non è autorizzato né
+  riservato.
 
 Regola lotti storici:
 i lotti esistenti prima dell'introduzione del sistema di codifica possono ricevere codifica retroattiva eccezionale.

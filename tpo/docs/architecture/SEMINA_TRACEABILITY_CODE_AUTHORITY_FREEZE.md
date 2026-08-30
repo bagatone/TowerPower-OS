@@ -129,19 +129,44 @@ The VARIETA traceability code must be:
 The physical column name and commissioning/correction command are deferred to
 implementation review. This Freeze governs ownership and meaning, not schema.
 
-The following mappings are preserved from the official operational rules:
+The owner-approved Variety Traceability Code Master is:
 
-| Code | Variety denomination recorded by the rule |
+| Code | Canonical operational variety identity |
 |---|---|
-| `AFI` | Guisante Afila / Afila |
-| `CIL` | Cilantro |
+| `AFI` | Afila / Guisantes |
 | `RAB` | Rábano Morado |
+| `CIL` | Cilantro |
 | `MIZ` | Mizuna Roja |
+| `HIN` | Hinojo |
+| `ALB` | Albahaca |
+| `GIR` | Girasol |
 | `COL` | Col Roja |
 | `MOS` | Mostaza |
-| `GIR` | Girasole |
-| `HIN` | Hinojo |
-| `LEN` | Lenticchie |
+| `LEN` | Lentejas |
+| `PAK` | Pak Choi |
+| `RUC` | Rúcula |
+| `AMA` | Amaranto Rojo |
+| `ACE` | Acedera / Vinagrera |
+
+These codes are permanent configuration: they are unique, never derived from
+names, immutable once assigned, never reassigned and remain reserved when a
+variety leaves production. Commercial or display denomination changes do not
+change them.
+
+The following owner decisions reconcile names and legacy material:
+
+- Afila and Guisantes are one operational variety represented by `AFI`.
+- Rábano and Rábano Morado are one operational variety represented by `RAB`.
+- Mizuna and Mizuna Roja are one operational variety represented by `MIZ`.
+- Albahaca is represented by `ALB`, including where an existing denomination
+  remains Basilico. `BAS` is legacy/demo and is not authorized for new
+  production.
+- Acedera and Vinagrera are one operational variety represented by `ACE`.
+  `VIN` is not a second canonical code.
+- `MOS` remains permanently reserved for Mostaza while it is outside
+  production.
+- Barilla is absent from the approved Variety Master. `BAR` is neither
+  authorized nor reserved.
 
 This list does not authorize fuzzy name matching or new mappings. A current
 VARIETA without an owner-authorized traceability code is ineligible for new

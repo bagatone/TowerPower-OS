@@ -3,6 +3,44 @@ registry_name: TPO Architecture Authority Registry
 normative_governance: docs/architecture/ARCHITECTURE_AUTHORITY_GOVERNANCE_FREEZE.md
 reviewed_at_commit: 4e6a127
 
+variety_traceability_code_master:
+  status: OWNER_APPROVED
+  authority: docs/OPERATING_RULES.md#3-lotti
+  code_format: "^[A-Z]{3}$"
+  canonical_codes:
+    - {code: AFI, variety: "Afila / Guisantes"}
+    - {code: RAB, variety: "Rábano Morado"}
+    - {code: CIL, variety: Cilantro}
+    - {code: MIZ, variety: "Mizuna Roja"}
+    - {code: HIN, variety: Hinojo}
+    - {code: ALB, variety: Albahaca}
+    - {code: GIR, variety: Girasol}
+    - {code: COL, variety: "Col Roja"}
+    - {code: MOS, variety: Mostaza}
+    - {code: LEN, variety: Lentejas}
+    - {code: PAK, variety: "Pak Choi"}
+    - {code: RUC, variety: Rúcula}
+    - {code: AMA, variety: "Amaranto Rojo"}
+    - {code: ACE, variety: "Acedera / Vinagrera"}
+  permanent_rules:
+    - "Codes are explicit configuration and are never derived from denominations."
+    - "Codes are unique, permanent after assignment and never reassigned."
+    - "A discontinued variety retains its reserved code."
+    - "Display or commercial denomination changes do not change the code."
+    - "The code is the AAA component of canonical Semina traceability AAA-GGMM-L."
+  name_equivalences:
+    - {names: [Afila, Guisantes], code: AFI}
+    - {names: [Rábano, "Rábano Morado"], code: RAB}
+    - {names: [Mizuna, "Mizuna Roja"], code: MIZ}
+    - {names: [Albahaca, Basilico], code: ALB}
+    - {names: [Acedera, Vinagrera], code: ACE}
+  forbidden_new_production_codes:
+    - {code: BAS, classification: LEGACY_DEMO_SUPERSEDED, canonical_replacement: ALB}
+    - {code: VIN, classification: FORBIDDEN_DUPLICATE, canonical_replacement: ACE}
+  permanently_reserved_outside_production: [MOS]
+  explicitly_not_authorized_or_reserved:
+    - {code: BAR, name: Barilla}
+
 concepts:
   - concept_id: CLIENTE
     canonical_name: Cliente
@@ -30,12 +68,12 @@ concepts:
     domain: PRODUCTION_KNOWLEDGE
     classification: configuration
     status: PRESERVED
-    current_authorities: [{path: docs/architecture/VARIETA.md, section: "6", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "6", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/VARIETA.md, section: "6", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "6", kind: architecture_freeze}, {path: docs/OPERATING_RULES.md, section: "3", kind: current_operational_rule}]
     core_implementations: [src/tpo_core/domain/entities/varieta.py, src/tpo_core/domain/traceability.py, src/tpo_core/infrastructure/postgresql/onboarding.py]
     persistence_authorities: [tpo.varieta.codice_tracciabilita]
     identities: [{type: VarietaId, prefix: VAR, sequence: VARIETA_ID}]
     legacy_predecessors: [docs/OPERATING_RULES.md, tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
-    preserved_rules: ["Varieta is the general productive identity and is distinct from Prodotto and Articolo."]
+    preserved_rules: ["Varieta is the general productive identity and is distinct from Prodotto and Articolo.", "The owner-approved 14-code Variety Traceability Code Master is canonical VARIETA Configuration."]
     explicitly_superseded_rules: []
     forbidden_duplicates: []
     conflicts: []
@@ -471,14 +509,14 @@ concepts:
     domain: TRACEABILITY
     classification: configuration
     status: OBSOLETE WITH EXPLICIT REPLACEMENT
-    current_authorities: [{path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "6", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "6", kind: architecture_freeze}, {path: docs/OPERATING_RULES.md, section: "3", kind: current_operational_rule}]
     core_implementations: []
     persistence_authorities: []
     identities: []
     legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md, docs/OPERATING_RULES.md]
-    preserved_rules: ["The variety abbreviation belongs to one canonical variety authority and must not be invented or hard-coded."]
-    explicitly_superseded_rules: ["MASTER_VARIETA is not the current runtime home; its CODICE business meaning moves to canonical VARIETA Configuration."]
-    forbidden_duplicates: []
+    preserved_rules: ["The variety abbreviation belongs to one canonical variety authority and must not be invented or hard-coded.", "The approved 14-code master remains permanent configuration even when a variety is discontinued or renamed for display."]
+    explicitly_superseded_rules: ["MASTER_VARIETA is not the current runtime home; its CODICE business meaning moves to canonical VARIETA Configuration.", "BAS is legacy/demo and is replaced by ALB for new production; VIN must not duplicate ACE."]
+    forbidden_duplicates: [{alias: BAS_AS_NEW_VARIETY_CODE, reason: "ALB is canonical for Albahaca including existing Basilico denomination."}, {alias: VIN_AS_ACEDERA_CODE, reason: "ACE is the single canonical code for Acedera / Vinagrera."}, {alias: BAR_AS_APPROVED_VARIETY_CODE, reason: "Barilla is absent from the approved Variety Master and BAR is neither authorized nor reserved."}]
     conflicts: []
     open_owner_decisions: []
     replacement_or_decision_reference: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md#6-varieta-code-authority

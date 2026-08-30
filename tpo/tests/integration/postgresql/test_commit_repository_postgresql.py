@@ -16,10 +16,17 @@ from src.tpo_core.application.committer import (
     CommitExistingKeyError,
     CommitRequest,
 )
-from src.tpo_core.domain.identifiers import OrdineId, RunId
+from src.tpo_core.application.identity import (
+    CommissionIdentityRegistration,
+    IdentityRegistrationCommissioningService,
+)
+from src.tpo_core.domain.identifiers import ActorId, OrdineId, RigaOrdineId, RunId
 from src.tpo_core.infrastructure.postgresql.alembic import make_config
 from src.tpo_core.infrastructure.postgresql.commit_repository import (
     PostgreSQLCommitRepository,
+)
+from src.tpo_core.infrastructure.postgresql.identity_commissioning import (
+    PostgreSQLIdentityRegistrationCommissioningWriter,
 )
 from tests.infrastructure.postgresql.test_commit_repository import instant, valid_request
 
@@ -48,46 +55,58 @@ class FixedClock:
 class CoordinatedConnectionFactory:
     """Apre connessioni reali e sincronizza un punto SQL scelto dal test."""
 
-    def __init__(self, barrier: Barrier, *, synchronize_insert: bool) -> None:
+    def __init__(
+        self, barrier: Barrier, *, synchronize_order_line_identity: bool
+    ) -> None:
         self._barrier = barrier
-        self._synchronize_insert = synchronize_insert
+        self._synchronize_order_line_identity = synchronize_order_line_identity
         self.connections = 0
 
     def connect(self):
         self.connections += 1
         connection = psycopg.connect(DATABASE_URL)
-        if not self._synchronize_insert:
+        if not self._synchronize_order_line_identity:
             self._barrier.wait(timeout=10)
-        return _ConnectionProxy(connection, self._barrier if self._synchronize_insert else None)
+        return _ConnectionProxy(
+            connection,
+            self._barrier if self._synchronize_order_line_identity else None,
+        )
 
 
 class _ConnectionProxy:
-    def __init__(self, connection, insert_barrier: Barrier | None) -> None:
+    def __init__(
+        self, connection, order_line_identity_barrier: Barrier | None
+    ) -> None:
         self._connection = connection
-        self._insert_barrier = insert_barrier
+        self._order_line_identity_barrier = order_line_identity_barrier
 
     def cursor(self):
-        return _CursorProxy(self._connection.cursor(), self._insert_barrier)
+        return _CursorProxy(
+            self._connection.cursor(), self._order_line_identity_barrier
+        )
 
     def __getattr__(self, name):
         return getattr(self._connection, name)
 
 
 class _CursorProxy:
-    def __init__(self, cursor, insert_barrier: Barrier | None) -> None:
+    def __init__(self, cursor, order_line_identity_barrier: Barrier | None) -> None:
         self._cursor = cursor
-        self._insert_barrier = insert_barrier
+        self._order_line_identity_barrier = order_line_identity_barrier
 
     @property
     def rowcount(self):
         return self._cursor.rowcount
 
     def execute(self, query, params=None):
+        normalized_query = " ".join(query.split())
         if (
-            self._insert_barrier is not None
-            and "INSERT INTO tpo.ordini" in " ".join(query.split())
+            self._order_line_identity_barrier is not None
+            and "FROM tpo.id_sequences WHERE sequence_name=%s FOR UPDATE"
+            in normalized_query
+            and params == (RigaOrdineId.sequence_name,)
         ):
-            self._insert_barrier.wait(timeout=10)
+            self._order_line_identity_barrier.wait(timeout=10)
         return self._cursor.execute(query, params)
 
     def __getattr__(self, name):
@@ -202,6 +221,20 @@ def _insert_fixtures(connection, run_ids=("RUN-000001",)) -> None:
     connection.commit()
 
 
+def _commission_order_line_identity() -> None:
+    service = IdentityRegistrationCommissioningService(
+        PostgreSQLIdentityRegistrationCommissioningWriter(URLConnectionFactory())
+    )
+    service.commission(
+        CommissionIdentityRegistration(
+            RigaOrdineId.sequence_name,
+            RigaOrdineId,
+            RigaOrdineId.prefix,
+            ActorId("tpo.identity-commissioner"),
+        )
+    )
+
+
 def test_commit_atomico_postgresql_reale() -> None:
     database_name = _database_name_without_connecting(DATABASE_URL)
     if "test" not in database_name.lower():
@@ -217,6 +250,7 @@ def test_commit_atomico_postgresql_reale() -> None:
             connection.commit()
             migrated = True
 
+        _commission_order_line_identity()
         admin = psycopg.connect(DATABASE_URL)
         try:
             _insert_fixtures(admin, ("RUN-000001", "RUN-000002", "RUN-000003"))
@@ -291,6 +325,7 @@ def test_commit_concorrente_postgresql_reale() -> None:
             connection.commit()
             migrated = True
 
+        _commission_order_line_identity()
         admin = psycopg.connect(DATABASE_URL)
         try:
             _insert_fixtures(
@@ -300,7 +335,7 @@ def test_commit_concorrente_postgresql_reale() -> None:
 
             same_run_barrier = Barrier(2)
             same_run_factory = CoordinatedConnectionFactory(
-                same_run_barrier, synchronize_insert=False
+                same_run_barrier, synchronize_order_line_identity=False
             )
             same_run_repository = PostgreSQLCommitRepository(
                 same_run_factory, FixedClock()
@@ -315,9 +350,10 @@ def test_commit_concorrente_postgresql_reale() -> None:
             assert sorted(same_run_outcomes) == ["committed", "run_conflict"]
             assert same_run_factory.connections == 2
 
-            insert_barrier = Barrier(2)
+            order_line_identity_barrier = Barrier(2)
             idempotency_factory = CoordinatedConnectionFactory(
-                insert_barrier, synchronize_insert=True
+                order_line_identity_barrier,
+                synchronize_order_line_identity=True,
             )
             idempotency_repository = PostgreSQLCommitRepository(
                 idempotency_factory, FixedClock()

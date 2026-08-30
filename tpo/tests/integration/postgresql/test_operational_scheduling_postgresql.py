@@ -19,21 +19,34 @@ from src.tpo_core.application.committer import (
     CommitExecutionContext,
     CommitStatus,
 )
-from src.tpo_core.application.identity import PersistentIdAllocator
+from src.tpo_core.application.identity import (
+    CommissionIdentityRegistration,
+    IdentityRegistrationCommissioningService,
+    PersistentIdAllocator,
+)
 from src.tpo_core.application.operational_scheduling import (
     OperationalSchedulingInput,
     OperationalSchedulingResult,
     OperationalSchedulingStatus,
 )
 from src.tpo_core.bootstrap.factory import build_application
-from src.tpo_core.domain.identifiers import ActorId, RunId
+from src.tpo_core.domain.identifiers import ActorId, RigaOrdineId, RunId
 from src.tpo_core.domain.states import RunState
 from src.tpo_core.domain.time_reference import CurrentSystemDate
 from src.tpo_core.infrastructure.postgresql.alembic import make_config
+from src.tpo_core.infrastructure.postgresql.identity_commissioning import (
+    PostgreSQLIdentityRegistrationCommissioningWriter,
+)
 
 
 DATABASE_URL = os.environ.get("TPO_TEST_DATABASE_URL")
 TZ = ZoneInfo("Atlantic/Canary")
+
+
+class URLConnectionFactory:
+    def connect(self):
+        return psycopg.connect(DATABASE_URL)
+
 
 class NoNetworkGoogleService:
     def __init__(self) -> None:
@@ -261,6 +274,20 @@ def _seed(connection) -> None:
     connection.commit()
 
 
+def _commission_order_line_identity() -> None:
+    service = IdentityRegistrationCommissioningService(
+        PostgreSQLIdentityRegistrationCommissioningWriter(URLConnectionFactory())
+    )
+    service.commission(
+        CommissionIdentityRegistration(
+            RigaOrdineId.sequence_name,
+            RigaOrdineId,
+            RigaOrdineId.prefix,
+            ActorId("tpo.identity-commissioner"),
+        )
+    )
+
+
 def _operational_input(*, day: int = 8) -> OperationalSchedulingInput:
     return OperationalSchedulingInput(
         current_system_date=instant(day, 6),
@@ -291,6 +318,7 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
         admin = psycopg.connect(url)
         try:
             _seed(admin)
+            _commission_order_line_identity()
             container = build_application(
                 _settings_file(tmp_path),
                 google_service=google,
@@ -418,12 +446,17 @@ def test_operational_scheduling_postgresql_end_to_end(tmp_path: Path) -> None:
                     "ordini_generati", "elementi_saltati",
                 }
                 cursor.execute(
-                    """SELECT next_value, version FROM tpo.id_sequences
-                       WHERE identifier_type IN (%s, %s)
+                    """SELECT identifier_type, next_value, version
+                       FROM tpo.id_sequences
+                       WHERE identifier_type IN (%s, %s, %s)
                        ORDER BY identifier_type""",
-                    ("OrdineId", "RunId"),
+                    ("OrdineId", "RigaOrdineId", "RunId"),
                 )
-                assert cursor.fetchall() == [(900002, 1), (900002, 1)]
+                assert cursor.fetchall() == [
+                    ("OrdineId", 900002, 1),
+                    ("RigaOrdineId", 3, 2),
+                    ("RunId", 900002, 1),
+                ]
 
             duplicate = container.operational_scheduling_orchestrator.execute(
                 _operational_input()
@@ -484,6 +517,7 @@ def test_operational_commit_concurrency_postgresql(
         admin = psycopg.connect(url)
         try:
             _seed(admin)
+            _commission_order_line_identity()
             container = build_application(
                 _settings_file(tmp_path),
                 google_service=NoNetworkGoogleService(),
@@ -571,12 +605,13 @@ def test_operational_commit_concurrency_postgresql(
                 cursor.execute(
                     """SELECT identifier_type, next_value, version
                        FROM tpo.id_sequences
-                       WHERE identifier_type IN (%s, %s)
+                       WHERE identifier_type IN (%s, %s, %s)
                        ORDER BY identifier_type""",
-                    ("OrdineId", "RunId"),
+                    ("OrdineId", "RigaOrdineId", "RunId"),
                 )
                 assert cursor.fetchall() == [
                     ("OrdineId", 900003, 2),
+                    ("RigaOrdineId", 3, 2),
                     ("RunId", 900003, 2),
                 ]
         finally:

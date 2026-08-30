@@ -15,13 +15,26 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.engine import URL, make_url
 
+from src.tpo_core.application.identity import (
+    CommissionIdentityRegistration,
+    IdentityRegistrationCommissioningService,
+)
 from src.tpo_core.bootstrap import container as container_module
 from src.tpo_core.cli import main as main_module
+from src.tpo_core.domain.identifiers import ActorId, RigaOrdineId
 from src.tpo_core.infrastructure.postgresql.alembic import make_config
+from src.tpo_core.infrastructure.postgresql.identity_commissioning import (
+    PostgreSQLIdentityRegistrationCommissioningWriter,
+)
 
 
 DATABASE_URL = os.environ.get("TPO_TEST_DATABASE_URL")
 TZ = ZoneInfo("Atlantic/Canary")
+
+
+class URLConnectionFactory:
+    def connect(self):
+        return psycopg.connect(DATABASE_URL)
 
 
 def _instant(day: int, hour: int) -> datetime:
@@ -181,6 +194,20 @@ def _seed(connection) -> None:
     connection.commit()
 
 
+def _commission_order_line_identity() -> None:
+    service = IdentityRegistrationCommissioningService(
+        PostgreSQLIdentityRegistrationCommissioningWriter(URLConnectionFactory())
+    )
+    service.commission(
+        CommissionIdentityRegistration(
+            RigaOrdineId.sequence_name,
+            RigaOrdineId,
+            RigaOrdineId.prefix,
+            ActorId("tpo.identity-commissioner"),
+        )
+    )
+
+
 def _execute_arguments(settings: Path) -> list[str]:
     return [
         "schedule",
@@ -259,6 +286,7 @@ def test_operational_cli_postgresql_acceptance(
             )
             assert cursor.fetchone() == (True,)
         _seed(admin)
+        _commission_order_line_identity()
 
         exit_code = main_module.main(_execute_arguments(settings))
         first = capsys.readouterr()
@@ -350,6 +378,7 @@ def test_operational_cli_postgresql_acceptance(
             )
             assert cursor.fetchall() == [
                 ("OrdineId", 920002, 1),
+                ("RigaOrdineId", 2, 1),
                 ("RunId", 920002, 1),
             ]
 

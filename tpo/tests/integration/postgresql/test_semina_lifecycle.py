@@ -353,9 +353,14 @@ def test_lifecycle_downgrade_with_history_fails_without_partial_destruction(life
     engine, writer = lifecycle
     writer.transition(transition(SeminaState.GERMINAZIONE, 0, key="history"))
     with engine.connect() as connection:
+        starting_revision = connection.exec_driver_sql(
+            "SELECT version_num FROM alembic_version"
+        ).scalar_one()
         with pytest.raises(Exception):
             alembic_command.downgrade(make_config(connection=connection), "20260825_0019")
         connection.rollback()
-        assert connection.exec_driver_sql("SELECT version_num FROM alembic_version").scalar_one() == "20260825_0020"
+        assert connection.exec_driver_sql(
+            "SELECT version_num FROM alembic_version"
+        ).scalar_one() == starting_revision
         assert connection.exec_driver_sql("SELECT count(*) FROM tpo.semina_lifecycle_eventi").scalar_one() == 1
         assert connection.exec_driver_sql("SELECT count(*) FROM tpo.semina_lifecycle_transition_requests").scalar_one() == 1

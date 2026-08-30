@@ -131,6 +131,64 @@ def test_raccolta_freeze_preserves_all_owner_guards():
     assert all(value in freeze for value in required)
 
 
+def test_owner_approved_semente_authority_is_exact_and_fail_closed():
+    authority = _registry()["semente_authority_v1"]
+    assert authority["status"] == "OWNER_APPROVED"
+    assert authority["prior_art_gate"] == "PASSED"
+    assert authority["identity"] == {
+        "public_identity": "NONE", "public_sequence": "NONE",
+        "technical_persistence_identity": "internal bigint tpo.sementi.id",
+    }
+    assert authority["business_identity"]["fields"] == ["fornitore", "referenza_commerciale"]
+    assert authority["mutability"]["fornitore"] == "FORBIDDEN"
+    assert authority["mutability"]["referenza_commerciale"] == "FORBIDDEN"
+    assert authority["semente_impiego_relationship"]["automatic_creation"] == "FORBIDDEN"
+    assert authority["semente_impiego_relationship"]["required_for_semente_creation"] is False
+    assert authority["semente_impiego_relationship"]["required_for_lotto_seme_creation"] is False
+    assert authority["semente_impiego_relationship"]["required_for_semina_commissioning"] is True
+    assert authority["articolo_coupling"] == "DEFERRED"
+    assert authority["fornitore_master_authority"] == "NONE"
+
+
+def test_semente_registry_entry_has_no_unresolved_authority():
+    semente = next(
+        item for item in _registry()["concepts"] if item["concept_id"] == "SEMENTE"
+    )
+    assert semente["identities"] == []
+    assert semente["conflicts"] == []
+    assert semente["open_owner_decisions"] == []
+    assert semente["audit_authority"] == "tpo.audit_eventi"
+    cultivar = next(
+        item for item in _registry()["concepts"] if item["concept_id"] == "CULTIVAR"
+    )
+    assert cultivar["identities"] == [
+        {"type": "ProtocolloVersioneId", "prefix": "PV", "sequence": "PROTOCOLLO_VERSIONE_ID"}
+    ]
+
+
+def test_semente_freeze_preserves_all_owner_guards():
+    freeze = (
+        ROOT / "docs/architecture/SEMENTE_AUTHORITY_FREEZE.md"
+    ).read_text(encoding="utf-8")
+    required = (
+        "PRIOR ART REVIEW PASSED",
+        "public identity | `NONE`",
+        "public sequence | `NONE`",
+        "lower(btrim(fornitore))",
+        "lower(btrim(referenza_commerciale))",
+        "uq_sementi_fornitore_referenza_normalized",
+        "fornitore              = FORBIDDEN to mutate",
+        "referenza_commerciale  = FORBIDDEN to mutate",
+        "COMPATIBLE_REPLAY",
+        "tpo.semente_commissioning_requests",
+        "SEMENTE_IMPIEGO",
+        "ARTICOLO",
+        "LOTTO_SEME",
+        "SEM-CIL",
+    )
+    assert all(value in freeze for value in required)
+
+
 def test_every_current_core_public_identity_prefix_is_registered():
     source = IDENTIFIERS_PATH.read_text(encoding="utf-8")
     core_prefixes = set(re.findall(r'prefix: ClassVar\[str\] = "([A-Z]+)"', source))

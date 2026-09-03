@@ -10,6 +10,7 @@ from src.tpo_core.domain.identifiers import (
     ConsegnaId,
     IdGenerator,
     MovimentoId,
+    NumeroFattura,
     OrdineId,
     PermanentId,
     ProgrammaFornituraId,
@@ -113,3 +114,30 @@ def test_fake_id_generator_is_deterministic_and_typed() -> None:
     assert first == OrdineId("ORD-000001")
     assert second == OrdineId("ORD-000002")
     assert generator.next_id(SeminaId) == SeminaId("SEM-000001")
+
+
+def test_numero_fattura_valido_stabile_e_immutabile() -> None:
+    numero = NumeroFattura("2026/0001")
+    assert numero.value == "2026/0001"
+    assert str(numero) == "2026/0001"
+    assert numero.anno == 2026
+    with pytest.raises(FrozenInstanceError):
+        numero.value = "2026/0002"
+
+
+@pytest.mark.parametrize("value", [
+    "", "   ", None, 1, "2026-0001", "26/0001", "2026/001", "2026/00001",
+    "2026/0000", " 2026/0001", "2026/0001 ",
+])
+def test_numero_fattura_rifiuta_formati_invalidi(value) -> None:
+    with pytest.raises(InvalidIdentifierError):
+        NumeroFattura(value)
+
+
+def test_numero_fattura_non_e_un_permanent_id() -> None:
+    assert not isinstance(NumeroFattura("2026/0001"), PermanentId)
+
+
+def test_numero_fattura_compare_per_valore() -> None:
+    assert NumeroFattura("2026/0001") == NumeroFattura("2026/0001")
+    assert NumeroFattura("2026/0001") != NumeroFattura("2026/0002")

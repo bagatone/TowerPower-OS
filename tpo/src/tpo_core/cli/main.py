@@ -17,6 +17,9 @@ from .semente import run_semente_command
 from .semente_impiego import run_semente_impiego_command
 from .semina import run_semina_command
 from .delivery import run_delivery_command
+from .fattura import run_fattura_command
+from .listino_varieta import run_listino_varieta_command
+from .cliente import run_cliente_command
 
 
 class _UsageError(ValueError):
@@ -206,6 +209,37 @@ def _parser() -> argparse.ArgumentParser:
     fulfil_delivery.add_argument("--reason", required=True)
     fulfil_delivery.add_argument("--correlation-id", required=True)
     fulfil_delivery.add_argument("--confirm", action="store_true", required=True)
+    fattura = commands.add_parser("fattura", help="Emissione governata FATTURA.")
+    fattura_commands = fattura.add_subparsers(dest="fattura_command", required=True)
+    emetti_fattura = fattura_commands.add_parser("emetti")
+    emetti_fattura.add_argument("--client", required=True)
+    emetti_fattura.add_argument("--consegna", required=True, action="append",
+                                 help="CONSEGNA da fatturare; ripetibile per più CONSEGNE.")
+    emetti_fattura.add_argument("--data-emissione", required=True)
+    emetti_fattura.add_argument("--actor", required=True)
+    emetti_fattura.add_argument("--reason", required=True)
+    emetti_fattura.add_argument("--correlation-id", required=True)
+    emetti_fattura.add_argument("--idempotency-key", required=True)
+    emetti_fattura.add_argument("--confirm", action="store_true", required=True)
+    listino_varieta = commands.add_parser(
+        "listino-varieta", help="Configuration mutabile LISTINO_VARIETA.")
+    listino_varieta_commands = listino_varieta.add_subparsers(
+        dest="listino_varieta_command", required=True)
+    set_listino_varieta = listino_varieta_commands.add_parser("set")
+    set_listino_varieta.add_argument("--varieta", required=True)
+    set_listino_varieta.add_argument("--prezzo-unitario", required=True)
+    set_listino_varieta.add_argument("--aliquota-igic", required=True)
+    set_listino_varieta.add_argument("--actor", required=True)
+    cliente = commands.add_parser("cliente", help="Configuration mutabile CLIENTE.")
+    cliente_commands = cliente.add_subparsers(dest="cliente_command", required=True)
+    fatturazione_cliente = cliente_commands.add_parser("fatturazione")
+    fatturazione_cliente.add_argument("--client", required=True)
+    fatturazione_cliente.add_argument(
+        "--modalita-fatturazione", required=True,
+        choices=["A_CONSEGNA", "PERIODICA_MENSILE"],
+    )
+    fatturazione_cliente.add_argument("--termini-pagamento-giorni", required=True, type=int)
+    fatturazione_cliente.add_argument("--actor", required=True)
     raccolta = commands.add_parser("raccolta", help="Registrazione governata RACCOLTA.")
     raccolta_commands = raccolta.add_subparsers(dest="raccolta_command", required=True)
     record_raccolta = raccolta_commands.add_parser("record")
@@ -248,6 +282,12 @@ def main(argv: list[str] | None = None) -> int:
         return run_raccolta_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "delivery":
         return run_delivery_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "fattura":
+        return run_fattura_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "listino-varieta":
+        return run_listino_varieta_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "cliente":
+        return run_cliente_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "preflight":
         return run_preflight_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "execute":

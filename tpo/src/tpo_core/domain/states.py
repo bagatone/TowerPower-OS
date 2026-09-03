@@ -72,3 +72,8 @@ class SementeRaccomandazione(str, Enum):
     RACCOMANDATA = "RACCOMANDATA"
     UTILIZZABILE = "UTILIZZABILE"
     SCONSIGLIATA = "SCONSIGLIATA"
+
+
+class ModalitaFatturazione(str, Enum):
+    A_CONSEGNA = "A_CONSEGNA"
+    PERIODICA_MENSILE = "PERIODICA_MENSILE"

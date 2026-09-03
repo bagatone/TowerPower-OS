@@ -156,6 +156,38 @@ class AllocazioneId(PermanentId):
     sequence_name: ClassVar[str] = "ALLOCAZIONE_ID"
 
 
+@dataclass(frozen=True)
+class NumeroFattura:
+    """Numero fattura legale: identità pubblica di FATTURA (non un PermanentId).
+
+    Deviazione deliberata dal pattern PermanentId (Owner Decision D1,
+    docs/architecture/FATTURA_AUTHORITY_FREEZE.md Sezione 5): il numero
+    legale è già di per sé permanente e progressivo per obbligo di legge,
+    quindi è esso stesso l'identità pubblica — non un codice interno neutro
+    affiancato da un secondo numero "vero".
+    """
+
+    value: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, str) or not self.value:
+            raise InvalidIdentifierError("NumeroFattura deve essere una stringa non vuota.")
+        match = re.fullmatch(r"([0-9]{4})/([0-9]{4})", self.value)
+        if match is None:
+            raise InvalidIdentifierError(
+                f"NumeroFattura non valido: {self.value!r}. Formato atteso: AAAA/NNNN."
+            )
+        if int(match.group(2)) <= 0:
+            raise InvalidIdentifierError("La parte progressiva di NumeroFattura deve essere positiva.")
+
+    @property
+    def anno(self) -> int:
+        return int(self.value.split("/", 1)[0])
+
+    def __str__(self) -> str:
+        return self.value
+
+
 IdentifierT = TypeVar("IdentifierT", bound=PermanentId)
 
 

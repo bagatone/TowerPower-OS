@@ -6,6 +6,11 @@ from .delivery_fulfilment import (
     build_delivery_id_allocator,
 )
 from .errors import OperationalRuntimeUnavailableError
+from .fattura_emissione import build_fattura_emissione_service
+from .fatturazione_configuration import (
+    build_cliente_fatturazione_writer,
+    build_listino_varieta_writer,
+)
 from .factory import _build_operational_application, build_application
 from .identity import build_identity_registration_commissioner
 from .onboarding import build_operational_data_onboarding_service
@@ -29,8 +34,11 @@ __all__ = [
     "OperationalRuntimeUnavailableError",
     "build_application",
     "build_delivery_fulfilment_service",
+    "build_cliente_fatturazione_writer",
     "build_delivery_id_allocator",
+    "build_fattura_emissione_service",
     "build_identity_registration_commissioner",
+    "build_listino_varieta_writer",
     "build_operational_data_onboarding_service",
     "build_operational_application",
     "build_production_planning_runtime",

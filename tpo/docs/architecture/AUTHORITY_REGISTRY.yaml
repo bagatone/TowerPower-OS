@@ -519,21 +519,21 @@ concepts:
     domain: ADMINISTRATION
     classification: document
     status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.3", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}]
+    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.3", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}, {path: docs/architecture/FATTURA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}]
     core_implementations: []
     persistence_authorities: []
     identities: []
     legacy_predecessors: [docs/registers/DOCUMENTO_DI_VENDITA.md]
-    preserved_rules: ["A definitive invoice is immutable and is distinct from Order, Delivery, sales document and Payment."]
+    preserved_rules: ["A definitive invoice is immutable and is distinct from Order, Delivery, sales document and Payment.", "The public identity of Fattura is the legal invoice number itself (Owner Decision D1, FATTURA_AUTHORITY_FREEZE.md Section 5)."]
     explicitly_superseded_rules: []
     forbidden_duplicates: [{alias: FATTURA_AS_CONSEGNA, reason: "Fattura and Consegna are distinct authorities."}]
     conflicts: []
-    open_owner_decisions: ["Freeze invoice identity, lifecycle and commissioning boundary in a future administration sprint."]
-    correction_semantics: "Future corrections must preserve the definitive document and add authoritative facts."
-    audit_authority: not_implemented
-    idempotency_authority: not_implemented
+    open_owner_decisions: ["Identity, numbering, fiscal model (IGIC), CLIENTE/LISTINO_VARIETA prerequisites and correction shape are frozen (FATTURA_AUTHORITY_FREEZE.md); commissioning boundary is not yet implemented.", "PAGAMENTO/INCASSO integration deferred to a future freeze.", "LISTINO_VARIETA commissioning/versioning governance not yet frozen.", "RectifyFattura implementation deferred (identity/numbering shape reserved only).", "Electronic transmission (SII/Verifactu/SDI or equivalent) explicitly out of scope for V1."]
+    correction_semantics: "A correction is a new, separately-numbered Fattura referencing the original via rettifica_di; the original is never mutated (FATTURA_AUTHORITY_FREEZE.md Section 16)."
+    audit_authority: tpo.audit_eventi (frozen, not yet implemented)
+    idempotency_authority: fattura emission request (frozen, not yet implemented)
     verification_tests: []
-    reviewed_at_commit: 4e6a127
+    reviewed_at_commit: aadbb2c
 
   - concept_id: INCASSO_PAGAMENTO
     canonical_name: Incasso and Pagamento

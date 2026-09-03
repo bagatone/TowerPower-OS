@@ -1,5 +1,6 @@
 from src.tpo_core.domain.states import (
     ConsegnaState,
+    ModalitaFatturazione,
     MovimentoDirection,
     MovimentoType,
     OrdineCreationType,
@@ -61,3 +62,7 @@ def test_movimento_directions_are_exact() -> None:
 
 def test_run_states_are_exact() -> None:
     assert values(RunState) == ["SUCCESS", "SUCCESS_WITH_WARNINGS", "FAILED"]
+
+
+def test_modalita_fatturazione_states_are_exact() -> None:
+    assert values(ModalitaFatturazione) == ["A_CONSEGNA", "PERIODICA_MENSILE"]

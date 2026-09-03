@@ -16,6 +16,7 @@ from .seed_lot import run_seed_lot_command
 from .semente import run_semente_command
 from .semente_impiego import run_semente_impiego_command
 from .semina import run_semina_command
+from .delivery import run_delivery_command
 
 
 class _UsageError(ValueError):
@@ -191,6 +192,20 @@ def _parser() -> argparse.ArgumentParser:
     transition_semina.add_argument("--correlation-id", required=True)
     transition_semina.add_argument("--idempotency-key", required=True)
     transition_semina.add_argument("--confirm", action="store_true", required=True)
+    delivery = commands.add_parser("delivery", help="Delivery Fulfilment governato CONSEGNA/STOCK.")
+    delivery_commands = delivery.add_subparsers(dest="delivery_command", required=True)
+    fulfil_delivery = delivery_commands.add_parser("fulfil")
+    fulfil_delivery.add_argument("--client", required=True)
+    fulfil_delivery.add_argument("--planned-date", required=True)
+    fulfil_delivery.add_argument("--effective-at", required=True)
+    fulfil_delivery.add_argument("--lines-file", required=True)
+    fulfil_delivery.add_argument("--consegna-id")
+    fulfil_delivery.add_argument("--operator")
+    fulfil_delivery.add_argument("--physical-destination")
+    fulfil_delivery.add_argument("--actor", required=True)
+    fulfil_delivery.add_argument("--reason", required=True)
+    fulfil_delivery.add_argument("--correlation-id", required=True)
+    fulfil_delivery.add_argument("--confirm", action="store_true", required=True)
     raccolta = commands.add_parser("raccolta", help="Registrazione governata RACCOLTA.")
     raccolta_commands = raccolta.add_subparsers(dest="raccolta_command", required=True)
     record_raccolta = raccolta_commands.add_parser("record")
@@ -231,6 +246,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_semina_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "raccolta":
         return run_raccolta_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "delivery":
+        return run_delivery_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "preflight":
         return run_preflight_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.schedule_command == "execute":

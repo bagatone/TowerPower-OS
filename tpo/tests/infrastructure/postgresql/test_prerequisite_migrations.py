@@ -243,8 +243,14 @@ def test_movement_origin_check_rifiuta_matrice_invalida(movement_origin_check, v
 def test_migrazioni_non_contengono_seed_o_import_google(upgraded) -> None:
     assert upgraded.execute(sa.text(
         "SELECT sequence_name,identifier_type,prefix,next_value,version "
-        "FROM tpo.id_sequences"
-    )).all() == [("RACCOLTA_ID", "RaccoltaId", "RAC", 1, 0)]
+        "FROM tpo.id_sequences ORDER BY sequence_name"
+    )).all() == [
+        ("CONSEGNA_ID", "ConsegnaId", "CON", 1, 0),
+        ("MOVIMENTO_ID", "MovimentoId", "MOV", 1, 0),
+        ("ORDINE_ID", "OrdineId", "ORD", 1, 0),
+        ("RACCOLTA_ID", "RaccoltaId", "RAC", 1, 0),
+        ("RUN_ID", "RunId", "RUN", 1, 0),
+    ]
     for table in PREREQUISITE_TABLES:
         assert upgraded.execute(sa.text(f"SELECT count(*) FROM tpo.{table}")).scalar_one() == 0
     source = KNOWLEDGE_PATH.read_text(encoding="utf-8") + EXECUTION_PATH.read_text(encoding="utf-8")

@@ -35,16 +35,11 @@ ACTOR = ActorId("tpo.identity-commissioner")
 
 @pytest.fixture(scope="module")
 def database(isolated_postgresql):
+    # RUN_ID e ORDINE_ID sono già seminate dalla migration 20260903_0025
+    # (id_sequences backfill): restano qui come esempio di righe pre-esistenti
+    # e non correlate che la commissioning Production Planning non deve toccare.
     with isolated_postgresql.engine.begin() as connection:
         alembic_command.upgrade(make_config(connection=connection), "head")
-        connection.exec_driver_sql(
-            """INSERT INTO tpo.id_sequences
-                 (sequence_name,identifier_type,prefix,next_value,version,
-                  updated_at,updated_by)
-               VALUES
-                 ('RUN_ID','RunId','RUN',1,0,CURRENT_TIMESTAMP,'tpo.identity'),
-                 ('ORDINE_ID','OrdineId','ORD',1,0,CURRENT_TIMESTAMP,'tpo.identity')"""
-        )
     return isolated_postgresql.engine
 
 
@@ -66,8 +61,10 @@ def test_incremental_commissioning_replay_preserves_existing_and_counters(databa
 
     assert set(after) == {
         "RACCOLTA_ID",
-        "RUN_ID",
+        "MOVIMENTO_ID",
         "ORDINE_ID",
+        "CONSEGNA_ID",
+        "RUN_ID",
         "ALLOCAZIONE_ID",
         "PIANO_PRODUZIONE_ID",
         "REVISIONE_PIANO_PRODUZIONE_ID",

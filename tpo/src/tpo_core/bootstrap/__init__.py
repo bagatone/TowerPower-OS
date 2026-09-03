@@ -1,6 +1,10 @@
 """Bootstrap esplicito dell'applicazione Tower Power Operations."""
 
 from .container import ApplicationContainer
+from .delivery_fulfilment import (
+    build_delivery_fulfilment_service,
+    build_delivery_id_allocator,
+)
 from .errors import OperationalRuntimeUnavailableError
 from .factory import _build_operational_application, build_application
 from .identity import build_identity_registration_commissioner
@@ -24,6 +28,8 @@ __all__ = [
     "InvalidSettingsError",
     "OperationalRuntimeUnavailableError",
     "build_application",
+    "build_delivery_fulfilment_service",
+    "build_delivery_id_allocator",
     "build_identity_registration_commissioner",
     "build_operational_data_onboarding_service",
     "build_operational_application",

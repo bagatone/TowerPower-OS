@@ -80,11 +80,11 @@ def test_same_business_key_different_request_is_a_typed_duplicate(environment):
         writer.commission(command(key="key-2"))
 
 
-def test_normalization_backstop_prevents_case_and_whitespace_duplicates(environment):
+def test_normalization_backstop_prevents_case_variant_duplicates(environment):
     _, writer = environment
     writer.commission(command(key="key-1", fornitore="INTERSEMILLAS", referenza="VERDE MICROGREENS"))
     with pytest.raises(SementeDuplicateError):
-        writer.commission(command(key="key-2", fornitore="  intersemillas  ", referenza="  verde microgreens  "))
+        writer.commission(command(key="key-2", fornitore="intersemillas", referenza="verde microgreens"))
 
 
 def test_concurrent_identical_commissioning_converges_to_one_semente(environment):

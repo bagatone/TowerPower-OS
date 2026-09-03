@@ -57,7 +57,20 @@ raccolta_authority_v1:
   stock_boundary: {direct_stock_mutation: FORBIDDEN, automatic_movement: FORBIDDEN}
   destination_as_assignment: FORBIDDEN
   quality_authority: DEFERRED
-  correction_implementation: DEFERRED
+  correction_implementation: IMPLEMENTED
+  correction_authority:
+    freeze: docs/architecture/RACCOLTA_CORREZIONE_AUTHORITY_FREEZE.md
+    command: CorreggiRaccolta
+    cli: "tpo raccolta correggi"
+    persistence: tpo.raccolte.rettifica_raccolta_id
+    identity: {allocation: SAME_SEQUENCE, sequence: RACCOLTA_ID}
+    idempotency: tpo.raccolta_correzione_requests
+    original_mutation: FORBIDDEN
+    chained_correction: FORBIDDEN
+    cross_semina_correction: FORBIDDEN
+    cross_uom_correction: FORBIDDEN
+    net_quantity_negative: FORBIDDEN
+    semina_state_gate: NOT_REQUIRED
   actor_authority: CORE_AUTHORITY_CONTEXT
 
 semente_authority_v1:
@@ -267,9 +280,9 @@ concepts:
     domain: PHYSICAL_PRODUCTION
     classification: fact
     status: PARTIALLY MIGRATED
-    current_authorities: [{path: docs/architecture/RACCOLTA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}]
-    core_implementations: [src/tpo_core/domain/entities/raccolta.py]
-    persistence_authorities: [tpo.raccolte]
+    current_authorities: [{path: docs/architecture/RACCOLTA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}, {path: docs/architecture/RACCOLTA_CORREZIONE_AUTHORITY_FREEZE.md, section: "4", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/raccolta.py, src/tpo_core/application/raccolta/service.py, src/tpo_core/infrastructure/postgresql/raccolta.py]
+    persistence_authorities: [tpo.raccolte, tpo.raccolte.rettifica_raccolta_id, tpo.raccolta_recording_requests, tpo.raccolta_correzione_requests]
     identities: [{type: RaccoltaId, prefix: RAC, sequence: RACCOLTA_ID}]
     legacy_predecessors: [docs/registers/RACCOLTE.md, tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
     preserved_rules: ["A Raccolta is an immutable event; one Semina may have zero, one or many Raccolte."]
@@ -277,10 +290,10 @@ concepts:
     forbidden_duplicates: [{alias: RACCOLTA_AS_SEMINA_STATE, reason: "Raccolta is an independent physical fact."}, {alias: LOTTO_PRODUZIONE_FOR_RACCOLTA, reason: "Semina remains the production-group authority."}, {alias: RACCOLTA_TRACEABILITY_SNAPSHOT_AUTHORITY, reason: "AAA-GGMM-L remains authoritative only on Semina."}, {alias: RACCOLTA_DIRECT_STOCK_WRITER, reason: "Inventory changes belong to Movimento Magazzino."}, {alias: RACCOLTA_DESTINATION_AS_ASSIGNMENT, reason: "Physical allocation belongs to the future Assegnazione authority."}, {alias: RACCOLTA_FREE_TEXT_QUALITY, reason: "Quality authority is deferred pending a controlled vocabulary."}]
     conflicts: []
     open_owner_decisions: []
-    correction_semantics: "Append-only linked correction/reversal/void; implementation deferred. Original UPDATE and DELETE are forbidden."
+    correction_semantics: "A correction is a new RAC-* event (CorreggiRaccolta) referencing the original via tpo.raccolte.rettifica_raccolta_id; the original RACCOLTA is never mutated (RACCOLTA_CORREZIONE_AUTHORITY_FREEZE.md). No correction-of-correction chaining; every correction always references the originating event. Same SEMINA and same UOM as the original are required; the net quantity (original plus all its corrections) may never go negative. A correction is admitted regardless of the current SEMINA state."
     audit_authority: tpo.audit_eventi
     idempotency_authority: tpo.raccolta_recording_requests
-    verification_tests: [tests/domain/test_raccolta.py, tests/architecture/test_authority_registry.py]
+    verification_tests: [tests/domain/test_raccolta.py, tests/architecture/test_authority_registry.py, tests/application/test_raccolta_correzione.py, tests/infrastructure/postgresql/test_raccolta_correzione_migration.py, tests/integration/postgresql/test_raccolta_correzione.py, tests/cli/test_raccolta_cli.py]
     reviewed_at_commit: 4e6a127
 
   - concept_id: STOCK

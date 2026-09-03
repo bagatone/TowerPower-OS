@@ -15,7 +15,7 @@ def test_fattura_emissione_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260903_0026"]
+    assert script.get_heads() == ["20260903_0027"]
     revision = script.get_revision("20260903_0026")
     assert revision.down_revision == "20260903_0025"
 
@@ -93,7 +93,7 @@ def test_real_postgresql_downgrade_blocked_once_a_fattura_exists(isolated_postgr
     connection.rollback()
     assert connection.exec_driver_sql(
         "SELECT version_num FROM alembic_version"
-    ).scalar_one() == "20260903_0026"
+    ).scalar_one() == "20260903_0027"
 
 
 def test_real_postgresql_downgrade_succeeds_when_untouched(isolated_postgresql):

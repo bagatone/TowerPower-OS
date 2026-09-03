@@ -253,6 +253,18 @@ def _parser() -> argparse.ArgumentParser:
     record_raccolta.add_argument("--correlation-id", required=True)
     record_raccolta.add_argument("--idempotency-key", required=True)
     record_raccolta.add_argument("--confirm", action="store_true", required=True)
+    correggi_raccolta = raccolta_commands.add_parser("correggi")
+    correggi_raccolta.add_argument("--original-raccolta", required=True)
+    correggi_raccolta.add_argument("--semina", required=True)
+    correggi_raccolta.add_argument("--quantity", required=True)
+    correggi_raccolta.add_argument("--uom", required=True, choices=["SET"])
+    correggi_raccolta.add_argument("--effective-at", required=True)
+    correggi_raccolta.add_argument("--notes")
+    correggi_raccolta.add_argument("--actor", required=True)
+    correggi_raccolta.add_argument("--reason", required=True)
+    correggi_raccolta.add_argument("--correlation-id", required=True)
+    correggi_raccolta.add_argument("--idempotency-key", required=True)
+    correggi_raccolta.add_argument("--confirm", action="store_true", required=True)
     return parser
 
 

@@ -5,7 +5,7 @@ from src.tpo_core.infrastructure.postgresql.alembic import make_config
 
 def test_lifecycle_migration_is_linear_current_head():
     script = ScriptDirectory.from_config(make_config())
-    assert script.get_heads() == ["20260903_0026"]
+    assert script.get_heads() == ["20260903_0027"]
     revision = script.get_revision("20260825_0020")
     assert revision.down_revision == "20260825_0019"
 

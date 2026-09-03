@@ -99,7 +99,15 @@ def test_owner_approved_raccolta_authority_is_exact_and_fail_closed():
     }
     assert authority["destination_as_assignment"] == "FORBIDDEN"
     assert authority["quality_authority"] == "DEFERRED"
-    assert authority["correction_implementation"] == "DEFERRED"
+    assert authority["correction_implementation"] == "IMPLEMENTED"
+    assert authority["correction_authority"]["freeze"] == (
+        "docs/architecture/RACCOLTA_CORREZIONE_AUTHORITY_FREEZE.md"
+    )
+    assert authority["correction_authority"]["command"] == "CorreggiRaccolta"
+    assert authority["correction_authority"]["original_mutation"] == "FORBIDDEN"
+    assert authority["correction_authority"]["chained_correction"] == "FORBIDDEN"
+    assert authority["correction_authority"]["cross_semina_correction"] == "FORBIDDEN"
+    assert authority["correction_authority"]["net_quantity_negative"] == "FORBIDDEN"
 
 
 def test_raccolta_registry_entry_has_no_unresolved_authority():

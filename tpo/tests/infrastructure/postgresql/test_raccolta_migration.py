@@ -19,7 +19,7 @@ def test_raccolta_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260903_0026"]
+    assert script.get_heads() == ["20260903_0027"]
     revision = script.get_revision("20260830_0022")
     assert revision.down_revision == "20260826_0021"
 

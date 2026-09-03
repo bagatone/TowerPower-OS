@@ -1,4 +1,10 @@
-from .models import RaccoltaAuthority, RecordRaccolta, RecordRaccoltaResult
+from .models import (
+    CorreggiRaccolta, CorreggiRaccoltaResult, RaccoltaAuthority, RecordRaccolta,
+    RecordRaccoltaResult,
+)
 from .service import RaccoltaService
 
-__all__ = ["RaccoltaAuthority", "RaccoltaService", "RecordRaccolta", "RecordRaccoltaResult"]
+__all__ = [
+    "CorreggiRaccolta", "CorreggiRaccoltaResult", "RaccoltaAuthority", "RaccoltaService",
+    "RecordRaccolta", "RecordRaccoltaResult",
+]

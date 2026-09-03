@@ -13,6 +13,7 @@ from .production_planning import run_production_planning_command
 from .raccolta import run_raccolta_command
 from .onboarding import run_onboarding_command
 from .seed_lot import run_seed_lot_command
+from .semente import run_semente_command
 from .semina import run_semina_command
 
 
@@ -107,6 +108,20 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--actor", required=True)
         command.add_argument("--reason", required=True)
         command.add_argument("--correlation-id", required=True)
+    semente = commands.add_parser("semente", help="Commissioning governato SEMENTE.")
+    semente_commands = semente.add_subparsers(dest="semente_command", required=True)
+    commission_semente = semente_commands.add_parser("commission")
+    commission_semente.add_argument("--fornitore", required=True)
+    commission_semente.add_argument("--referenza-commerciale", required=True)
+    commission_semente.add_argument("--marca")
+    commission_semente.add_argument("--formato")
+    commission_semente.add_argument("--trattamento")
+    commission_semente.add_argument("--certificazioni")
+    commission_semente.add_argument("--actor", required=True)
+    commission_semente.add_argument("--reason", required=True)
+    commission_semente.add_argument("--correlation-id", required=True)
+    commission_semente.add_argument("--idempotency-key", required=True)
+    commission_semente.add_argument("--confirm", action="store_true", required=True)
     seed_lot = commands.add_parser("seed-lot", help="Commissioning governato LOTTO_SEME.")
     seed_lot_commands = seed_lot.add_subparsers(dest="seed_lot_command", required=True)
     commission_seed_lot = seed_lot_commands.add_parser("commission")
@@ -189,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "onboarding":
         return run_onboarding_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "semente":
+        return run_semente_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "seed-lot":
         return run_seed_lot_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "semina":

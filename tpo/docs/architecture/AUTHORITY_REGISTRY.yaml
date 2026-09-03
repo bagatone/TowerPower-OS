@@ -69,7 +69,7 @@ semente_authority_v1:
   metadata_fields: [marca, formato, trattamento, certificazioni]
   state_model: {field: attiva, type: boolean, additional_states: FORBIDDEN}
   creation_authority: CommissionSemente
-  idempotency: {authority: tpo.semente_commissioning_requests, compatible_replay: SAME_SEMENTE, changed_payload: TYPED_CONFLICT, implementation_status: DEFERRED}
+  idempotency: {authority: tpo.semente_commissioning_requests, compatible_replay: SAME_SEMENTE, changed_payload: TYPED_CONFLICT, implementation_status: IMPLEMENTED}
   mutability: {fornitore: FORBIDDEN, referenza_commerciale: FORBIDDEN, metadata_correction: DEFERRED, activation_deactivation: DEFERRED}
   semente_impiego_relationship: {automatic_creation: FORBIDDEN, required_for_semente_creation: false, required_for_lotto_seme_creation: false, required_for_semina_commissioning: true}
   articolo_coupling: DEFERRED
@@ -147,8 +147,8 @@ concepts:
     classification: configuration
     status: PARTIALLY MIGRATED
     current_authorities: [{path: docs/architecture/VARIETA.md, section: "13", kind: architecture_freeze}, {path: docs/architecture/SEMENTE_AUTHORITY_FREEZE.md, section: "4", kind: architecture_freeze}]
-    core_implementations: [src/tpo_core/application/agronomic_commissioning/service.py]
-    persistence_authorities: [tpo.sementi, tpo.semente_impieghi]
+    core_implementations: [src/tpo_core/application/agronomic_commissioning/service.py, src/tpo_core/application/semente_commissioning/service.py, src/tpo_core/infrastructure/postgresql/semente_commissioning.py]
+    persistence_authorities: [tpo.sementi, tpo.semente_impieghi, tpo.semente_commissioning_requests]
     identities: []
     legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
     preserved_rules: ["Semente commercial reference is distinct from Varieta, Cultivar and physical seed lot.", "Semente business identity is normalized fornitore + referenza_commerciale; there is no public Semente identifier or sequence (Owner Decision D1)."]
@@ -158,8 +158,8 @@ concepts:
     open_owner_decisions: []
     correction_semantics: "Fornitore and referenza_commerciale are immutable after creation (Owner Decision D2); a corrected commercial reference becomes a distinct Semente authority. Metadata correction and activation/deactivation are deferred."
     audit_authority: tpo.audit_eventi
-    idempotency_authority: "future tpo.semente_commissioning_requests (Owner Decision D5; not yet implemented)"
-    verification_tests: [tests/integration/postgresql/test_agronomic_commissioning.py, tests/architecture/test_authority_registry.py]
+    idempotency_authority: "tpo.semente_commissioning_requests (Owner Decision D5)"
+    verification_tests: [tests/integration/postgresql/test_agronomic_commissioning.py, tests/architecture/test_authority_registry.py, tests/architecture/test_semente_commissioning_freeze.py, tests/application/test_semente_commissioning.py, tests/cli/test_semente_cli.py, tests/integration/postgresql/test_semente_commissioning.py]
     reviewed_at_commit: 4e6a127
     replacement_or_decision_reference: docs/architecture/SEMENTE_AUTHORITY_FREEZE.md
 

@@ -66,3 +66,9 @@ class RunState(str, Enum):
     SUCCESS = "SUCCESS"
     SUCCESS_WITH_WARNINGS = "SUCCESS_WITH_WARNINGS"
     FAILED = "FAILED"
+
+
+class SementeRaccomandazione(str, Enum):
+    RACCOMANDATA = "RACCOMANDATA"
+    UTILIZZABILE = "UTILIZZABILE"
+    SCONSIGLIATA = "SCONSIGLIATA"

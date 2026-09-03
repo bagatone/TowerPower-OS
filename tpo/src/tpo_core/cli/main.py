@@ -14,6 +14,7 @@ from .raccolta import run_raccolta_command
 from .onboarding import run_onboarding_command
 from .seed_lot import run_seed_lot_command
 from .semente import run_semente_command
+from .semente_impiego import run_semente_impiego_command
 from .semina import run_semina_command
 
 
@@ -122,6 +123,22 @@ def _parser() -> argparse.ArgumentParser:
     commission_semente.add_argument("--correlation-id", required=True)
     commission_semente.add_argument("--idempotency-key", required=True)
     commission_semente.add_argument("--confirm", action="store_true", required=True)
+    semente_impiego = commands.add_parser("semente-impiego", help="Commissioning governato SEMENTE_IMPIEGO.")
+    semente_impiego_commands = semente_impiego.add_subparsers(dest="semente_impiego_command", required=True)
+    commission_semente_impiego = semente_impiego_commands.add_parser("commission")
+    commission_semente_impiego.add_argument("--fornitore", required=True)
+    commission_semente_impiego.add_argument("--referenza-commerciale", required=True)
+    commission_semente_impiego.add_argument("--protocol-version", required=True)
+    commission_semente_impiego.add_argument("--raccomandazione", required=True, choices=[
+        "RACCOMANDATA", "UTILIZZABILE", "SCONSIGLIATA",
+    ])
+    commission_semente_impiego.add_argument("--rating")
+    commission_semente_impiego.add_argument("--motivazione")
+    commission_semente_impiego.add_argument("--actor", required=True)
+    commission_semente_impiego.add_argument("--reason", required=True)
+    commission_semente_impiego.add_argument("--correlation-id", required=True)
+    commission_semente_impiego.add_argument("--idempotency-key", required=True)
+    commission_semente_impiego.add_argument("--confirm", action="store_true", required=True)
     seed_lot = commands.add_parser("seed-lot", help="Commissioning governato LOTTO_SEME.")
     seed_lot_commands = seed_lot.add_subparsers(dest="seed_lot_command", required=True)
     commission_seed_lot = seed_lot_commands.add_parser("commission")
@@ -206,6 +223,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_onboarding_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "semente":
         return run_semente_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "semente-impiego":
+        return run_semente_impiego_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "seed-lot":
         return run_seed_lot_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "semina":

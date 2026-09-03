@@ -77,6 +77,20 @@ semente_authority_v1:
   forbidden_duplicates: [SEMENTE_ID, SEMENTE_PUBLIC_SEQUENCE, PROTOCOLLO_VERSIONE_AS_SEMENTE_IDENTITY, SEMENTE_ARTICOLO_AUTOMATIC_LINK, SEMENTE_IMPIEGO_AUTOMATIC_LINK]
   actor_authority: CORE_AUTHORITY_CONTEXT
 
+semente_impiego_authority_v1:
+  status: OWNER_APPROVED
+  prior_art_gate: PASSED
+  identity: {public_identity: NONE, public_sequence: NONE, technical_persistence_identity: "internal bigint tpo.semente_impieghi.id"}
+  business_identity: {fields: [semente_id, cultivar_uso_id], resolution: "fornitore+referenza_commerciale resolves semente_id; approved and currently-valid PROTOCOLLO_VERSIONE resolves cultivar_uso_id", uniqueness_backstop: uq_semente_impieghi_semente_cultivar_uso}
+  evaluation_fields: [raccomandazione, rating, motivazione]
+  evaluation_date_authority: {field: ultima_revisione, source: writer_owned_current_date, caller_input: FORBIDDEN}
+  creation_authority: CommissionSementeImpiego
+  idempotency: {authority: tpo.semente_impiego_commissioning_requests, compatible_replay: SAME_SEMENTE_IMPIEGO, changed_payload: TYPED_CONFLICT, implementation_status: IMPLEMENTED}
+  mutability: {semente_id: FORBIDDEN, cultivar_uso_id: FORBIDDEN, evaluation_revision: DEFERRED}
+  prerequisite_ordering: {requires_active_semente: true, requires_lotto_seme: false, required_for_semina_commissioning: true}
+  forbidden_duplicates: [SEMENTE_IMPIEGO_ID, SEMENTE_IMPIEGO_PUBLIC_SEQUENCE, SILENT_CONVERGENCE_ON_DIFFERENT_REQUEST, CALLER_SUPPLIED_ULTIMA_REVISIONE]
+  actor_authority: CORE_AUTHORITY_CONTEXT
+
 concepts:
   - concept_id: CLIENTE
     canonical_name: Cliente
@@ -162,6 +176,28 @@ concepts:
     verification_tests: [tests/integration/postgresql/test_agronomic_commissioning.py, tests/architecture/test_authority_registry.py, tests/architecture/test_semente_commissioning_freeze.py, tests/application/test_semente_commissioning.py, tests/cli/test_semente_cli.py, tests/integration/postgresql/test_semente_commissioning.py]
     reviewed_at_commit: 4e6a127
     replacement_or_decision_reference: docs/architecture/SEMENTE_AUTHORITY_FREEZE.md
+
+  - concept_id: SEMENTE_IMPIEGO
+    canonical_name: Semente Impiego
+    domain: PRODUCTION_KNOWLEDGE
+    classification: entity
+    status: IMPLEMENTED
+    current_authorities: [{path: docs/architecture/SEMENTE_IMPIEGO_AUTHORITY_FREEZE.md, section: "4", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/semente_impiego_commissioning/service.py, src/tpo_core/infrastructure/postgresql/semente_impiego_commissioning.py]
+    persistence_authorities: [tpo.semente_impieghi, tpo.semente_impiego_commissioning_requests]
+    identities: []
+    legacy_predecessors: []
+    preserved_rules: ["Semente Impiego is the eligibility gate SEMINA commissioning already reads; it is distinct from Semente and Cultivar Uso themselves (Owner Decision D1).", "cultivar_uso_id is resolved only via an approved, currently-valid PROTOCOLLO_VERSIONE (Owner Decision D2)."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: [{alias: SEMENTE_IMPIEGO_ID, reason: "No public identity is authorized in V1 (Owner Decision D1); internal bigint remains Infrastructure-only."}]
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "semente_id and cultivar_uso_id are immutable after creation (Owner Decision D2); a second differently-keyed request to the same pair is a typed duplicate, not a silent update. Evaluation revision is deferred."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: "tpo.semente_impiego_commissioning_requests (Owner Decision D5)"
+    verification_tests: [tests/architecture/test_semente_impiego_commissioning_freeze.py, tests/application/test_semente_impiego_commissioning.py, tests/cli/test_semente_impiego_cli.py, tests/integration/postgresql/test_semente_impiego_commissioning.py]
+    reviewed_at_commit: 017e41c
+    replacement_or_decision_reference: docs/architecture/SEMENTE_IMPIEGO_AUTHORITY_FREEZE.md
 
   - concept_id: LOTTO_SEME
     canonical_name: Lotto Seme

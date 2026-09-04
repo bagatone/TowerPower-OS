@@ -77,3 +77,25 @@ class SementeRaccomandazione(str, Enum):
 class ModalitaFatturazione(str, Enum):
     A_CONSEGNA = "A_CONSEGNA"
     PERIODICA_MENSILE = "PERIODICA_MENSILE"
+
+
+class MetodoPagamento(str, Enum):
+    """Metodo di pagamento condiviso da INCASSO e USCITA (FINANZE_AZIENDALI_AUTHORITY_FREEZE.md §3-4)."""
+
+    BONIFICO = "BONIFICO"
+    CONTANTI = "CONTANTI"
+    CARTA = "CARTA"
+    BIZUM = "BIZUM"
+    ALTRO = "ALTRO"
+
+
+class CategoriaUscita(str, Enum):
+    """Categorie di spesa USCITA (FINANZE_AZIENDALI_AUTHORITY_FREEZE.md §5, Owner Decision D5)."""
+
+    SEMENTI = "SEMENTI"
+    ATTREZZATURA = "ATTREZZATURA"
+    AFFITTO = "AFFITTO"
+    UTENZE = "UTENZE"
+    STIPENDI = "STIPENDI"
+    TRASPORTO = "TRASPORTO"
+    ALTRO = "ALTRO"

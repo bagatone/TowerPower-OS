@@ -251,3 +251,76 @@ Dettagli in `docs/architecture/LISTINO_VARIETA_GOVERNANCE_FREEZE.md` e in
 Verificato con `python -m pytest` reale dell'utente: **2007 passed, 8
 skipped, 0 failed**. Punto 3 chiuso. Prossimo passo: **punto 4,
 Pagamento/Incasso** (§8, addendum 2026-09-03).
+
+## 12. Stato di avanzamento — punto 4 implementato, in attesa di verifica pytest (2026-09-04)
+
+Il punto 4 (Pagamento/Incasso) è stato ampliato su richiesta esplicita
+dell'owner ("ho bisogno anche della sezione uscite per tenere le finanze
+dell'impresa") e implementato come due registri Fact paralleli: INCASSO
+(pagamenti ricevuti, collegati a una FATTURA) e USCITA (pagamenti
+effettuati/spese dell'impresa, con categoria e beneficiario in testo
+libero — nessun registro fornitori). Entrambi append-only, con rettifica
+tramite nuovo Fact collegato (stesso pattern di RACCOLTA CORREZIONE) e
+idempotenza via reservation table. Nessuna guardia anti-sovrapagamento
+(Owner Decision D3). Dettagli in
+`docs/architecture/FINANZE_AZIENDALI_AUTHORITY_FREEZE.md` e in
+`AUTHORITY_REGISTRY.yaml` (concept `INCASSO` e `USCITA`, entrambi
+`PRESERVED`; `INCASSO_PAGAMENTO` resta `UNKNOWN` per ciò che rimane
+davvero aperto: Allocazione del Pagamento multi-fattura e State economico
+derivato). In attesa della verifica `python -m pytest` reale dell'utente
+prima del commit. Se confermato, prossimo passo: **punto 5,
+RectifyFattura** (§8, addendum 2026-09-03).
+
+## 13. Diagnosi e fix dei 51 fallimenti pytest riportati sul punto 4 (2026-09-04)
+
+Il primo run reale dell'utente su `python -m pytest` dopo l'implementazione
+INCASSO/USCITA ha riportato 51 fallimenti. Diagnosi a codice (non eseguibile
+qui in sandbox: Python 3.10 disponibile contro il `.venv` 3.13 del progetto,
+niente PostgreSQL raggiungibile) e correzioni applicate direttamente sui
+file nella cartella collegata:
+
+1. **Causa radice (spiega la maggioranza dei fallimenti)**: le colonne
+   `created_at` di `tpo.incassi` e `tpo.uscite` in
+   `20260904_0028_finanze_aziendali_authority.py` erano `NOT NULL` senza
+   `server_default`, mentre sia i writer applicativi sia gli insert grezzi
+   nei test si affidano a `RETURNING id,created_at` senza mai valorizzare la
+   colonna in scrittura — ogni INSERT falliva quindi con
+   `NotNullViolation` prima ancora di raggiungere il vincolo che il test
+   intendeva verificare. Fix: aggiunto `server_default=sa.func.now()` ad
+   entrambe le colonne, allineandole al precedente `tpo.raccolte.created_at`
+   (`20260810_0004_production_execution_prerequisites.py`).
+2. **`test_finanze_aziendali_migration_contains_frozen_guards`**: i nomi dei
+   vincoli `uq_incasso_recording_request_key` / `uq_uscita_recording_request_key`
+   erano generati solo a runtime via f-string parametrizzata nel loop
+   incasso/uscita, quindi non comparivano mai come stringa letterale nel
+   sorgente della migration (a differenza del precedente RACCOLTA, che li
+   scrive letterali). Fix: introdotta una mappa `RECORDING_REQUEST_KEY_NAMES`
+   con i due nomi letterali, usata dal loop — stesso comportamento a runtime,
+   nomi ora visibili al controllo di governance sul testo sorgente.
+3. **`test_finanze_aziendali_migration_has_no_net_amount_guard`**: il
+   commento esplicativo sulla Owner Decision D3 conteneva la parola
+   "nonnegative" (proprio per spiegarne l'assenza), facendo scattare il
+   controllo che verifica che quella parola non compaia nel sorgente. Fix:
+   riformulato il commento senza usare i termini vietati.
+4. **`test_incremental_commissioning_replay_preserves_existing_and_counters`**:
+   il set atteso di `sequence_name` in `tpo.id_sequences` non includeva
+   `INCASSO_ID`/`USCITA_ID`, seminate insieme dalla migration 20260904_0028
+   come righe pre-esistenti non correlate (stesso trattamento già riservato
+   a `RUN_ID`/`ORDINE_ID`). Fix: aggiunte le due voci al set atteso.
+5. **Catena di revisioni hardcoded**: aggiornati tutti i riferimenti
+   letterali all'head della catena Alembic (`script.get_heads()`,
+   `alembic_version`, liste ordinate di revisioni) da `20260903_0027` a
+   `20260904_0028` in
+   `test_production_planning_migrations.py`, `test_migrations.py`,
+   `test_delivery_fulfilment_migration.py`, `test_id_sequences_backfill_migration.py`,
+   `test_fattura_emissione_migration.py`, `test_raccolta_migration.py`,
+   `test_semina_traceability_migration.py`, `test_semina_lifecycle_migration.py`,
+   `test_raccolta_correzione_migration.py` — pattern già noto da ogni
+   migration precedente di questo progetto.
+
+Tutti i file toccati compilano (`py_compile`/`compileall`) e i controlli
+statici di `test_finanze_aziendali_migration.py` (frammenti attesi, assenza
+dei termini vietati, precedente offline-mode) sono stati riverificati
+programmaticamente contro il sorgente aggiornato. **In attesa della verifica
+`python -m pytest` reale dell'utente** prima del commit — questa correzione
+non è stata eseguita contro un vero PostgreSQL in questa sessione.

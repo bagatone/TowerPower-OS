@@ -18,8 +18,10 @@ from .semente_impiego import run_semente_impiego_command
 from .semina import run_semina_command
 from .delivery import run_delivery_command
 from .fattura import run_fattura_command
+from .incasso import run_incasso_command
 from .listino_varieta import run_listino_varieta_command
 from .cliente import run_cliente_command
+from .uscita import run_uscita_command
 
 
 class _UsageError(ValueError):
@@ -267,6 +269,70 @@ def _parser() -> argparse.ArgumentParser:
     correggi_raccolta.add_argument("--correlation-id", required=True)
     correggi_raccolta.add_argument("--idempotency-key", required=True)
     correggi_raccolta.add_argument("--confirm", action="store_true", required=True)
+    incasso = commands.add_parser("incasso", help="Registrazione governata INCASSO.")
+    incasso_commands = incasso.add_subparsers(dest="incasso_command", required=True)
+    registra_incasso = incasso_commands.add_parser("registra")
+    registra_incasso.add_argument("--fattura", required=True)
+    registra_incasso.add_argument("--importo", required=True)
+    registra_incasso.add_argument("--data", required=True)
+    registra_incasso.add_argument(
+        "--metodo", required=True, choices=["BONIFICO", "CONTANTI", "CARTA", "BIZUM", "ALTRO"],
+    )
+    registra_incasso.add_argument("--note")
+    registra_incasso.add_argument("--actor", required=True)
+    registra_incasso.add_argument("--reason", required=True)
+    registra_incasso.add_argument("--correlation-id", required=True)
+    registra_incasso.add_argument("--idempotency-key", required=True)
+    correggi_incasso = incasso_commands.add_parser("correggi")
+    correggi_incasso.add_argument("--originale", required=True)
+    correggi_incasso.add_argument("--fattura", required=True)
+    correggi_incasso.add_argument("--importo", required=True)
+    correggi_incasso.add_argument("--data", required=True)
+    correggi_incasso.add_argument(
+        "--metodo", required=True, choices=["BONIFICO", "CONTANTI", "CARTA", "BIZUM", "ALTRO"],
+    )
+    correggi_incasso.add_argument("--note")
+    correggi_incasso.add_argument("--actor", required=True)
+    correggi_incasso.add_argument("--reason", required=True)
+    correggi_incasso.add_argument("--correlation-id", required=True)
+    correggi_incasso.add_argument("--idempotency-key", required=True)
+    uscita = commands.add_parser("uscita", help="Registrazione governata USCITA.")
+    uscita_commands = uscita.add_subparsers(dest="uscita_command", required=True)
+    registra_uscita = uscita_commands.add_parser("registra")
+    registra_uscita.add_argument("--importo", required=True)
+    registra_uscita.add_argument("--data", required=True)
+    registra_uscita.add_argument(
+        "--categoria", required=True,
+        choices=["SEMENTI", "ATTREZZATURA", "AFFITTO", "UTENZE", "STIPENDI", "TRASPORTO",
+                 "ALTRO"],
+    )
+    registra_uscita.add_argument("--beneficiario", required=True)
+    registra_uscita.add_argument(
+        "--metodo", required=True, choices=["BONIFICO", "CONTANTI", "CARTA", "BIZUM", "ALTRO"],
+    )
+    registra_uscita.add_argument("--note")
+    registra_uscita.add_argument("--actor", required=True)
+    registra_uscita.add_argument("--reason", required=True)
+    registra_uscita.add_argument("--correlation-id", required=True)
+    registra_uscita.add_argument("--idempotency-key", required=True)
+    correggi_uscita = uscita_commands.add_parser("correggi")
+    correggi_uscita.add_argument("--originale", required=True)
+    correggi_uscita.add_argument("--importo", required=True)
+    correggi_uscita.add_argument("--data", required=True)
+    correggi_uscita.add_argument(
+        "--categoria", required=True,
+        choices=["SEMENTI", "ATTREZZATURA", "AFFITTO", "UTENZE", "STIPENDI", "TRASPORTO",
+                 "ALTRO"],
+    )
+    correggi_uscita.add_argument("--beneficiario", required=True)
+    correggi_uscita.add_argument(
+        "--metodo", required=True, choices=["BONIFICO", "CONTANTI", "CARTA", "BIZUM", "ALTRO"],
+    )
+    correggi_uscita.add_argument("--note")
+    correggi_uscita.add_argument("--actor", required=True)
+    correggi_uscita.add_argument("--reason", required=True)
+    correggi_uscita.add_argument("--correlation-id", required=True)
+    correggi_uscita.add_argument("--idempotency-key", required=True)
     return parser
 
 
@@ -294,6 +360,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_semina_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "raccolta":
         return run_raccolta_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "incasso":
+        return run_incasso_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "uscita":
+        return run_uscita_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "delivery":
         return run_delivery_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "fattura":

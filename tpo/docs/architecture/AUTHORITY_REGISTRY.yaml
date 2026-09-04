@@ -575,21 +575,63 @@ concepts:
     domain: ADMINISTRATION
     classification: fact
     status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.7", kind: architecture_freeze}]
+    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.7", kind: architecture_freeze}, {path: docs/architecture/FINANZE_AZIENDALI_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}]
     core_implementations: []
     persistence_authorities: []
     identities: []
     legacy_predecessors: [docs/registers/INCASSI.md]
-    preserved_rules: ["Payment, receipt, invoice and payment allocation are distinct authorities."]
+    preserved_rules: ["Payment, receipt, invoice and payment allocation are distinct authorities.", "INCASSO (payment received) and USCITA (payment made) are frozen and implemented as their own concepts (see INCASSO and USCITA entries) — this entry now covers only what remains open: ALLOCAZIONE DEL PAGAMENTO (a payment split across multiple invoices) and any derived economic State (balance, cash position)."]
     explicitly_superseded_rules: []
     forbidden_duplicates: []
     conflicts: []
-    open_owner_decisions: ["Freeze administration payment identities and facts."]
-    correction_semantics: "Expected append-only administrative facts; implementation not frozen."
-    audit_authority: not_implemented
-    idempotency_authority: not_implemented
+    open_owner_decisions: ["ALLOCAZIONE DEL PAGAMENTO (splitting one payment across multiple invoices) remains unfrozen — deferred by Owner Decision D2, FINANZE_AZIENDALI_AUTHORITY_FREEZE.md.", "Any derived economic State (customer balance, cash position, dashboard) remains unfrozen — explicitly out of scope for V1 (AMMINISTRAZIONE.md Section 5.14 classifies it as Derived, never a Fact)."]
+    correction_semantics: "Expected append-only administrative facts; implementation not frozen beyond INCASSO/USCITA."
+    audit_authority: tpo.audit_eventi (for INCASSO/USCITA; not_implemented for the remaining open items)
+    idempotency_authority: not_implemented (for the remaining open items)
     verification_tests: []
     reviewed_at_commit: 4e6a127
+
+  - concept_id: INCASSO
+    canonical_name: Incasso
+    domain: ADMINISTRATION
+    classification: fact
+    status: PRESERVED
+    current_authorities: [{path: docs/registers/INCASSI.md, section: "1", kind: architecture_freeze}, {path: docs/registers/AMMINISTRAZIONE.md, section: "5.8", kind: architecture_freeze}, {path: docs/architecture/FINANZE_AZIENDALI_AUTHORITY_FREEZE.md, section: "3", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/incasso/service.py, src/tpo_core/infrastructure/postgresql/incasso.py, src/tpo_core/cli/incasso.py]
+    persistence_authorities: [tpo.incassi]
+    identities: [{type: IncassoId, prefix: INC, sequence: INCASSO_ID}]
+    legacy_predecessors: [docs/registers/INCASSI.md]
+    preserved_rules: ["INCASSO is a Pagamento ricevuto (AMMINISTRAZIONE.md Section 5.8) collegato a esattamente una FATTURA; nessuna Allocazione del Pagamento multi-fattura in V1 (Owner Decision D2).", "Facts append-only: mai modificato o eliminato; una correzione è un nuovo Fact collegato tramite rettifica_incasso_id, mai una riscrittura (INCASSI.md Section 13-14).", "Nessuna guardia anti-sovrapagamento: un Incasso può superare il totale della Fattura senza essere rifiutato (Owner Decision D3, confermata dall'owner)."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Append-only correction via rettifica_incasso_id (signed amount, no chained corrections), same pattern as RACCOLTA CORREZIONE."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: tpo.incasso_recording_requests / tpo.incasso_correzione_requests (idempotency_key + canonical payload hash)
+    verification_tests: [tests/application/test_incasso.py, tests/cli/test_incasso_cli.py, tests/infrastructure/postgresql/test_finanze_aziendali_migration.py, tests/integration/postgresql/test_incasso.py]
+    reviewed_at_commit: 04bef3b
+
+  - concept_id: USCITA
+    canonical_name: Uscita
+    domain: ADMINISTRATION
+    classification: fact
+    status: PRESERVED
+    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.7", kind: architecture_freeze}, {path: docs/architecture/FINANZE_AZIENDALI_AUTHORITY_FREEZE.md, section: "4", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/uscita/service.py, src/tpo_core/infrastructure/postgresql/uscita.py, src/tpo_core/cli/uscita.py]
+    persistence_authorities: [tpo.uscite]
+    identities: [{type: UscitaId, prefix: USC, sequence: USCITA_ID}]
+    legacy_predecessors: []
+    preserved_rules: ["USCITA è una specializzazione di PAGAMENTO simmetrica a INCASSO, introdotta da FINANZE_AZIENDALI_AUTHORITY_FREEZE.md su richiesta esplicita dell'owner per tenere le finanze complessive di Tower Power (uscite/spese, non solo incassi).", "Nessun registro fornitori: beneficiario è testo libero, categoria è un elenco chiuso confermato dall'owner (Owner Decision D5).", "Facts append-only: mai modificato o eliminato; una correzione è un nuovo Fact collegato tramite rettifica_uscita_id, mai una riscrittura. La categoria può cambiare in una rettifica (riclassificazione); nessun altro vincolo di coerenza oltre self-reference e non-incatenata."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Append-only correction via rettifica_uscita_id (signed amount, no chained corrections), same pattern as RACCOLTA CORREZIONE."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: tpo.uscita_recording_requests / tpo.uscita_correzione_requests (idempotency_key + canonical payload hash)
+    verification_tests: [tests/application/test_uscita.py, tests/cli/test_uscita_cli.py, tests/infrastructure/postgresql/test_finanze_aziendali_migration.py, tests/integration/postgresql/test_uscita.py]
+    reviewed_at_commit: 04bef3b
 
   - concept_id: TRACEABILITY_CODE
     canonical_name: Operational Traceability Code

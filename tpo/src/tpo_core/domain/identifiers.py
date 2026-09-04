@@ -83,6 +83,18 @@ class RaccoltaId(PermanentId):
 
 
 @dataclass(frozen=True)
+class IncassoId(PermanentId):
+    prefix: ClassVar[str] = "INC"
+    sequence_name: ClassVar[str] = "INCASSO_ID"
+
+
+@dataclass(frozen=True)
+class UscitaId(PermanentId):
+    prefix: ClassVar[str] = "USC"
+    sequence_name: ClassVar[str] = "USCITA_ID"
+
+
+@dataclass(frozen=True)
 class MovimentoId(PermanentId):
     prefix: ClassVar[str] = "MOV"
 

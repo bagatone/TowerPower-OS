@@ -230,6 +230,8 @@ def _parser() -> argparse.ArgumentParser:
     set_listino_varieta.add_argument("--prezzo-unitario", required=True)
     set_listino_varieta.add_argument("--aliquota-igic", required=True)
     set_listino_varieta.add_argument("--actor", required=True)
+    set_listino_varieta.add_argument("--reason", required=True)
+    set_listino_varieta.add_argument("--correlation-id", required=True)
     cliente = commands.add_parser("cliente", help="Configuration mutabile CLIENTE.")
     cliente_commands = cliente.add_subparsers(dest="cliente_command", required=True)
     fatturazione_cliente = cliente_commands.add_parser("fatturazione")

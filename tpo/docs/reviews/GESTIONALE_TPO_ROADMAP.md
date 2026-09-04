@@ -235,3 +235,19 @@ Dettagli e condizione di ripresa in
 `docs/architecture/PRODOTTO_AUTHORITY_FREEZE_PROPOSTA.md` e in
 `AUTHORITY_REGISTRY.yaml` (concept `PRODOTTO`). Si passa al **punto 3:
 governo del LISTINO_VARIETA (prezzi)**.
+
+## 11. Stato di avanzamento — punto 3 implementato, in attesa di verifica pytest (2026-09-04)
+
+Il punto 3 (governo del LISTINO_VARIETA) è stato progettato, approvato
+dall'owner (Owner Decision D1: nessuna soglia bloccante sulle variazioni di
+prezzo in V1, confermata) e implementato: comando tipizzato
+`ImpostaPrezzoListinoVarieta` con `ActorId`/`reason`/`correlation_id`
+obbligatori, un evento `tpo.audit_eventi` per ogni cambio prezzo (before/
+after), stessa transazione atomica dell'UPSERT su `tpo.listino_varieta`.
+Nessuna nuova tabella, nessuna nuova identità pubblica: LISTINO_VARIETA
+resta Configuration "valore corrente", non diventa un Register a Facts.
+Dettagli in `docs/architecture/LISTINO_VARIETA_GOVERNANCE_FREEZE.md` e in
+`AUTHORITY_REGISTRY.yaml` (concept `LISTINO_VARIETA`, ora `PRESERVED`).
+Verificato con `python -m pytest` reale dell'utente: **2007 passed, 8
+skipped, 0 failed**. Punto 3 chiuso. Prossimo passo: **punto 4,
+Pagamento/Incasso** (§8, addendum 2026-09-03).

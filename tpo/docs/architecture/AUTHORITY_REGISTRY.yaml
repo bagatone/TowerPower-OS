@@ -542,12 +542,33 @@ concepts:
     explicitly_superseded_rules: []
     forbidden_duplicates: [{alias: FATTURA_AS_CONSEGNA, reason: "Fattura and Consegna are distinct authorities."}]
     conflicts: []
-    open_owner_decisions: ["Identity, numbering, fiscal model (IGIC), CLIENTE/LISTINO_VARIETA prerequisites and correction shape are frozen (FATTURA_AUTHORITY_FREEZE.md); commissioning boundary is not yet implemented.", "PAGAMENTO/INCASSO integration deferred to a future freeze.", "LISTINO_VARIETA commissioning/versioning governance not yet frozen.", "RectifyFattura implementation deferred (identity/numbering shape reserved only).", "Electronic transmission (SII/Verifactu/SDI or equivalent) explicitly out of scope for V1."]
+    open_owner_decisions: ["Identity, numbering, fiscal model (IGIC), CLIENTE/LISTINO_VARIETA prerequisites and correction shape are frozen (FATTURA_AUTHORITY_FREEZE.md); commissioning boundary is not yet implemented.", "PAGAMENTO/INCASSO integration deferred to a future freeze.", "RectifyFattura implementation deferred (identity/numbering shape reserved only).", "Electronic transmission (SII/Verifactu/SDI or equivalent) explicitly out of scope for V1."]
     correction_semantics: "A correction is a new, separately-numbered Fattura referencing the original via rettifica_di; the original is never mutated (FATTURA_AUTHORITY_FREEZE.md Section 16)."
     audit_authority: tpo.audit_eventi (frozen, not yet implemented)
     idempotency_authority: fattura emission request (frozen, not yet implemented)
     verification_tests: []
     reviewed_at_commit: aadbb2c
+
+  - concept_id: LISTINO_VARIETA
+    canonical_name: Listino Varieta
+    domain: ADMINISTRATION
+    classification: configuration
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/LISTINO_VARIETA_GOVERNANCE_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/architecture/FATTURA_AUTHORITY_FREEZE.md, section: "9", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/listino_varieta/service.py, src/tpo_core/infrastructure/postgresql/fatturazione_configuration.py, src/tpo_core/cli/listino_varieta.py]
+    persistence_authorities: [tpo.listino_varieta]
+    identities: []
+    legacy_predecessors: []
+    preserved_rules: ["LISTINO_VARIETA remains Configuration holding only the current value per Varieta, not an Authoritative Register; FATTURA continues to read/snapshot the current price exactly as before (LISTINO_VARIETA_GOVERNANCE_FREEZE.md Section 1).", "Every price change is authorized (typed ActorId, mandatory non-blank reason and correlation_id) and produces one tpo.audit_eventi UPDATE event capturing before/after prezzo_unitario and aliquota_igic in the same transaction as the write (LISTINO_VARIETA_GOVERNANCE_FREEZE.md Section 3).", "No blocking threshold applies to price-swing magnitude in V1 (Owner Decision D1, LISTINO_VARIETA_GOVERNANCE_FREEZE.md Section 4)."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Configuration value overwrite, not a Fact correction; the price history is preserved via tpo.audit_eventi, never via a corrective row on tpo.listino_varieta itself."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: not_applicable (no idempotency key; setting an identical price again is a repeat write, not a conflict, per Owner Decision D1)
+    verification_tests: [tests/application/test_listino_varieta.py, tests/cli/test_listino_varieta_cli.py, tests/integration/postgresql/test_listino_varieta_governance.py]
+    reviewed_at_commit: fcd5450
 
   - concept_id: INCASSO_PAGAMENTO
     canonical_name: Incasso and Pagamento

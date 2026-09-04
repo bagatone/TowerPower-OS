@@ -232,7 +232,7 @@ def test_unresolved_concepts_remain_explicit_and_have_owner_decisions():
     assert unresolved
     assert all(item["open_owner_decisions"] for item in unresolved)
     required_unresolved = {
-        "PRODOTTO", "ARTICOLO", "ASSEGNAZIONE_FISICA", "FATTURA",
+        "ARTICOLO", "ASSEGNAZIONE_FISICA", "FATTURA",
         "INCASSO_PAGAMENTO", "HYDRATION_RULES",
     }
     assert required_unresolved <= {item["concept_id"] for item in unresolved}

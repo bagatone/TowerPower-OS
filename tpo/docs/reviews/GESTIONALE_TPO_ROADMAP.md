@@ -222,3 +222,16 @@ application, migrazione `20260903_0027`, writer PostgreSQL, CLI (`tpo raccolta
 correggi`) e test a ogni livello. Suite completa verificata dall'owner con
 `python -m pytest` reale: **1969 passed, 8 skipped, 0 failed**. Prossimo
 punto della sequenza (§8, addendum 2026-09-03): **2. PRODOTTO vs Varieta**.
+
+
+## 10. Stato di avanzamento — punto 2 chiuso, non implementato (2026-09-04)
+
+Il punto 2 (Prodotto vs Varieta) è stato ricondotto all'owner prima di
+implementare qualunque cosa: la distinzione proposta è stata giudicata non
+necessaria oggi (Tower Power vende la Varietà raccolta stessa, non un bene
+derivato/trasformato). Decisione registrata come `DEFERRED`, non
+implementata: nessuna migrazione a Ordine, Consegna, Listino o Fattura.
+Dettagli e condizione di ripresa in
+`docs/architecture/PRODOTTO_AUTHORITY_FREEZE_PROPOSTA.md` e in
+`AUTHORITY_REGISTRY.yaml` (concept `PRODOTTO`). Si passa al **punto 3:
+governo del LISTINO_VARIETA (prezzi)**.

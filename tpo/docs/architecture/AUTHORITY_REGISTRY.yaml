@@ -348,11 +348,11 @@ concepts:
     persistence_authorities: [tpo.ordini, tpo.righe_ordine, tpo.origini_righe_ordine]
     identities: [{type: OrdineId, prefix: ORD, sequence: ORDINE_ID}, {type: RigaOrdineId, prefix: RO, sequence: RIGA_ORDINE_ID}]
     legacy_predecessors: [docs/registers/ORDINI.md, docs/registers/RIGHE_ORDINE.md]
-    preserved_rules: ["Order, line, delivery and invoice remain distinct authorities."]
+    preserved_rules: ["Order, line, delivery and invoice remain distinct authorities.", "Varieta is the sole commercial reference for order lines for V1 (Owner Decision 2026-09-04): today's sellable good is the harvested Varieta itself. Introducing Prodotto is deferred, not rejected — see PRODOTTO concept entry."]
     explicitly_superseded_rules: []
     forbidden_duplicates: []
-    conflicts: ["Current order lines reference Varieta while the conceptual model requires Prodotto."]
-    open_owner_decisions: ["Reconcile the commercial object Varieta versus Prodotto."]
+    conflicts: []
+    open_owner_decisions: []
     correction_semantics: "Delivery-line corrections are append-only signed facts."
     audit_authority: tpo.audit_eventi
     idempotency_authority: scheduling occurrence key
@@ -405,22 +405,23 @@ concepts:
     canonical_name: Prodotto
     domain: COMMERCIAL
     classification: configuration
-    status: UNKNOWN / OWNER DECISION REQUIRED
+    status: DEFERRED
     current_authorities: [{path: docs/registers/PRODOTTI.md, section: "3", kind: architecture_freeze}]
     core_implementations: []
     persistence_authorities: []
     identities: []
     legacy_predecessors: [docs/TPO_DATA_DICTIONARY.md]
-    preserved_rules: ["Prodotto is the commercial sellable reference and is distinct from Varieta and Articolo."]
+    preserved_rules: ["Prodotto was proposed as the commercial sellable reference, distinct from Varieta and Articolo. Owner Decision (2026-09-04): deferred, not built for V1 — today Tower Power sells the harvested Varieta itself, so Varieta and Prodotto coincide in practice and a separate Configuration would add complexity with no current benefit. Revisit if Tower Power introduces a derived/transformed commercial good that does not map 1:1 to a single Varieta (e.g. basil pesto, a mixed-microgreens powder) — exactly the case PRODOTTI.md's N:M relationship anticipates. Varieta remains the sole commercial reference until then; no migration was performed."]
     explicitly_superseded_rules: []
     forbidden_duplicates: []
-    conflicts: ["Core commercial lines currently reference Varieta directly."]
-    open_owner_decisions: ["Decide whether V1 Varieta is an explicit temporary commercial reference or Prodotto must be introduced."]
-    correction_semantics: unresolved
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: not_applicable
     audit_authority: not_implemented
     idempotency_authority: not_implemented
     verification_tests: []
     reviewed_at_commit: 4e6a127
+    replacement_or_decision_reference: docs/architecture/PRODOTTO_AUTHORITY_FREEZE_PROPOSTA.md
 
   - concept_id: ARTICOLO
     canonical_name: Articolo

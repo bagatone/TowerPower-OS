@@ -7,6 +7,7 @@ from .delivery_fulfilment import (
 )
 from .errors import OperationalRuntimeUnavailableError
 from .fattura_emissione import build_fattura_emissione_service
+from .fattura_rettifica import build_fattura_rettifica_service
 from .fatturazione_configuration import (
     build_cliente_fatturazione_writer,
     build_listino_varieta_writer,
@@ -39,6 +40,7 @@ __all__ = [
     "build_cliente_fatturazione_writer",
     "build_delivery_id_allocator",
     "build_fattura_emissione_service",
+    "build_fattura_rettifica_service",
     "build_identity_registration_commissioner",
     "build_incasso_service",
     "build_listino_varieta_writer",

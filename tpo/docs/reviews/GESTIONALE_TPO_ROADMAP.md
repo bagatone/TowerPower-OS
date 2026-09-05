@@ -324,3 +324,145 @@ dei termini vietati, precedente offline-mode) sono stati riverificati
 programmaticamente contro il sorgente aggiornato. **In attesa della verifica
 `python -m pytest` reale dell'utente** prima del commit — questa correzione
 non è stata eseguita contro un vero PostgreSQL in questa sessione.
+
+## 14. Punto 5 — RectifyFattura (2026-09-05)
+
+Implementato il punto 5 della sequenza (§8): rettifica per singola riga di
+una `FATTURA` già emessa, riserva di identità/numerazione fissata da
+`FATTURA_AUTHORITY_FREEZE.md` §16 (Owner Decision D7) e mai prima
+implementata. Freeze di riferimento:
+`docs/architecture/RECTIFY_FATTURA_AUTHORITY_FREEZE.md`, approvato
+dall'owner ("ok", 2026-09-05) dopo prior-art gate e tre Owner Decisions:
+
+- **D8 — Copertura**: la rettifica corregge una o più righe specifiche
+  della fattura originale, non necessariamente l'intera fattura.
+- **D9 — Convenzione importi**: l'operatore dichiara direttamente la
+  `quantita` di rettifica con segno; `importo_netto`/`importo_igic`
+  restano writer-computed come `quantita × prezzo_unitario` /
+  `× aliquota_igic/100`, stesso invariante della riga ordinaria.
+- **D10 — Tracciabilità riga**: ogni riga rettificativa referenzia
+  esplicitamente la `RIGA_FATTURA` originale che corregge
+  (`rettifica_riga_fattura_id`), non solo la fattura a livello aggregato.
+
+Modello: la rettifica è una **nuova** `FATTURA` (proprio `numero_fattura`
+dalla stessa serie annuale, `rettifica_di` verso l'originale, `cliente_id`
+vincolato uguale all'originale) le cui `RIGA_FATTURA` hanno
+`riga_consegna_id NULL` e `rettifica_riga_fattura_id` valorizzato;
+`prezzo_unitario`/`aliquota_igic`/`varieta_id` sono copiati dalla riga
+originale (mai ri-letti da `LISTINO_VARIETA` alla data di rettifica).
+Vietata la rettifica-di-rettifica (niente catene, stesso limite già
+accettato per RACCOLTA/INCASSO/USCITA CORREZIONE) e la doppia correzione
+della stessa riga originale.
+
+File aggiunti/modificati:
+
+1. **Migrazione** `migrations/versions/20260905_0029_fattura_rettifica.py`
+   (`down_revision=20260904_0028`): `riga_consegna_id` reso nullable;
+   nuova colonna `rettifica_riga_fattura_id` (FK self-referenziante su
+   `righe_fattura`, RESTRICT/RESTRICT) con UNIQUE (una sola rettifica per
+   riga originale); `ck_righe_fattura_quantita_positive` sostituito da
+   `ck_righe_fattura_ordinaria_o_rettifica` (mutua esclusione riga
+   ordinaria/rettificativa); nuova tabella `fattura_rettifica_requests`
+   (stesso schema di `fattura_emissione_requests`, scope
+   `FATTURA_RETTIFICA_V1`); due trigger deferred di coerenza
+   (`fn_righe_fattura_rettifica_coerente` — anti auto-riferimento, anti
+   catena, corrispondenza varietà e fattura-di-appartenenza;
+   `fn_fatture_rettifica_cliente_coerente` — corrispondenza cliente);
+   downgrade con guardia fail-closed se esistono già rettifiche.
+2. **Applicazione** `src/tpo_core/application/fattura_rettifica/`
+   (`models.py`, `ports.py`, `service.py`, `errors.py`) — stesso schema di
+   classificazione campi (writer-owned vs caller-owned) di
+   `fattura_emissione`; nessun nuovo identifier di dominio
+   (`NumeroFattura` riusato).
+3. **Infrastruttura** `src/tpo_core/infrastructure/postgresql/fattura_rettifica.py`
+   — `PostgreSQLFatturaRettificaWriter`, stesso pattern reserve-or-replay
+   (idempotenza) e stessa transazione singola per reservation +
+   numerazione + insert + audit di `PostgreSQLFatturaEmissioneWriter`;
+   `SET CONSTRAINTS ALL IMMEDIATE` prima del commit per forzare i trigger
+   deferred entro il blocco `try` che li mappa a errori tipizzati.
+4. **Bootstrap** `src/tpo_core/bootstrap/fattura_rettifica.py` +
+   esportazione in `bootstrap/__init__.py`.
+5. **CLI** nuovo sottocomando `fattura rettifica` (`cli/fattura.py`,
+   `cli/main.py`) — stesso stile argparse del sottocomando `emetti`
+   esistente, con `--riga POSIZIONE:QUANTITA` ripetibile.
+6. **Test** (dominio/applicazione/CLI/integrazione, stesso livello di
+   copertura di ogni altro boundary del progetto):
+   `tests/application/test_fattura_rettifica.py`,
+   `tests/cli/test_fattura_rettifica_cli.py`,
+   `tests/infrastructure/postgresql/test_fattura_rettifica_writer.py`,
+   `tests/infrastructure/postgresql/test_fattura_rettifica_migration.py`.
+7. **Governance**: `AUTHORITY_REGISTRY.yaml` — riscritta per intero la voce
+   `FATTURA` (resta `UNKNOWN / OWNER DECISION REQUIRED`, come atteso da
+   `required_unresolved`: ciò che resta davvero aperto è
+   PAGAMENTO/INCASSO/Allocazione del Pagamento multi-fattura, non più
+   RectifyFattura); aggiunta nuova voce `RIGA_FATTURA` (`PRESERVED`,
+   `conflicts`/`open_owner_decisions` vuoti). Verificato con script
+   indipendente Python/yaml: 33 concetti totali, nessun `concept_id`
+   duplicato, tutti i `REQUIRED_FIELDS` presenti su ogni voce, `FATTURA`
+   ancora `UNKNOWN`, `RIGA_FATTURA` `PRESERVED` senza conflitti aperti.
+
+**Correzione preventiva applicata in questo stesso passaggio** (stesso
+schema di regressione già osservato al punto 4, §13.5): aggiornata la
+catena Alembic hardcoded da `20260904_0028` a `20260905_0029` in
+`test_delivery_fulfilment_migration.py`,
+`test_id_sequences_backfill_migration.py`,
+`test_fattura_emissione_migration.py`, `test_raccolta_migration.py`,
+`test_semina_traceability_migration.py`,
+`test_semina_lifecycle_migration.py`,
+`test_raccolta_correzione_migration.py`,
+`test_finanze_aziendali_migration.py`,
+`test_production_planning_migrations.py`, `test_migrations.py` — prima
+che l'utente eseguisse pytest, non dopo.
+
+Tutti i file nuovi/modificati compilano (`py_compile`/`compileall`).
+Nessuna esecuzione contro PostgreSQL reale è stata possibile in questa
+sandbox (nessun Postgres raggiungibile, versione Python non allineata al
+`.venv` del progetto) — la correttezza di trigger, fixture e comportamento
+SQL non è stata verificata empiricamente. **In attesa della verifica
+`python -m pytest` reale dell'utente** prima del commit.
+
+## 15. Diagnosi e fix dei fallimenti pytest reali riportati sul punto 5 (2026-09-05)
+
+Il primo run reale dell'utente su `python -m pytest` dopo l'implementazione
+RectifyFattura ha riportato 2 fallimenti e 17 errori. Diagnosi a codice e
+correzioni applicate direttamente sui file nella cartella collegata, in tre
+round successivi (ogni round diagnosticato dal traceback reale incollato
+dall'utente):
+
+1. **`AUTHORITY_REGISTRY.yaml`**: la voce `FATTURA` aveva
+   `identities: [NumeroFattura (value object, not a PermanentId, Owner
+   Decision D1)]` — le virgole non quotate dentro la nota hanno fatto
+   interpretare a YAML tre stringhe separate invece di una, e
+   `test_every_current_core_public_identity_prefix_is_registered` accede a
+   `identity["prefix"]` assumendo dizionari, causando `TypeError`. Fix:
+   `identities: []` (corretto comunque: `NumeroFattura` non è un
+   `PermanentId` con prefisso, coerente con lo stato precedente a questa
+   sessione; la nota resta in `preserved_rules`).
+2. **CLI `fattura rettifica`**: `_date()` in `cli/fattura.py` era condivisa
+   con `emetti` e sollevava sempre `InvalidEmitFatturaCommandError`
+   (`FATTURA_EMISSIONE_INPUT_INVALID`) invece di
+   `InvalidRectifyFatturaCommandError` (`FATTURA_RETTIFICA_INPUT_INVALID`)
+   su data non valida. Fix: `_date(value, *, error=...)` parametrizzata,
+   `_run_rettifica` passa `InvalidRectifyFatturaCommandError`.
+3. **Fixture non risolvibile (17 errori)**: `test_fattura_rettifica_writer.py`
+   e `test_fattura_rettifica_migration.py` importavano
+   `fattura_postgresql_cluster_engine`/`fattura_postgresql_engine` da
+   `test_fattura_emissione_writer.py` ma non la loro dipendenza a monte
+   (`migration_postgresql`, alias di `isolated_postgresql`), che pytest deve
+   risolvere per nome nel namespace del modulo *richiedente* — stesso schema
+   già noto (`test_production_planning_input.py`). Fix: aggiunto l'import
+   mancante a entrambi i file.
+4. **Collisione `public_id` nei dati di test**: `test_righe_fattura_rettifica_varieta_mismatch_is_rejected`
+   e `test_fatture_rettifica_cliente_mismatch_is_rejected` inserivano una
+   "varietà"/"cliente alternativo" riusando lo stesso `public_id` già
+   assegnato dall'helper `_seed()` al cliente/varietà della fattura
+   originale (`VAR-950004`, `CLI-950008`), violando la UNIQUE reale. Un
+   primo fix (`-ALT` come suffisso) violava a sua volta il CHECK reale di
+   formato (`ck_clienti_public_id_format`/`ck_varieta_public_id_format`,
+   solo cifre dopo il prefisso). Fix definitivo: `VAR-999998`/`CLI-999998`
+   (numerico, fuori range dagli altri identificativi del file).
+
+Tutti i fix verificati con `py_compile`/`compileall` e infine con
+**esecuzione reale** dell'utente: `python -m pytest` → 2126 passed, 8
+skipped, 0 failed. Punto 5 (RectifyFattura) confermato, pronto per il
+commit.

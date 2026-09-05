@@ -21,7 +21,7 @@ def test_finanze_aziendali_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260904_0028"]
+    assert script.get_heads() == ["20260905_0029"]
     revision = script.get_revision("20260904_0028")
     assert revision.down_revision == "20260903_0027"
 
@@ -403,7 +403,7 @@ def test_real_postgresql_downgrade_blocked_once_a_recording_request_exists(isola
             connection.rollback()
             assert connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
-            ).scalar_one() == "20260904_0028"
+            ).scalar_one() == "20260905_0029"
     finally:
         engine.dispose()
         with cluster.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:

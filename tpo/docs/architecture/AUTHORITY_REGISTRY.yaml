@@ -533,21 +533,42 @@ concepts:
     domain: ADMINISTRATION
     classification: document
     status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.3", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}, {path: docs/architecture/FATTURA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}]
-    core_implementations: []
-    persistence_authorities: []
+    current_authorities: [{path: docs/registers/AMMINISTRAZIONE.md, section: "5.3", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}, {path: docs/architecture/FATTURA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/architecture/RECTIFY_FATTURA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/fattura_emissione/, src/tpo_core/infrastructure/postgresql/fattura_emissione.py, src/tpo_core/cli/fattura.py, src/tpo_core/bootstrap/fattura_emissione.py, src/tpo_core/application/fattura_rettifica/, src/tpo_core/infrastructure/postgresql/fattura_rettifica.py, src/tpo_core/bootstrap/fattura_rettifica.py]
+    persistence_authorities: [tpo.fatture, tpo.fatture_consegne, tpo.righe_fattura, tpo.fattura_numerazione, tpo.fattura_emissione_requests, tpo.fattura_rettifica_requests]
     identities: []
     legacy_predecessors: [docs/registers/DOCUMENTO_DI_VENDITA.md]
-    preserved_rules: ["A definitive invoice is immutable and is distinct from Order, Delivery, sales document and Payment.", "The public identity of Fattura is the legal invoice number itself (Owner Decision D1, FATTURA_AUTHORITY_FREEZE.md Section 5)."]
+    preserved_rules: ["A definitive invoice is immutable and is distinct from Order, Delivery, sales document and Payment.", "The public identity of Fattura is the legal invoice number itself (Owner Decision D1, FATTURA_AUTHORITY_FREEZE.md Section 5).", "RectifyFattura corrects one or more specific RIGA_FATTURA of the original invoice by explicit reference (posizione), not the invoice as a whole (Owner Decision D8-D10, RECTIFY_FATTURA_AUTHORITY_FREEZE.md); prezzo_unitario/aliquota_igic/varieta_id on a corrective line are copied from the original line, never re-read from LISTINO_VARIETA at correction time.", "A rectificative Fattura's cliente_id must match the original's (enforced by writer and a deferred constraint trigger); a corrected RIGA_FATTURA can be referenced by at most one correction (no rectification-of-a-rectification)."]
     explicitly_superseded_rules: []
     forbidden_duplicates: [{alias: FATTURA_AS_CONSEGNA, reason: "Fattura and Consegna are distinct authorities."}]
     conflicts: []
-    open_owner_decisions: ["Identity, numbering, fiscal model (IGIC), CLIENTE/LISTINO_VARIETA prerequisites and correction shape are frozen (FATTURA_AUTHORITY_FREEZE.md); commissioning boundary is not yet implemented.", "PAGAMENTO/INCASSO integration deferred to a future freeze.", "RectifyFattura implementation deferred (identity/numbering shape reserved only).", "Electronic transmission (SII/Verifactu/SDI or equivalent) explicitly out of scope for V1."]
-    correction_semantics: "A correction is a new, separately-numbered Fattura referencing the original via rettifica_di; the original is never mutated (FATTURA_AUTHORITY_FREEZE.md Section 16)."
-    audit_authority: tpo.audit_eventi (frozen, not yet implemented)
-    idempotency_authority: fattura emission request (frozen, not yet implemented)
-    verification_tests: []
-    reviewed_at_commit: aadbb2c
+    open_owner_decisions: ["PAGAMENTO/INCASSO integration deferred to a future freeze (delivered separately as INCASSO/USCITA, FINANZE_AZIENDALI_AUTHORITY_FREEZE.md — no reconciliation/allocation against FATTURA totals yet).", "ALLOCAZIONE DEL PAGAMENTO (splitting one payment across multiple invoices) remains unfrozen.", "Any derived economic State (customer balance, cash position, dashboard) remains unfrozen.", "Electronic transmission (SII/Verifactu/SDI or equivalent) explicitly out of scope for V1."]
+    correction_semantics: "A correction is a new, separately-numbered Fattura referencing the original via rettifica_di; the original is never mutated (FATTURA_AUTHORITY_FREEZE.md Section 16). Implemented as RectifyFattura (RECTIFY_FATTURA_AUTHORITY_FREEZE.md): per-line correction via posizione_originale, signed quantita, writer-computed importo."
+    audit_authority: tpo.audit_eventi (entity_type=FATTURA, operation INSERT on emission / CORRECTION on rectification)
+    idempotency_authority: tpo.fattura_emissione_requests (scope FATTURA_EMISSIONE_V1) / tpo.fattura_rettifica_requests (scope FATTURA_RETTIFICA_V1)
+    verification_tests: [tests/application/test_fattura_emissione.py, tests/cli/test_fattura_cli.py, tests/infrastructure/postgresql/test_fattura_emissione_migration.py, tests/infrastructure/postgresql/test_fattura_emissione_writer.py, tests/application/test_fattura_rettifica.py, tests/cli/test_fattura_rettifica_cli.py, tests/infrastructure/postgresql/test_fattura_rettifica_migration.py, tests/infrastructure/postgresql/test_fattura_rettifica_writer.py]
+    reviewed_at_commit: dc2233f
+
+  - concept_id: RIGA_FATTURA
+    canonical_name: Riga Fattura
+    domain: ADMINISTRATION
+    classification: document
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/FATTURA_AUTHORITY_FREEZE.md, section: "11", kind: architecture_freeze}, {path: docs/architecture/RECTIFY_FATTURA_AUTHORITY_FREEZE.md, section: "4", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/infrastructure/postgresql/fattura_emissione.py, src/tpo_core/infrastructure/postgresql/fattura_rettifica.py]
+    persistence_authorities: [tpo.righe_fattura]
+    identities: []
+    legacy_predecessors: []
+    preserved_rules: ["An ordinary RIGA_FATTURA traces 1:1 to exactly one RIGA_CONSEGNA (uq_righe_fattura_riga_consegna) and has a positive quantita; a rectificative RIGA_FATTURA instead references the original RIGA_FATTURA it corrects (rettifica_riga_fattura_id) and has riga_consegna_id NULL, enforced by a single mutually-exclusive CHECK (ck_righe_fattura_ordinaria_o_rettifica, RECTIFY_FATTURA_AUTHORITY_FREEZE.md Section 5).", "A RIGA_FATTURA row, ordinary or rectificative, is immutable once inserted (tr_righe_fattura_immutable, unchanged by the rectification freeze).", "A given original RIGA_FATTURA can be referenced by at most one correction (uq_righe_fattura_rettifica_riga_fattura); rectification-of-a-rectification is rejected both by the writer and by a deferred constraint trigger (fn_righe_fattura_rettifica_coerente)."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "A RIGA_FATTURA is never corrected in place; a correction is a new row on a new, separately-numbered rectificative FATTURA, linked back via rettifica_riga_fattura_id (RECTIFY_FATTURA_AUTHORITY_FREEZE.md Section 4)."
+    audit_authority: tpo.audit_eventi (via the owning FATTURA's entity_public_id)
+    idempotency_authority: shared with the owning FATTURA (tpo.fattura_emissione_requests / tpo.fattura_rettifica_requests)
+    verification_tests: [tests/infrastructure/postgresql/test_fattura_emissione_writer.py, tests/infrastructure/postgresql/test_fattura_rettifica_migration.py, tests/infrastructure/postgresql/test_fattura_rettifica_writer.py]
+    reviewed_at_commit: dc2233f
 
   - concept_id: LISTINO_VARIETA
     canonical_name: Listino Varieta

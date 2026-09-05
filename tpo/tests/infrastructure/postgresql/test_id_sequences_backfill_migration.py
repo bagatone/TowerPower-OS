@@ -16,7 +16,7 @@ def test_id_sequences_backfill_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260904_0028"]
+    assert script.get_heads() == ["20260905_0029"]
     revision = script.get_revision("20260903_0025")
     assert revision.down_revision == "20260903_0024"
 
@@ -78,4 +78,4 @@ def test_real_postgresql_downgrade_blocked_once_a_sequence_advanced(isolated_pos
     connection.rollback()
     assert connection.exec_driver_sql(
         "SELECT version_num FROM alembic_version"
-    ).scalar_one() == "20260904_0028"
+    ).scalar_one() == "20260905_0029"

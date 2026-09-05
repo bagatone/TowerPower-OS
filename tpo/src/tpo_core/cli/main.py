@@ -223,6 +223,16 @@ def _parser() -> argparse.ArgumentParser:
     emetti_fattura.add_argument("--correlation-id", required=True)
     emetti_fattura.add_argument("--idempotency-key", required=True)
     emetti_fattura.add_argument("--confirm", action="store_true", required=True)
+    rettifica_fattura = fattura_commands.add_parser("rettifica")
+    rettifica_fattura.add_argument("--rettifica-di", required=True)
+    rettifica_fattura.add_argument("--riga", required=True, action="append",
+                                    metavar="POSIZIONE:QUANTITA")
+    rettifica_fattura.add_argument("--data-emissione", required=True)
+    rettifica_fattura.add_argument("--actor", required=True)
+    rettifica_fattura.add_argument("--reason", required=True)
+    rettifica_fattura.add_argument("--correlation-id", required=True)
+    rettifica_fattura.add_argument("--idempotency-key", required=True)
+    rettifica_fattura.add_argument("--confirm", action="store_true", required=True)
     listino_varieta = commands.add_parser(
         "listino-varieta", help="Configuration mutabile LISTINO_VARIETA.")
     listino_varieta_commands = listino_varieta.add_subparsers(

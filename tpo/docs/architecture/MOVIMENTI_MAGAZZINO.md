@@ -148,3 +148,13 @@ Nuovi tipi di MOVIMENTO e informazioni aggiuntive potranno essere introdotti esc
 - rispettano integralmente REGISTER_GOVERNANCE.
 
 MOVIMENTI_MAGAZZINO deve continuare a rappresentare esclusivamente gli eventi autorizzati che determinano lo stato corrente dello STOCK.
+
+## Appendice: Estensione ad ARTICOLO (ARTICOLO_AUTHORITY_FREEZE.md)
+
+Il principio "Ogni MOVIMENTO modifica esclusivamente lo STOCK di una sola VARIETÀ" (sopra) viene esteso, non sostituito: ogni MOVIMENTO modifica esclusivamente lo STOCK di una sola VARIETÀ oppure lo STOCK_ARTICOLI di un solo ARTICOLO, mai entrambi e mai nessuno dei due.
+
+ARTICOLO identifica i materiali che servono alla catena produttiva perché funzioni (substrati, fertilizzante, packaging, e simili) — una Configuration distinta da VARIETA (i semi), congelata da ARTICOLO_AUTHORITY_FREEZE.md.
+
+STOCK_ARTICOLI è una tabella parallela a STOCK, con la stessa forma e gli stessi principi di integrità di STOCK.md applicati ad ARTICOLO anziché a VARIETA: disponibilità puramente fisica, nessuna quantità negativa, incremento/decremento esclusivamente tramite MOVIMENTO_MAGAZZINO autorizzato. STOCK.md non viene modificato: continua a governare esclusivamente STOCK/VARIETA.
+
+Un MOVIMENTO su ARTICOLO non deriva mai da RACCOLTA o CONSEGNA (origini fisicamente specifiche di VARIETA): la sua origine è sempre esterna a quell'insieme. Questa estensione non introduce alcuna relazione diretta tra MOVIMENTI_MAGAZZINO e SEMINE, non trasforma MOVIMENTI_MAGAZZINO in una rappresentazione dello stato corrente, non consente modifiche dirette allo STOCK/STOCK_ARTICOLI, e non altera l'immutabilità dei MOVIMENTI già registrati.

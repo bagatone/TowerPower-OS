@@ -231,9 +231,11 @@ def test_unresolved_concepts_remain_explicit_and_have_owner_decisions():
     unresolved = [item for item in _registry()["concepts"] if item["status"] == UNRESOLVED]
     assert unresolved
     assert all(item["open_owner_decisions"] for item in unresolved)
+    # ARTICOLO e ASSEGNAZIONE_FISICA sono stati congelati (Owner Decision
+    # D-ARTICOLO-scope, D-ASSEGNAZIONE_FISICA-capacity) e sono ora IMPLEMENTED:
+    # non fanno piu' parte dell'insieme esplicitamente non risolto.
     required_unresolved = {
-        "ARTICOLO", "ASSEGNAZIONE_FISICA", "FATTURA",
-        "INCASSO_PAGAMENTO", "HYDRATION_RULES",
+        "FATTURA", "INCASSO_PAGAMENTO", "HYDRATION_RULES",
     }
     assert required_unresolved <= {item["concept_id"] for item in unresolved}
 

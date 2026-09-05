@@ -838,6 +838,139 @@ correttamente registrati), tutti i path dei freeze doc referenziati
 esistono su disco.
 
 Verificato con `py_compile`/`compileall` su tutto l'albero (`src`, `tests`,
-`migrations`). **Non ancora verificato con `python -m pytest` reale** — in
-attesa dell'esecuzione dell'utente, un solo run combinato per tutti e tre i
-boundary come da D-sequencing, prima del commit.
+`migrations`). Verificato con `python -m pytest` reale dell'utente, in tre
+round di diagnosi e fix (dettagli in §21): risultato finale **2262 passed, 8
+skipped, 0 failed**. Commit registrato dall'owner: `750adc3` (precedente
+head `28d8d25`), branch `sprint-4.4-production-planning`, pushato.
+## 21. Sequenza pre-gestionale (§8) chiusa — verifica pytest reale, commit, e transizione a Fase 0-5 (2026-09-05)
+
+### 21.1 Verifica pytest reale sui tre boundary del punto 6
+
+Come da D-sequencing (§20), i tre boundary implementati insieme
+(ASSEGNAZIONE_FISICA, risoluzione `CONFLICTING` di STOCK, estensione
+MOVIMENTO_MAGAZZINO/ARTICOLO) sono stati verificati con un solo run
+`pytest` reale dell'utente, in tre round di diagnosi/fix:
+
+- **Round 1**: 10 failed, 2244 passed, 8 skipped, 8 errors. Cause radice
+  distinte: (a) bug reale in produzione — la query PRENOTATO/VENDIBILE in
+  `disponibilita_commerciale.py` non filtrava le righe consegna per
+  `consegne.stato='CONSEGNATA'`, sommando anche consegne non ancora
+  effettuate; (b) due controlli di governance con insiemi attesi
+  hard-coded (`test_authority_registry.py`, `test_identity_commissioning.py`)
+  da aggiornare a fronte di concetti/sequenze ora risolti — manutenzione
+  attesa, non un difetto; (c) collisione di `public_id` tra i dati di test
+  di `test_assegnazione_fisica.py` (integrazione) e i dati pre-seminati da
+  fixture condivise altrove nella suite; (d) un import di fixture mancante
+  (`isolated_postgresql`) in `test_movimento_articolo.py`, che pytest non
+  risolve per nome se non importato esplicitamente nel modulo che lo
+  richiede.
+- **Round 2** (dopo i fix sopra): 1 failed, 2261 passed, 8 skipped — un
+  test di `test_disponibilita_commerciale.py` costruiva un ordine in uno
+  stato (`PARZIALMENTE_EVASO`) internamente incoerente con la propria
+  premessa (consegna dell'intera quantità ordinata), in conflitto con il
+  trigger di stato fulfilment (`ct_ordini_fulfilment_state`).
+- **Round 3**: **2262 passed, 8 skipped, 0 failed** — verde completo.
+
+Commit registrato e pushato dall'owner: `750adc3` (precedente head
+`28d8d25`), branch `sprint-4.4-production-planning`.
+
+### 21.2 Chiusura formale dei sei punti della sequenza pre-gestionale
+
+Con questo, tutti e sei i punti dell'addendum owner del 2026-09-03 (§8)
+risultano chiusi:
+
+1. Correzione/annullamento RACCOLTA, SEMENTE, SEMENTE_IMPIEGO, SEED_LOT —
+   §9.
+2. PRODOTTO vs Varieta — §10 (Owner Decision: `DEFERRED`, non
+   implementato per scelta esplicita dell'owner, nessuna migrazione).
+3. Governo del LISTINO_VARIETA — §11.
+4. PAGAMENTO/INCASSO (esteso a INCASSO + USCITA su richiesta owner) —
+   §12-13.
+5. RectifyFattura — §14-15.
+6. Tracciabilità CONSEGNA → RACCOLTA e riconciliazione STOCK/
+   MOVIMENTO_MAGAZZINO — §16-20, esteso su decisione owner a
+   MOVIMENTO_CARICO, ARTICOLO, risoluzione `CONFLICTING` di STOCK e
+   ASSEGNAZIONE_FISICA.
+
+### 21.3 Decisione owner su come procedere ora
+
+Come previsto da §8 stesso ("Le Fasi 0-5 di questa roadmap... riprendono
+una volta chiuso questo lavoro") e da §5/§7, il passo successivo naturale
+sarebbe Fase 0: ricognizione prior-art e bozza di Freeze di governance per
+il nuovo boundary `OPERATIONAL_WEB_ADAPTER` (l'interfaccia web del
+gestionale). L'owner ha scelto esplicitamente di **non** avviare quel
+prior-art gate in questo giro — sarà un giro dedicato separato — e di
+limitare questo giro a due cose:
+
+- **Aggiornare la roadmap** (questo paragrafo), per fissare lo stato reale
+  raggiunto e il punto di transizione verso la Fase 0.
+- **Eseguire un walkthrough CLI end-to-end** su un database di
+  test/isolato, per verificare visivamente che l'intera catena funzioni
+  come sistema integrato (non solo boundary per boundary via test
+  automatici) — copertura prevista: semina → raccolta → movimento di
+  carico a stock → assegnazione fisica/consegna → fattura → incasso, oltre
+  a eventuali boundary collaterali rilevanti (articolo/movimento
+  magazzino, disponibilità commerciale). Esito documentato nel prossimo
+  paragrafo di questa roadmap.
+
+**Prossimo passo concreto**: walkthrough CLI end-to-end pronto in
+`scripts/walkthrough/e2e_walkthrough.py` (`scripts/walkthrough/README.md`
+per l'uso) — esegue l'intera catena onboarding cliente/varietà → listino
+→ fatturazione cliente → SEMENTE → SEMENTE_IMPIEGO → LOTTO_SEME → SEMINA
+(commissioning + transizioni) → RACCOLTA → MOVIMENTO_MAGAZZINO (carico) →
+CONSEGNA → ASSEGNAZIONE_FISICA → FATTURA → INCASSO chiamando il vero
+binario CLI di produzione, su un cluster PostgreSQL locale isolato e
+usa-e-getta (mai il database reale), chiuso da una query di traccia
+end-to-end e da una verifica di DISPONIBILITA_COMMERCIALE. In attesa
+dell'esecuzione dall'utente (richiede `initdb`/`pg_ctl`/`openssl` sul
+PATH del proprio terminale) e del relativo esito, da registrare nel
+prossimo paragrafo di questa roadmap. La bozza di Freeze per Fase 0
+(`OPERATIONAL_WEB_ADAPTER`) resta esplicitamente rimandata a un round
+dedicato successivo.
+## 22. Walkthrough CLI end-to-end eseguito con successo (2026-09-05)
+
+Il walkthrough preparato al §21.3 (`scripts/walkthrough/e2e_walkthrough.py`)
+e' stato eseguito dall'utente dal proprio terminale, su un cluster
+PostgreSQL locale isolato e usa-e-getta, in due round.
+
+**Primo round**: fallito a metà catena con
+`SEED_LOT_COMMISSIONING_FAILED: SEED_LOT_IDENTITY_UNAVAILABLE`. Causa
+reale, non uno scenario di prova invalido: `SEMINA_ID` e `LOTTO_SEME_ID`
+sono identità *allocate* (il sistema assegna il progressivo, non
+l'operatore) che — a differenza di `RACCOLTA_ID`, `MOVIMENTO_ID`,
+`CONSEGNA_ID`, `INCASSO_ID`, `USCITA_ID`, `ARTICOLO_ID` e
+`ASSEGNAZIONE_FISICA_ID`, tutte seminate direttamente dalla propria
+migrazione di introduzione — richiedono un'autorizzazione esplicita, una
+tantum, prima del primo uso su un database nuovo
+(`IdentityRegistrationCommissioningService`, lo stesso meccanismo già
+usato dalle fixture di integrazione reali, es.
+`tests/integration/postgresql/test_seed_lot_commissioning.py` e
+`tests/integration/postgresql/test_semina_commissioning.py`). Lo script
+non lo faceva. Corretto aggiungendo il passo di commissioning per
+entrambe le identità subito dopo i dati di riferimento, prima del primo
+comando che le usa.
+
+**Secondo round**: verde end-to-end. Traccia finale (query unica dal
+CLIENTE all'INCASSO): RAC (5 SET) → SEM-000001 (`PRONTA_ALLA_RACCOLTA`) →
+CON-000001 (`CONSEGNATA`) → fattura `2026/0001` (totale 24.08) →
+INC-000001 (importo 24.08, coincidente). Verifica
+DISPONIBILITA_COMMERCIALE coerente con l'esito atteso: disponibile 700
+GRAM (1200 caricati − 500 consegnati), prenotato 0 (ordine `EVASO`,
+escluso dalla somma), vendibile 700, nessun allarme di integrità.
+
+**Esito**: l'intera catena TPO — onboarding, SEMENTE, SEMENTE_IMPIEGO,
+LOTTO_SEME, SEMINA, RACCOLTA, MOVIMENTO_MAGAZZINO, CONSEGNA,
+ASSEGNAZIONE_FISICA, FATTURA, INCASSO — funziona insieme come sistema
+integrato, chiamando il vero binario CLI di produzione, non solo boundary
+per boundary via test automatici. L'unico difetto reale trovato (il
+commissioning mancante di due identità su database nuovo) è ora corretto
+nello script; vale la pena verificare, quando si affronterà la messa in
+produzione di un ambiente nuovo (non quello Supabase già in uso), che lo
+stesso passo una tantum non venga dimenticato — non è un'azione da
+prendere ora, solo una nota operativa per il futuro.
+
+Con questo si chiude anche la verifica pratica richiesta insieme
+all'aggiornamento della roadmap (§21): il sistema è confermato funzionante
+end-to-end. Il passo successivo, quando deciderai di riprenderlo, resta
+quello indicato al §21.3: la bozza di Freeze di governance per Fase 0
+(`OPERATIONAL_WEB_ADAPTER`), in un round dedicato separato.

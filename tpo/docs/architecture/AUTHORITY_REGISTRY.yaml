@@ -300,42 +300,42 @@ concepts:
     canonical_name: Physical Stock
     domain: INVENTORY
     classification: state
-    status: CONFLICTING
-    current_authorities: [{path: docs/architecture/STOCK.md, section: "Principio fondativo", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}, {path: docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md, section: "3", kind: architecture_freeze}]
-    core_implementations: [src/tpo_core/domain/entities/stock.py]
-    persistence_authorities: [tpo.stock]
+    status: IMPLEMENTED
+    current_authorities: [{path: docs/architecture/STOCK.md, section: "Principio fondativo", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}, {path: docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md, section: "3", kind: architecture_freeze}, {path: docs/architecture/STOCK_DISPONIBILITA_COMMERCIALE_FREEZE.md, section: "3", kind: architecture_freeze}, {path: docs/architecture/ARTICOLO_AUTHORITY_FREEZE.md, section: "4", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/stock.py, src/tpo_core/application/disponibilita_commerciale/service.py, src/tpo_core/infrastructure/postgresql/disponibilita_commerciale.py]
+    persistence_authorities: [tpo.stock, tpo.stock_articoli]
     identities: []
     legacy_predecessors: [docs/OPERATING_RULES.md, docs/TPO_DATA_DICTIONARY.md]
-    preserved_rules: ["Physical availability, reserved demand and sellable availability are distinct concepts.", "A MOVIMENTO CARICO originated from a RACCOLTA increments STOCK.disponibile by a GRAM quantity declared and weighed by the operator at publication time, never derived from the Raccolta's SET quantity by any yield/conversion factor (Owner Decision D11, MOVIMENTO_CARICO_AUTHORITY_FREEZE.md Section 3); no such SET->GRAM factor exists in any frozen authority."]
+    preserved_rules: ["Physical availability, reserved demand and sellable availability are distinct concepts.", "A MOVIMENTO CARICO originated from a RACCOLTA increments STOCK.disponibile by a GRAM quantity declared and weighed by the operator at publication time, never derived from the Raccolta's SET quantity by any yield/conversion factor (Owner Decision D11, MOVIMENTO_CARICO_AUTHORITY_FREEZE.md Section 3); no such SET->GRAM factor exists in any frozen authority.", "PRENOTATO(varieta_id) and VENDIBILE(varieta_id) are a read-only, non-persisted query computed on demand from tpo.ordini/tpo.righe_ordine/tpo.righe_consegna; STOCK itself is never mutated or written back by this computation (STOCK_DISPONIBILITA_COMMERCIALE_FREEZE.md). A negative VENDIBILE only raises an integrity signal (integrita_allarme), never an automatic correction.", "tpo.stock_articoli mirrors tpo.stock's exact shape for ARTICOLO in a distinct, parallel table (ARTICOLO_AUTHORITY_FREEZE.md Section 4) -- tpo.stock itself is never altered to support ARTICOLO."]
     explicitly_superseded_rules: []
-    forbidden_duplicates: []
-    conflicts: ["STOCK is physical authority in the current freeze, official commercial availability in legacy rules, and a derived commercial view in the Data Dictionary."]
-    open_owner_decisions: ["Name and freeze physical stock versus commercial DISPONIBILE/PRENOTATO/VENDIBILE projections."]
-    correction_semantics: "Physical changes require authorized movements; commercial corrections are separate."
+    forbidden_duplicates: [{alias: STOCK_ARTICOLI_MERGED_INTO_STOCK, reason: "ARTICOLO stock lives in a distinct parallel table (tpo.stock_articoli), never merged into tpo.stock's VARIETA rows."}, {alias: PRENOTATO_VENDIBILE_PERSISTED_PROJECTION, reason: "Commercial availability is a read-only computed query, never a persisted table or column (Owner Decision, STOCK_DISPONIBILITA_COMMERCIALE_FREEZE.md)."}]
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Physical changes require authorized movements; commercial corrections are separate. The integrity alarm (VENDIBILE < 0) is a signal only and is never auto-corrected."
     audit_authority: tpo.audit_eventi
-    idempotency_authority: operation-specific writer authority
-    verification_tests: [tests/domain/test_stock.py, tests/integration/postgresql/test_movimento_carico.py]
+    idempotency_authority: "operation-specific writer authority; disponibilita_commerciale is a pure read query with no idempotency authority (not a writer)"
+    verification_tests: [tests/domain/test_stock.py, tests/integration/postgresql/test_movimento_carico.py, tests/application/test_disponibilita_commerciale.py, tests/integration/postgresql/test_disponibilita_commerciale.py]
     reviewed_at_commit: 4eaff8f
 
   - concept_id: MOVIMENTO_MAGAZZINO
     canonical_name: Movimento Magazzino
     domain: INVENTORY
     classification: fact
-    status: PARTIALLY MIGRATED
-    current_authorities: [{path: docs/architecture/MOVIMENTI_MAGAZZINO.md, section: "Definizione", kind: architecture_freeze}, {path: docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}]
-    core_implementations: [src/tpo_core/domain/entities/movimento_magazzino.py, src/tpo_core/application/movimento_carico/, src/tpo_core/infrastructure/postgresql/movimento_carico.py, src/tpo_core/bootstrap/movimento_carico.py, src/tpo_core/cli/movimento_carico.py]
-    persistence_authorities: [tpo.movimenti_magazzino, tpo.movimento_carico_requests]
+    status: IMPLEMENTED
+    current_authorities: [{path: docs/architecture/MOVIMENTI_MAGAZZINO.md, section: "Definizione", kind: architecture_freeze}, {path: docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/architecture/ARTICOLO_AUTHORITY_FREEZE.md, section: "3", kind: architecture_freeze}, {path: docs/architecture/MOVIMENTI_MAGAZZINO.md, section: "Appendice: Estensione ad ARTICOLO", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/movimento_magazzino.py, src/tpo_core/application/movimento_carico/, src/tpo_core/infrastructure/postgresql/movimento_carico.py, src/tpo_core/bootstrap/movimento_carico.py, src/tpo_core/cli/movimento_carico.py, src/tpo_core/application/movimento_articolo/, src/tpo_core/infrastructure/postgresql/movimento_articolo.py, src/tpo_core/bootstrap/movimento_articolo.py, src/tpo_core/cli/movimento_articolo.py]
+    persistence_authorities: [tpo.movimenti_magazzino, tpo.movimento_carico_requests, tpo.movimento_articolo_requests]
     identities: [{type: MovimentoId, prefix: MOV, sequence: MOVIMENTO_ID}]
     legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
-    preserved_rules: ["A movement is an immutable physical stock variation fact.", "RegistraCaricoMagazzino (MOVIMENTO_CARICO_AUTHORITY_FREEZE.md) publishes a CARICO movement from a RACCOLTA: tipo=CARICO and direzione=POSITIVO are fixed, varieta_id is resolved by the writer from raccolta.semina_id -> semina.varieta_id (never caller input), and quantita_pesata (GRAM) is operator-declared, not computed from the Raccolta's SET quantity (Owner Decision D11). No cap on the number of carichi a single Raccolta may originate (Owner Decision D12)."]
+    preserved_rules: ["A movement is an immutable physical stock variation fact.", "RegistraCaricoMagazzino (MOVIMENTO_CARICO_AUTHORITY_FREEZE.md) publishes a CARICO movement from a RACCOLTA: tipo=CARICO and direzione=POSITIVO are fixed, varieta_id is resolved by the writer from raccolta.semina_id -> semina.varieta_id (never caller input), and quantita_pesata (GRAM) is operator-declared, not computed from the Raccolta's SET quantity (Owner Decision D11). No cap on the number of carichi a single Raccolta may originate (Owner Decision D12).", "Every MOVIMENTO modifies exactly one resource: exactly one of varieta_id/articolo_id is set, never both, never neither (ck_movimenti_magazzino_risorsa_xor, ARTICOLO_AUTHORITY_FREEZE.md Section 3), extending -- not replacing -- the pre-existing 'a single VARIETA' principle to 'a single VARIETA or a single ARTICOLO'. A movement on an Articolo is never originated by RACCOLTA/CONSEGNA (those origins remain physically Varieta-specific); tipo=CARICO/SCARICO fix direzione implicitly, RETTIFICA requires it explicit (Owner Decision D-ARTICOLO-scope)."]
     explicitly_superseded_rules: []
     forbidden_duplicates: []
-    conflicts: ["The current movement concerns sellable variety stock; generic article inventory remains unmigrated."]
-    open_owner_decisions: ["Define the boundary between product stock movements and generic inventory movements."]
-    correction_semantics: "RETTIFICA is a new fact, not overwrite. A CARICO is immutable once recorded; there is no reversal/cancellation, only a new, distinct movement type would apply a correction (deferred, MOVIMENTO_CARICO_AUTHORITY_FREEZE.md Section 8)."
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "RETTIFICA is a new fact, not overwrite. A CARICO/SCARICO is immutable once recorded; there is no reversal/cancellation, only a new, distinct movement (RETTIFICA) applies a correction, for both Varieta and Articolo movements alike."
     audit_authority: tpo.audit_eventi
-    idempotency_authority: operation-specific writer authority (tpo.movimento_carico_requests, scope MOVIMENTO_CARICO_RACCOLTA_V1, for CARICO)
-    verification_tests: [tests/domain/test_movimento_magazzino.py, tests/application/test_movimento_carico.py, tests/cli/test_movimento_carico_cli.py, tests/infrastructure/postgresql/test_movimento_carico_migration.py, tests/integration/postgresql/test_movimento_carico.py]
+    idempotency_authority: "operation-specific writer authority (tpo.movimento_carico_requests, scope MOVIMENTO_CARICO_RACCOLTA_V1, for CARICO da RACCOLTA; tpo.movimento_articolo_requests for ARTICOLO movements)"
+    verification_tests: [tests/domain/test_movimento_magazzino.py, tests/application/test_movimento_carico.py, tests/cli/test_movimento_carico_cli.py, tests/infrastructure/postgresql/test_movimento_carico_migration.py, tests/integration/postgresql/test_movimento_carico.py, tests/application/test_movimento_articolo.py, tests/cli/test_movimento_articolo_cli.py, tests/infrastructure/postgresql/test_articolo_migration.py, tests/integration/postgresql/test_movimento_articolo.py]
     reviewed_at_commit: 4eaff8f
 
   - concept_id: ORDINE
@@ -427,64 +427,64 @@ concepts:
     canonical_name: Articolo
     domain: INVENTORY
     classification: configuration
-    status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/TPO_DATA_DICTIONARY.md, section: "6.1", kind: conceptual_authority}]
-    core_implementations: []
-    persistence_authorities: []
-    identities: []
+    status: IMPLEMENTED
+    current_authorities: [{path: docs/architecture/ARTICOLO_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/TPO_DATA_DICTIONARY.md, section: "6.1", kind: conceptual_authority}]
+    core_implementations: [src/tpo_core/application/articolo/service.py, src/tpo_core/infrastructure/postgresql/articolo.py, src/tpo_core/application/movimento_articolo/service.py, src/tpo_core/infrastructure/postgresql/movimento_articolo.py, src/tpo_core/bootstrap/articolo.py, src/tpo_core/bootstrap/movimento_articolo.py, src/tpo_core/cli/articolo.py, src/tpo_core/cli/movimento_articolo.py]
+    persistence_authorities: [tpo.articoli, tpo.stock_articoli, tpo.articolo_commissioning_requests, tpo.movimento_articolo_requests]
+    identities: [{type: ArticoloId, prefix: ART, sequence: ARTICOLO_ID}]
     legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
-    preserved_rules: ["Articolo is a generic managed resource and is not necessarily a Prodotto."]
+    preserved_rules: ["Articolo is a generic managed resource and is not necessarily a Prodotto.", "Articolo identifies materials the production chain needs to function (substrates, fertilizer, packaging, and similar) and is conceptually distinct from Varieta, which identifies the seeds themselves (Owner clarification, ARTICOLO_AUTHORITY_FREEZE.md Section 1); no sub-typing of Articolo is introduced in V1.", "MOVIMENTO_MAGAZZINO/STOCK are extended, not duplicated, to operate on an Articolo: tpo.stock_articoli mirrors tpo.stock's exact shape in a distinct parallel table, and tpo.movimenti_magazzino gains a nullable articolo_id with a XOR check against varieta_id, exactly one resource per movement (ARTICOLO_AUTHORITY_FREEZE.md Section 3) -- tpo.stock itself is never altered (Owner Decision D-ARTICOLO-scope: full extension, not identity-only commissioning)."]
     explicitly_superseded_rules: []
-    forbidden_duplicates: []
-    conflicts: ["Legacy article codes overlap semantically with current identity prefixes."]
-    open_owner_decisions: ["Freeze generic article and inventory authority before migration."]
-    correction_semantics: unresolved
-    audit_authority: not_implemented
-    idempotency_authority: not_implemented
-    verification_tests: []
-    reviewed_at_commit: 4e6a127
+    forbidden_duplicates: [{alias: ARTICOLO_AS_VARIETA, reason: "Articolo and Varieta remain conceptually distinct identities, never merged."}, {alias: ARTICOLO_RACCOLTA_CONSEGNA_ORIGIN, reason: "A movement on an Articolo is never physically originated by a Raccolta or Consegna; origine_tipo stays outside that set for Articolo movements."}]
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "RETTIFICA is a new fact, not overwrite, mirroring MOVIMENTO_MAGAZZINO's own semantics for Varieta; there is no reversal/cancellation of a CARICO/SCARICO once recorded."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: "tpo.articolo_commissioning_requests (commissioning), tpo.movimento_articolo_requests (movement)"
+    verification_tests: [tests/application/test_articolo.py, tests/application/test_movimento_articolo.py, tests/cli/test_articolo_cli.py, tests/cli/test_movimento_articolo_cli.py, tests/infrastructure/postgresql/test_articolo_migration.py, tests/integration/postgresql/test_articolo.py, tests/integration/postgresql/test_movimento_articolo.py]
+    reviewed_at_commit: 4eaff8f
 
   - concept_id: PRENOTAZIONE
     canonical_name: Prenotazione Ordine
     domain: COMMERCIAL
     classification: derived_state
-    status: PARTIALLY MIGRATED
-    current_authorities: [{path: docs/architecture/ORDINI.md, section: "PRENOTAZIONI", kind: architecture_freeze}]
-    core_implementations: [src/tpo_core/domain/entities/ordine.py]
+    status: IMPLEMENTED
+    current_authorities: [{path: docs/architecture/ORDINI.md, section: "PRENOTAZIONI", kind: architecture_freeze}, {path: docs/architecture/STOCK_DISPONIBILITA_COMMERCIALE_FREEZE.md, section: "3", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/ordine.py, src/tpo_core/application/disponibilita_commerciale/service.py, src/tpo_core/infrastructure/postgresql/disponibilita_commerciale.py]
     persistence_authorities: []
     identities: []
     legacy_predecessors: [docs/OPERATING_RULES.md]
-    preserved_rules: ["Prenotazione is a logical reserve and does not change physical stock."]
+    preserved_rules: ["Prenotazione is a logical reserve and does not change physical stock.", "PRENOTATO(varieta_id) is computed on demand from open/partially-fulfilled tpo.ordini and their tpo.righe_ordine minus delivered tpo.righe_consegna, floored at zero per line; it is never persisted as its own table or column (STOCK_DISPONIBILITA_COMMERCIALE_FREEZE.md)."]
     explicitly_superseded_rules: []
     forbidden_duplicates: []
-    conflicts: ["The PRENOTATO and VENDIBILE projections are not implemented in Core."]
-    open_owner_decisions: ["Freeze the authoritative commercial availability read model."]
+    conflicts: []
+    open_owner_decisions: []
     correction_semantics: "Derived from active demand; not directly corrected."
     audit_authority: source order facts
     idempotency_authority: not_applicable
-    verification_tests: [tests/domain/test_ordine.py]
-    reviewed_at_commit: 4e6a127
+    verification_tests: [tests/domain/test_ordine.py, tests/application/test_disponibilita_commerciale.py, tests/integration/postgresql/test_disponibilita_commerciale.py]
+    reviewed_at_commit: 4eaff8f
 
   - concept_id: ASSEGNAZIONE_FISICA
     canonical_name: Assegnazione Fisica
     domain: COMMERCIAL_FULFILMENT
     classification: fact
-    status: UNKNOWN / OWNER DECISION REQUIRED
-    current_authorities: [{path: docs/registers/ASSEGNAZIONI.md, section: "3", kind: architecture_freeze}]
-    core_implementations: []
-    persistence_authorities: []
-    identities: []
+    status: IMPLEMENTED
+    current_authorities: [{path: docs/architecture/ASSEGNAZIONE_FISICA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/registers/ASSEGNAZIONI.md, section: "3", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/assegnazione_fisica/service.py, src/tpo_core/infrastructure/postgresql/assegnazione_fisica.py, src/tpo_core/bootstrap/assegnazione_fisica.py, src/tpo_core/cli/assegnazione_fisica.py]
+    persistence_authorities: [tpo.assegnazioni_fisiche, tpo.assegnazione_fisica_requests]
+    identities: [{type: AssegnazioneFisicaId, prefix: ASF, sequence: ASSEGNAZIONE_FISICA_ID}]
     legacy_predecessors: [docs/TPO_DATA_DICTIONARY.md]
-    preserved_rules: ["A physical assignment links one Raccolta quantity to one Riga Ordine and is not merely a reservation."]
+    preserved_rules: ["A physical assignment links one Raccolta quantity to one Riga Ordine and is not merely a reservation.", "V1 covers only the creation Fact (RegistraAssegnazioneFisica); variazione/rettifica/riallocazione/annullamento are deferred to a future boundary, mirroring RACCOLTA/RACCOLTA_CORREZIONE and FATTURA/RECTIFY_FATTURA (ASSEGNAZIONE_FISICA_AUTHORITY_FREEZE.md Section 1).", "No capacity/quantity constraint is imposed by the system: raccolta_id and riga_ordine_id are traceability/audit references only, never verified against raccolta.quantita or riga_ordine.quantita sums (Owner Decision D-ASSEGNAZIONE_FISICA-capacity, same precedent as D12 for raccolta_id on MOVIMENTO_CARICO). A supplied consegna_id must be linked to the same riga_ordine_id via tpo.righe_consegna, a minimal referential-coherence check, not a new business rule."]
     explicitly_superseded_rules: []
-    forbidden_duplicates: []
-    conflicts: ["Production Planning ALL identities are predictive allocations, not physical assignments."]
-    open_owner_decisions: ["Freeze physical assignment identity, events and delivery link after Harvest reconciliation."]
-    correction_semantics: "Expected append-only facts; implementation not frozen."
-    audit_authority: not_implemented
-    idempotency_authority: not_implemented
-    verification_tests: []
-    reviewed_at_commit: 4e6a127
+    forbidden_duplicates: [{alias: ASSEGNAZIONE_FISICA_AS_PRODUCTION_PLANNING_ALLOCAZIONE, reason: "Production Planning ALL identities are predictive allocations; Assegnazione Fisica is a new, distinct concept with no FK/relationship to production planning tables."}]
+    conflicts: []
+    open_owner_decisions: []
+    correction_semantics: "Fully immutable Fact (protect_assegnazione_fisica_authority blocks all UPDATE/DELETE unconditionally); variazione/rettifica/riallocazione/annullamento are deferred, not built in V1."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: tpo.assegnazione_fisica_requests
+    verification_tests: [tests/application/test_assegnazione_fisica.py, tests/cli/test_assegnazione_fisica_cli.py, tests/infrastructure/postgresql/test_assegnazione_fisica_migration.py, tests/integration/postgresql/test_assegnazione_fisica.py]
+    reviewed_at_commit: 4eaff8f
 
   - concept_id: PRODUCTION_PLANNING
     canonical_name: Production Planning

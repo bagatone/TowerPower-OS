@@ -10,6 +10,9 @@ from .scheduling import run_scheduling_command
 from .preflight import run_preflight_command
 from .operational import run_operational_scheduling_command
 from .production_planning import run_production_planning_command
+from .articolo import run_articolo_command
+from .assegnazione_fisica import run_assegnazione_fisica_command
+from .movimento_articolo import run_movimento_articolo_command
 from .movimento_carico import run_movimento_command
 from .raccolta import run_raccolta_command
 from .onboarding import run_onboarding_command
@@ -294,6 +297,53 @@ def _parser() -> argparse.ArgumentParser:
     carica_raccolta.add_argument("--correlation-id", required=True)
     carica_raccolta.add_argument("--idempotency-key", required=True)
     carica_raccolta.add_argument("--confirm", action="store_true", required=True)
+    for name in ("carica-articolo", "scarica-articolo", "rettifica-articolo"):
+        movimento_articolo = movimento_commands.add_parser(name)
+        movimento_articolo.add_argument("--articolo", required=True)
+        movimento_articolo.add_argument("--quantita", required=True)
+        movimento_articolo.add_argument("--unita-misura", required=True,
+                                         choices=["SET", "GRAM", "UNIT"])
+        movimento_articolo.add_argument("--effective-at", required=True)
+        movimento_articolo.add_argument("--motivo", required=True)
+        if name == "rettifica-articolo":
+            movimento_articolo.add_argument("--direzione", required=True,
+                                             choices=["POSITIVO", "NEGATIVO"])
+        movimento_articolo.add_argument("--actor", required=True)
+        movimento_articolo.add_argument("--reason", required=True)
+        movimento_articolo.add_argument("--correlation-id", required=True)
+        movimento_articolo.add_argument("--idempotency-key", required=True)
+        movimento_articolo.add_argument("--confirm", action="store_true", required=True)
+    articolo = commands.add_parser("articolo", help="Commissioning governato ARTICOLO.")
+    articolo_commands = articolo.add_subparsers(dest="articolo_command", required=True)
+    commission_articolo = articolo_commands.add_parser("commissiona")
+    commission_articolo.add_argument("--denominazione", required=True)
+    commission_articolo.add_argument("--unita-misura", required=True,
+                                      choices=["SET", "GRAM", "UNIT"])
+    commission_articolo.add_argument("--actor", required=True)
+    commission_articolo.add_argument("--reason", required=True)
+    commission_articolo.add_argument("--correlation-id", required=True)
+    commission_articolo.add_argument("--idempotency-key", required=True)
+    commission_articolo.add_argument("--confirm", action="store_true", required=True)
+    assegnazione = commands.add_parser(
+        "assegnazione", help="Registrazione governata ASSEGNAZIONE_FISICA (RACCOLTA<->RIGA_ORDINE)."
+    )
+    assegnazione_commands = assegnazione.add_subparsers(
+        dest="assegnazione_command", required=True,
+    )
+    registra_assegnazione = assegnazione_commands.add_parser("registra")
+    registra_assegnazione.add_argument("--raccolta", required=True)
+    registra_assegnazione.add_argument("--riga-ordine", required=True)
+    registra_assegnazione.add_argument("--consegna")
+    registra_assegnazione.add_argument("--quantita", required=True)
+    registra_assegnazione.add_argument("--unita-misura", required=True,
+                                        choices=["SET", "GRAM", "UNIT"])
+    registra_assegnazione.add_argument("--effective-at", required=True)
+    registra_assegnazione.add_argument("--motivo", required=True)
+    registra_assegnazione.add_argument("--actor", required=True)
+    registra_assegnazione.add_argument("--reason", required=True)
+    registra_assegnazione.add_argument("--correlation-id", required=True)
+    registra_assegnazione.add_argument("--idempotency-key", required=True)
+    registra_assegnazione.add_argument("--confirm", action="store_true", required=True)
     incasso = commands.add_parser("incasso", help="Registrazione governata INCASSO.")
     incasso_commands = incasso.add_subparsers(dest="incasso_command", required=True)
     registra_incasso = incasso_commands.add_parser("registra")
@@ -386,7 +436,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "raccolta":
         return run_raccolta_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "movimento":
-        return run_movimento_command(args, stdout=sys.stdout, stderr=sys.stderr)
+        if args.movimento_command == "carica-raccolta":
+            return run_movimento_command(args, stdout=sys.stdout, stderr=sys.stderr)
+        return run_movimento_articolo_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "articolo":
+        return run_articolo_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "assegnazione":
+        return run_assegnazione_fisica_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "incasso":
         return run_incasso_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "uscita":

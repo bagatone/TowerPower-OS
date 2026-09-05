@@ -170,6 +170,27 @@ class AllocazioneId(PermanentId):
 
 
 @dataclass(frozen=True)
+class ArticoloId(PermanentId):
+    """Identità di ARTICOLO (materiali della catena: substrati, fertilizzante,
+    packaging, ecc. -- distinta da VarietaId, che identifica i semi).
+    Vedi docs/architecture/ARTICOLO_AUTHORITY_FREEZE.md.
+    """
+
+    prefix: ClassVar[str] = "ART"
+    sequence_name: ClassVar[str] = "ARTICOLO_ID"
+
+
+@dataclass(frozen=True)
+class AssegnazioneFisicaId(PermanentId):
+    """Identità di ASSEGNAZIONE_FISICA (Register: RACCOLTA <-> RIGA_ORDINE).
+    Vedi docs/architecture/ASSEGNAZIONE_FISICA_AUTHORITY_FREEZE.md.
+    """
+
+    prefix: ClassVar[str] = "ASF"
+    sequence_name: ClassVar[str] = "ASSEGNAZIONE_FISICA_ID"
+
+
+@dataclass(frozen=True)
 class NumeroFattura:
     """Numero fattura legale: identità pubblica di FATTURA (non un PermanentId).
 

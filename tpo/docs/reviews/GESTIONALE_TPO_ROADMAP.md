@@ -664,3 +664,180 @@ nuovo run `pytest` reale** — in attesa dell'esecuzione dell'utente.
 Verificato con **esecuzione reale** dell'utente: `python -m pytest` -> 2156
 passed, 8 skipped, 0 failed. Punto 6 (perimetro RACCOLTA -> STOCK, CARICO)
 confermato, pronto per il commit.
+
+## 20. Tre boundary rimanenti implementati insieme (ASSEGNAZIONE_FISICA, STOCK
+    CONFLICTING, confine MOVIMENTO_MAGAZZINO/ARTICOLO) (2026-09-05)
+
+**Decisione owner sul sequencing**: dei tre elementi deferred dal punto 6
+(§16), l'owner ha scelto di implementarli **tutti insieme in questo giro**
+("Tutti insieme, un solo giro di verifica/commit alla fine",
+D-sequencing), deviando dal ritmo un-boundary-alla-volta seguito fino a
+qui in questa sessione — un solo run pytest reale e un solo commit al
+termine dei tre.
+
+Owner Decision aggiuntive raccolte via `AskUserQuestion` (due giri, il
+secondo per riconfermare esplicitamente il vero costo tecnico di
+ARTICOLO): **D-ARTICOLO-scope** ("Congela ARTICOLO come concetto distinto
+ora" + "Estensione completa ora" per MOVIMENTO_MAGAZZINO/STOCK, confermata
+due volte), **D-STOCK-read-model** ("STOCK resta fisico puro; PRENOTATO/
+VENDIBILE derivati a sola lettura"), **D-ASSEGNAZIONE_FISICA-capacity**
+("No, solo riferimento di tracciabilità" — nessun vincolo di capienza),
+**D-sequencing** (di cui sopra). Chiarimento di dominio dell'owner
+(non tecnico, solo di scope): ARTICOLO identifica i materiali che servono
+alla catena produttiva (substrati, fertilizzante, packaging, ecc.),
+VARIETA identifica i semi — le due identità restano concettualmente
+distinte come già congelato.
+
+### 20.1 ARTICOLO + estensione MOVIMENTO_MAGAZZINO/STOCK
+
+Freeze: `docs/architecture/ARTICOLO_AUTHORITY_FREEZE.md`. Strategia a
+tabella parallela per non toccare la forma esistente di `tpo.stock`/
+`tpo.movimenti_magazzino` in produzione: nuova `tpo.stock_articoli`
+(stessa forma di `tpo.stock`, PK `articolo_id`), `tpo.movimenti_magazzino.varieta_id`
+rilassato a nullable, nuova colonna `articolo_id` nullable + FK, nuovo
+CHECK `ck_movimenti_magazzino_risorsa_xor` (esattamente una tra
+varieta_id/articolo_id), nuova FK composita verso `stock_articoli`. La FK
+composita esistente `(varieta_id,unita_misura) -> stock(...)` non richiede
+modifiche: Postgres non la verifica su righe con `varieta_id` NULL (MATCH
+SIMPLE). Nessun movimento ARTICOLO può originare da RACCOLTA/CONSEGNA
+(fisicamente non applicabile); CARICO/SCARICO fissano `direzione`
+implicita, RETTIFICA la richiede esplicita.
+
+Migrazione additiva: `migrations/versions/20260905_0031_articolo_authority.py`
+— nuove tabelle `tpo.articoli`, `tpo.stock_articoli`,
+`tpo.articolo_commissioning_requests`, `tpo.movimento_articolo_requests`;
+seed `ARTICOLO_ID`/`ArticoloId`/`ART` in `tpo.id_sequences`; trigger
+`protect_articolo_constitutive_authority` (Configuration: protegge solo
+`denominazione`/`unita_misura`, mirror di `semente_commissioning`) più i
+trigger di reservation.
+
+Dominio: nuovo `ArticoloId` (prefix `ART`). Applicazione:
+`src/tpo_core/application/articolo/` (commissioning) e
+`src/tpo_core/application/movimento_articolo/` (movimento, con
+`MovimentoArticoloInsufficientStockError` dedicato per SCARICO/RETTIFICA
+negativa che porterebbe `stock_articoli.disponibile` sotto zero).
+Infrastruttura: `src/tpo_core/infrastructure/postgresql/articolo.py`,
+`.../movimento_articolo.py` (stesso schema reserve-or-replay di
+`PostgreSQLMovimentoCaricoWriter`, con lock/upsert di `stock_articoli`
+invece di `stock`). Bootstrap/CLI: `tpo articolo commissiona`,
+`tpo movimento carica-articolo` / `scarica-articolo` / `rettifica-articolo`.
+`docs/architecture/MOVIMENTI_MAGAZZINO.md` riceve un'appendice che estende
+(non sostituisce) il principio "una sola VARIETÀ" a "una sola VARIETÀ o un
+solo ARTICOLO".
+
+Test: `tests/application/test_articolo.py`,
+`tests/application/test_movimento_articolo.py`,
+`tests/cli/test_articolo_cli.py`, `tests/cli/test_movimento_articolo_cli.py`,
+`tests/infrastructure/postgresql/test_articolo_migration.py`,
+`tests/integration/postgresql/test_articolo.py`,
+`tests/integration/postgresql/test_movimento_articolo.py`.
+
+### 20.2 STOCK — Disponibilità Commerciale (PRENOTATO/VENDIBILE)
+
+Freeze: `docs/architecture/STOCK_DISPONIBILITA_COMMERCIALE_FREEZE.md`.
+Risolve lo `status: CONFLICTING` di STOCK senza alcuna migrazione: PRENOTATO
+e VENDIBILE sono un query/application-service a sola lettura, calcolato
+on-demand da `tpo.ordini`/`tpo.righe_ordine`/`tpo.righe_consegna`, mai
+scritto su `tpo.stock`. PRENOTATO(varieta_id) somma, per le righe ordine di
+quella varietà con ordine `APERTO`/`PARZIALMENTE_EVASO`, `quantita -
+consegnato` (il segno delle righe di rettifica consegna è già incorporato
+da `ck_righe_consegna_ordinary_or_correction`, nessuna gestione speciale
+necessaria), pavimentato a zero per riga. VENDIBILE = DISPONIBILE -
+PRENOTATO; `integrita_allarme = vendibile < 0`, puro segnale, mai scritto.
+
+Applicazione: `src/tpo_core/application/disponibilita_commerciale/`
+(nessun errore/Authority: è una query pura, non un writer). Infrastruttura:
+`src/tpo_core/infrastructure/postgresql/disponibilita_commerciale.py`
+(sola lettura). Nessun comando CLI dedicato in V1 (deferred a richiesta
+futura). Test: `tests/application/test_disponibilita_commerciale.py`,
+`tests/integration/postgresql/test_disponibilita_commerciale.py`
+(coprono APERTO/PARZIALMENTE_EVASO/EVASO/ANNULLATO, consegna parziale,
+evasione totale con pavimento a zero, `vendibile < 0` senza scrittura su
+`tpo.stock`, varietà sconosciuta).
+
+### 20.3 ASSEGNAZIONE_FISICA (solo Fact di creazione)
+
+Freeze: `docs/architecture/ASSEGNAZIONE_FISICA_AUTHORITY_FREEZE.md`. Nuovo
+Register append-only e fully immutable (mirror di `raccolte`, non di
+ARTICOLO che è una Configuration): lega una RACCOLTA a una RIGA_ORDINE, con
+CONSEGNA opzionale. Nessuna relazione con le identità `ALL` di production
+planning (concetti distinti, conflitto già registrato — nessuna FK).
+Nessun vincolo di capienza/quantità imposto dal sistema
+(D-ASSEGNAZIONE_FISICA-capacity): `raccolta_id`/`riga_ordine_id` sono puro
+riferimento di tracciabilità, mai verificati contro somme di
+`raccolte.quantita`/`righe_ordine.quantita`. Se `consegna_id` è fornito,
+deve esistere e risultare collegata alla stessa `riga_ordine_id` tramite
+`tpo.righe_consegna` (coerenza referenziale minima, non una nuova regola di
+business). Variazione/rettifica/riallocazione/annullamento restano
+deferred (stesso pattern RACCOLTA/RACCOLTA_CORREZIONE).
+
+Gap individuato durante il prior-art gate e chiarito nel freeze:
+`tpo.righe_ordine.public_id` è nullable (allocato pigramente da
+`order_line_identity.py` per production planning) — una Riga Ordine senza
+`public_id` già allocato non è referenziabile da un'Assegnazione Fisica.
+
+Migrazione additiva: `migrations/versions/20260905_0032_assegnazione_fisica_authority.py`
+— nuove tabelle `tpo.assegnazioni_fisiche` (FK dirette verso
+`tpo.raccolte.id`/`tpo.righe_ordine.id`/`tpo.consegne.id`, quest'ultima
+nullable) e `tpo.assegnazione_fisica_requests`; seed
+`ASSEGNAZIONE_FISICA_ID`/`AssegnazioneFisicaId`/`ASF`; trigger
+`protect_assegnazione_fisica_authority` (blocca UPDATE/DELETE
+incondizionatamente, Fact pura).
+
+Dominio: nuovo `AssegnazioneFisicaId` (prefix `ASF`); riuso di
+`RigaOrdineId`/`ConsegnaId`/`RaccoltaId` già esistenti. Applicazione:
+`src/tpo_core/application/assegnazione_fisica/{models,ports,service,errors}.py`.
+Infrastruttura: `src/tpo_core/infrastructure/postgresql/assegnazione_fisica.py`
+(stesso schema reserve-or-replay di `PostgreSQLRaccoltaWriter.record`, con
+la risoluzione RACCOLTA/RIGA_ORDINE/CONSEGNA per `public_id` sul modello di
+`PostgreSQLMovimentoCaricoWriter._lock_raccolta`). Bootstrap/CLI:
+`tpo assegnazione registra`.
+
+Test: `tests/application/test_assegnazione_fisica.py`,
+`tests/cli/test_assegnazione_fisica_cli.py`,
+`tests/infrastructure/postgresql/test_assegnazione_fisica_migration.py`,
+`tests/integration/postgresql/test_assegnazione_fisica.py` (inclusi i casi
+consegna assente/coerente/incoerente su un'altra riga ordine, raccolta/riga
+ordine/consegna inesistenti, replay idempotente, idempotency key riusata
+con payload diverso).
+
+### 20.4 Manutenzione ricorrente catena Alembic
+
+Stesso fix preventivo già visto ai punti precedenti, applicato due volte
+in questo giro (head `20260905_0030` → `0031` per ARTICOLO, poi `0031` →
+`0032` per ASSEGNAZIONE_FISICA): bump dell'head atteso in ~13 file di test
+(`test_delivery_fulfilment_migration.py`, `test_fattura_emissione_migration.py`,
+`test_fattura_rettifica_migration.py`, `test_finanze_aziendali_migration.py`,
+`test_id_sequences_backfill_migration.py`, `test_raccolta_correzione_migration.py`,
+`test_raccolta_migration.py`, `test_semina_lifecycle_migration.py`,
+`test_semina_traceability_migration.py`, `test_movimento_carico_migration.py`,
+`test_articolo_migration.py` — questi ultimi due con fix chirurgico: solo
+l'asserzione sull'head, mai il proprio `SOURCE_PATH`/`get_revision(...)` che
+referenzia legittimamente la propria revisione, inclusa l'asserzione
+post-rollback in `test_real_postgresql_downgrade_blocked_once_a_request_exists`
+che verifica lo stato dopo un `connection.rollback()` di un downgrade
+bloccato — torna al vero head corrente, non a una revisione intermedia);
+`test_migrations.py` e `test_production_planning_migrations.py` (liste
+ordinate della catena, nuovo head prepeso e ultimo elemento troncato,
+verificato algoritmicamente con `items_a[1:] == items_b`, mai una
+sostituzione cieca di stringa — una prima passata scorretta su
+`test_production_planning_migrations.py` è stata individuata e corretta
+nello stesso turno prima di proseguire).
+
+**Governance**: `docs/architecture/AUTHORITY_REGISTRY.yaml` aggiornato —
+`ARTICOLO` (da `UNKNOWN / OWNER DECISION REQUIRED` a `IMPLEMENTED`),
+`MOVIMENTO_MAGAZZINO` (da `PARTIALLY MIGRATED` a `IMPLEMENTED`, conflitto
+ARTICOLO risolto), `STOCK` (da `CONFLICTING` a `IMPLEMENTED`),
+`PRENOTAZIONE` (da `PARTIALLY MIGRATED` a `IMPLEMENTED`),
+`ASSEGNAZIONE_FISICA` (da `UNKNOWN / OWNER DECISION REQUIRED` a
+`IMPLEMENTED`, nessuna relazione con `PRODUCTION_PLANNING`/`ALL`).
+Verificato con lo stesso script indipendente delle sessioni precedenti: 33
+concetti, nessun duplicato di `concept_id`/alias, tutti i `REQUIRED_FIELDS`
+presenti, nessun crash sul controllo `identities`/`prefix` (`ART`/`ASF`
+correttamente registrati), tutti i path dei freeze doc referenziati
+esistono su disco.
+
+Verificato con `py_compile`/`compileall` su tutto l'albero (`src`, `tests`,
+`migrations`). **Non ancora verificato con `python -m pytest` reale** — in
+attesa dell'esecuzione dell'utente, un solo run combinato per tutti e tre i
+boundary come da D-sequencing, prima del commit.

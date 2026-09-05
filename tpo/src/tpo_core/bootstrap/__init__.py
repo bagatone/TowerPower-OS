@@ -1,6 +1,9 @@
 """Bootstrap esplicito dell'applicazione Tower Power Operations."""
 
+from .articolo import build_articolo_service
+from .assegnazione_fisica import build_assegnazione_fisica_service
 from .container import ApplicationContainer
+from .disponibilita_commerciale import build_disponibilita_commerciale_service
 from .delivery_fulfilment import (
     build_delivery_fulfilment_service,
     build_delivery_id_allocator,
@@ -15,6 +18,7 @@ from .fatturazione_configuration import (
 from .factory import _build_operational_application, build_application
 from .identity import build_identity_registration_commissioner
 from .incasso import build_incasso_service
+from .movimento_articolo import build_movimento_articolo_service
 from .movimento_carico import build_movimento_carico_service
 from .onboarding import build_operational_data_onboarding_service
 from .production_planning import (
@@ -33,8 +37,11 @@ from .uscita import build_uscita_service
 
 __all__ = [
     "ApplicationContainer",
+    "build_articolo_service",
+    "build_assegnazione_fisica_service",
     "ApplicationSettings",
     "InvalidSettingsError",
+    "build_disponibilita_commerciale_service",
     "OperationalRuntimeUnavailableError",
     "build_application",
     "build_delivery_fulfilment_service",
@@ -45,6 +52,7 @@ __all__ = [
     "build_identity_registration_commissioner",
     "build_incasso_service",
     "build_listino_varieta_writer",
+    "build_movimento_articolo_service",
     "build_movimento_carico_service",
     "build_operational_data_onboarding_service",
     "build_operational_application",

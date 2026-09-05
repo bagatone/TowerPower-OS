@@ -20,7 +20,7 @@ def test_movimento_carico_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260905_0030"]
+    assert script.get_heads() == ["20260905_0032"]
     revision = script.get_revision("20260905_0030")
     assert revision.down_revision == "20260905_0029"
 
@@ -132,7 +132,7 @@ def test_real_postgresql_downgrade_blocked_once_a_request_exists(isolated_postgr
             connection.rollback()
             assert connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
-            ).scalar_one() == "20260905_0030"
+            ).scalar_one() == "20260905_0032"
     finally:
         engine.dispose()
         with cluster.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:

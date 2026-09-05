@@ -15,6 +15,7 @@ from .fatturazione_configuration import (
 from .factory import _build_operational_application, build_application
 from .identity import build_identity_registration_commissioner
 from .incasso import build_incasso_service
+from .movimento_carico import build_movimento_carico_service
 from .onboarding import build_operational_data_onboarding_service
 from .production_planning import (
     build_production_planning_policy_commissioner,
@@ -44,6 +45,7 @@ __all__ = [
     "build_identity_registration_commissioner",
     "build_incasso_service",
     "build_listino_varieta_writer",
+    "build_movimento_carico_service",
     "build_operational_data_onboarding_service",
     "build_operational_application",
     "build_production_planning_runtime",

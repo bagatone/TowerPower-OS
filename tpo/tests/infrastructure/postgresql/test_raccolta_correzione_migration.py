@@ -22,7 +22,7 @@ def test_raccolta_correzione_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260905_0029"]
+    assert script.get_heads() == ["20260905_0030"]
     revision = script.get_revision("20260903_0027")
     assert revision.down_revision == "20260903_0026"
 
@@ -314,7 +314,7 @@ def test_real_postgresql_downgrade_blocked_once_a_correction_exists(isolated_pos
             connection.rollback()
             assert connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
-            ).scalar_one() == "20260905_0029"
+            ).scalar_one() == "20260905_0030"
     finally:
         engine.dispose()
         with cluster.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:

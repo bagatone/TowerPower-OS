@@ -466,3 +466,201 @@ Tutti i fix verificati con `py_compile`/`compileall` e infine con
 **esecuzione reale** dell'utente: `python -m pytest` → 2126 passed, 8
 skipped, 0 failed. Punto 5 (RectifyFattura) confermato, pronto per il
 commit.
+
+## 16. Punto 6 (perimetro scelto) — Movimento Carico da Raccolta (2026-09-05)
+
+**Scope scelto dall'owner** (tra 4 sotto-aree emerse dal prior-art gate su
+"Tracciabilità CONSEGNA → RACCOLTA e riconciliazione STOCK/MOVIMENTO_MAGAZZINO",
+§8 punto 6): solo **RACCOLTA → STOCK (CARICO)**. Esplicitamente deferred, per
+scelta owner: ASSEGNAZIONE_FISICA, risoluzione dello stato `CONFLICTING` di
+STOCK, confine MOVIMENTO_MAGAZZINO/ARTICOLO.
+
+**Gap non documentato individuato durante il prior-art gate**: `tpo.raccolte`
+è vincolata a `unita_misura='SET'`, mentre `tpo.stock`/commerciale operano in
+`GRAM`. Nessun fattore di conversione SET→GRAM esiste in alcuna authority
+congelata. Risolto con due Owner Decision:
+
+- **D11**: la quantità in GRAM è dichiarata/pesata dall'operatore al momento
+  della pubblicazione del CARICO, mai calcolata dalla quantità SET della
+  RACCOLTA. Nessuna Configuration di conversione introdotta.
+- **D12**: una RACCOLTA può originare più CARICHI parziali nel tempo (scelta
+  owner, in alternativa alla proposta "un CARICO per RACCOLTA"). Conseguenza:
+  `raccolta_id` sul MOVIMENTO è solo tracciabilità/audit, mai vincolo di
+  quantità; RACCOLTA_CORREZIONE (che opera solo in SET) resta indipendente
+  dai CARICHI già registrati.
+
+Freeze approvato dall'owner: `docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md`.
+
+**Implementazione**:
+- Migrazione additiva `migrations/versions/20260905_0030_movimento_carico_raccolta.py`
+  — nessuna modifica a `tpo.movimenti_magazzino`/`tpo.stock`/`tpo.raccolte`
+  (lo schema di `movimenti_magazzino` già prevedeva `raccolta_id` e il CHECK
+  di origine `RACCOLTA` da `20260810_0004`); solo la nuova tabella di
+  reservation/idempotenza `tpo.movimento_carico_requests` (scope
+  `MOVIMENTO_CARICO_RACCOLTA_V1`), stesso schema di
+  `tpo.raccolta_recording_requests`, trigger di protezione incluso.
+- Dominio: nessun nuovo identifier; aggiunto `sequence_name = "MOVIMENTO_ID"`
+  a `MovimentoId` (già commissionato in `tpo.id_sequences` da
+  `20260903_0025_id_sequences_backfill.py`) per allinearlo al pattern di
+  auto-allocazione già usato da `PostgreSQLRaccoltaWriter`/
+  `PostgreSQLFatturaRettificaWriter`.
+- Applicazione: `src/tpo_core/application/movimento_carico/{models,ports,service,errors}.py`
+  — comando `RegistraCaricoMagazzino(raccolta_id, quantita_pesata, data_movimento, motivo, authority)`.
+- Infrastruttura: `src/tpo_core/infrastructure/postgresql/movimento_carico.py`
+  — stesso schema reserve-or-replay di `PostgreSQLRaccoltaWriter.record`, più
+  lock/upsert di `tpo.stock` sul modello di `PostgreSQLDeliveryFulfilmentWriter`;
+  `varieta_id` risolto internamente da `raccolta.semina_id → semina.varieta_id`,
+  mai input del chiamante.
+- Bootstrap (`bootstrap/movimento_carico.py`) e CLI (`cli/movimento_carico.py`,
+  sottocomando `tpo movimento carica-raccolta`) aggiunti coerentemente con lo
+  stile esistente.
+- Test: `tests/application/test_movimento_carico.py`,
+  `tests/cli/test_movimento_carico_cli.py`,
+  `tests/infrastructure/postgresql/test_movimento_carico_migration.py`,
+  `tests/integration/postgresql/test_movimento_carico.py` (fixture-chain:
+  importa `harvest`/`harvest_environment`/`ready` da
+  `test_raccolta.py`, `environment` da `test_semina_commissioning.py`,
+  `isolated_postgresql` da `test_production_planning_migrations.py`).
+
+**Fix preventivo applicato prima del run reale** (stessa regressione già
+vista ai punti 4 e 5: catena Alembic hardcoded in ~10 file di test, causata
+dallo spostamento dell'head da `20260905_0029` a `20260905_0030`):
+`test_delivery_fulfilment_migration.py`, `test_fattura_emissione_migration.py`,
+`test_finanze_aziendali_migration.py`, `test_id_sequences_backfill_migration.py`,
+`test_raccolta_correzione_migration.py`, `test_raccolta_migration.py`,
+`test_semina_lifecycle_migration.py`, `test_semina_traceability_migration.py`
+(bump semplice dell'head atteso); `test_fattura_rettifica_migration.py` (fix
+chirurgico: solo l'asserzione sull'head, non il suo `SOURCE_PATH`/
+`get_revision("20260905_0029")` che referenziano legittimamente la propria
+revisione); `test_production_planning_migrations.py` e `test_migrations.py`
+(liste ordinate della catena: `20260905_0030` prepeso davanti a
+`20260905_0029`, non sostituito, perché la revisione precedente resta un nodo
+reale della catena).
+
+**Governance**: `AUTHORITY_REGISTRY.yaml` aggiornato — `MOVIMENTO_MAGAZZINO`
+(authority primaria: nuovo `current_authorities`, `core_implementations`,
+`persistence_authorities`, `preserved_rules` D11/D12, `verification_tests`),
+`STOCK` (cross-reference: nuova regola su come il CARICO incrementa
+`disponibile`, invariati `status: CONFLICTING`/conflicts/open_owner_decisions
+— non risolti da questo freeze, per scelta owner), `RACCOLTA`
+(cross-reference: il boundary "Raccolta → Movimento" riservato da
+`RACCOLTA_AUTHORITY_FREEZE.md` §11 è ora implementato; nota su indipendenza da
+RACCOLTA_CORREZIONE). Verificato con lo stesso script indipendente delle
+sessioni precedenti: 33 concetti, nessun duplicato, tutti i `REQUIRED_FIELDS`
+presenti, nessun crash sul controllo `identities`/`prefix`.
+
+Verificato con `py_compile`/`compileall` su tutto l'albero (`src`, `tests`,
+`migrations`). **Non ancora verificato con `python -m pytest` reale** — in
+attesa dell'esecuzione dell'utente prima del commit, come da prassi di questa
+sessione.
+
+## 17. Diagnosi e fix dei fallimenti pytest reali riportati sul punto 6 (2026-09-05)
+
+Run reale dell'utente: **25 failed, 1898 passed, 8 skipped, 232 errors**.
+Causa radice unica per l'intera cascata (quasi tutti i test PostgreSQL reali
+falliscono/errano, perché tutti eseguono un upgrade Alembic a `head`):
+
+1. **FK composita invalida in `20260905_0030_movimento_carico_raccolta.py`**:
+   la FK `(movimento_id, result_public_id) -> (movimenti_magazzino.id,
+   movimenti_magazzino.public_id)` falliva con
+   `psycopg.errors.InvalidForeignKey: there is no unique constraint matching
+   given keys for referenced table "movimenti_magazzino"`. `id` è PRIMARY KEY
+   e `public_id` ha una propria UNIQUE separata, ma PostgreSQL richiede un
+   vincolo UNIQUE/PK che copra esattamente l'insieme di colonne referenziato
+   da una FK composita — nessuno dei due, preso da solo, basta. Lo stesso
+   identico problema era già stato risolto per `RACCOLTA`
+   (`20260830_0022_raccolta_authority.py` aggiunge `uq_raccolte_id_public_id`
+   prima della propria FK composita), ma non era stato replicato qui. Fix:
+   aggiunta `UNIQUE (id, public_id)` — `uq_movimenti_magazzino_id_public_id`
+   — su `movimenti_magazzino` in `upgrade()` (con `drop_constraint`
+   simmetrico in `downgrade()`), stesso precedente. Aggiornati di conseguenza
+   il docstring della migrazione, `MOVIMENTO_CARICO_AUTHORITY_FREEZE.md` §5
+   (che erroneamente dichiarava "nessuna modifica a movimenti_magazzino") e
+   il commento/asserzioni di `test_movimento_carico_migration_touches_no_existing_table_shape`
+   in `test_movimento_carico_migration.py`, con un nuovo test dedicato
+   (`test_movimento_carico_migration_adds_only_the_composite_unique_constraint`)
+   che verifica che l'unica modifica additiva sia esattamente questa UNIQUE
+   constraint.
+2. **Bug nel mio stesso fix preventivo della catena Alembic** (§16): il bulk
+   replace di `test_production_planning_migrations.py` aveva sovrascritto per
+   errore anche i due valori appena prepesi (`"20260905_0029"` diventato
+   `"20260905_0030"` sia nella entry #2 di `revisions[:20]` sia nella entry #1
+   di `revisions[:19]` dei down_revision), producendo una lista con
+   `"20260905_0030"` duplicato invece della sequenza corretta
+   `20260905_0030 -> 20260905_0029 -> 20260904_0028 -> ...`. Fix: ripristinati
+   i valori corretti in entrambe le liste (`test_revision_chain_e_nuovo_head`).
+   `test_migrations.py`, corretto manualmente voce per voce nello stesso
+   passaggio, non aveva questo problema.
+
+Verificato con `py_compile`/`compileall` su tutto l'albero. **Non ancora
+verificato con un nuovo run `pytest` reale** — in attesa dell'esecuzione
+dell'utente.
+
+## 18. Secondo round di diagnosi pytest reale sul punto 6 (2026-09-05)
+
+Run reale dell'utente dopo il fix del §17: **5 failed, 2151 passed, 8
+skipped** (tutti i fallimenti residui confinati a
+`tests/integration/postgresql/test_movimento_carico.py`).
+
+**Causa radice**: `_seed_authorities` (definita in
+`test_production_planning_commit_writer.py`, riusata dalla catena di fixture
+`environment` -> `harvest_environment` su cui questo boundary si appoggia)
+pre-semina una riga `tpo.stock` legacy per `VAR-000001` in `SET`
+(`disponibile=2`), come baseline per i test di production planning —
+dato di fixture condiviso, non correlato a questo boundary. I nuovi test
+CARICO ereditavano quella riga pre-esistente:
+
+- Nelle 4 tabelle "normali" (creazione, carichi parziali multipli, replay
+  idempotente, conflitto idempotency key): `_lock_or_create_stock` trovava
+  già una riga (in `SET`, non inserita da lui) e falliva chiuso con
+  `MovimentoCaricoStockUnitMismatchError` — comportamento corretto a fronte
+  di uno stock preesistente non in GRAM, ma il fixture legacy non era lo
+  scenario che quei test intendevano simulare.
+- In `test_rejects_stock_existing_with_non_gram_unit`: il seed manuale del
+  test (un secondo INSERT `SET` per la stessa `VAR-000001`) violava la
+  UNIQUE/PK di `tpo.stock` perché una riga esisteva già.
+
+Nessun bug nel writer di produzione (`movimento_carico.py`): il comportamento
+di fail-closed su unità non-GRAM è corretto by design (D11). Fix isolato
+esclusivamente nel proprio file di test: la fixture `seeded_raccolta` ora
+ripulisce `tpo.stock` (`DELETE FROM tpo.stock`) subito dopo aver registrato
+la RACCOLTA, prima di restituire l'ambiente ai test — nessuna FK punta ancora
+a `stock` a quel punto (nessun MOVIMENTO_MAGAZZINO ancora registrato), quindi
+la DELETE è sicura. La funzione condivisa `_seed_authorities` non è stata
+toccata (usata da molti altri test di production planning che dipendono dal
+suo baseline).
+
+Verificato con `py_compile`/`compileall`. **Non ancora verificato con un
+nuovo run `pytest` reale** — in attesa dell'esecuzione dell'utente.
+
+## 19. Terzo round di diagnosi pytest reale sul punto 6 (2026-09-05)
+
+Run reale dell'utente dopo il fix del §18: **4 failed, 2152 passed, 8
+skipped** (`test_rejects_stock_existing_with_non_gram_unit` ora verde; i 4
+fallimenti residui sono le tabelle "normali" che ora arrivano fino
+all'INSERT reale su `movimenti_magazzino`, con `MovimentoCaricoCommitRolledBackError`
+generico — un `psycopg.Error` non-Integrity non gestito nel ramo dedicato).
+
+**Causa radice — bug reale nello writer di produzione**
+(`src/tpo_core/infrastructure/postgresql/movimento_carico.py`, INSERT su
+`tpo.movimenti_magazzino`): la lista colonne includeva `created_at` come
+colonna esplicita (13 colonne, 9 placeholder), ma la tupla di parametri ne
+forniva solo 8 — un disallineamento che spostava
+`command.authority.actor.value` (destinato a `created_by`) sul placeholder di
+`created_at`, lasciando `created_by` senza alcun valore. `created_at` ha già
+`server_default=sa.func.now()` nello schema e viene comunque riletto tramite
+`RETURNING id,created_at` per popolare `recorded_at`: non andava mai passato
+esplicitamente. Fix: rimossa la colonna `created_at` (e il suo placeholder)
+dalla lista/VALUES dell'INSERT, lasciando che il default del server la
+popoli; `created_by` ora riceve correttamente `command.authority.actor.value`
+sull'ultimo placeholder. Verificata anche l'assenza dello stesso tipo di
+disallineamento in tutte le altre query dello stesso writer (reservation/
+replay, audit, update stock, update request, update id_sequences): tutte
+corrette, nessun altro caso.
+
+Verificato con `py_compile`/`compileall`. **Non ancora verificato con un
+nuovo run `pytest` reale** — in attesa dell'esecuzione dell'utente.
+
+Verificato con **esecuzione reale** dell'utente: `python -m pytest` -> 2156
+passed, 8 skipped, 0 failed. Punto 6 (perimetro RACCOLTA -> STOCK, CARICO)
+confermato, pronto per il commit.

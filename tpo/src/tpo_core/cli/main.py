@@ -10,6 +10,7 @@ from .scheduling import run_scheduling_command
 from .preflight import run_preflight_command
 from .operational import run_operational_scheduling_command
 from .production_planning import run_production_planning_command
+from .movimento_carico import run_movimento_command
 from .raccolta import run_raccolta_command
 from .onboarding import run_onboarding_command
 from .seed_lot import run_seed_lot_command
@@ -279,6 +280,20 @@ def _parser() -> argparse.ArgumentParser:
     correggi_raccolta.add_argument("--correlation-id", required=True)
     correggi_raccolta.add_argument("--idempotency-key", required=True)
     correggi_raccolta.add_argument("--confirm", action="store_true", required=True)
+    movimento = commands.add_parser(
+        "movimento", help="Pubblicazione governata di MOVIMENTO_MAGAZZINO (CARICO da RACCOLTA)."
+    )
+    movimento_commands = movimento.add_subparsers(dest="movimento_command", required=True)
+    carica_raccolta = movimento_commands.add_parser("carica-raccolta")
+    carica_raccolta.add_argument("--raccolta", required=True)
+    carica_raccolta.add_argument("--quantita-pesata", required=True)
+    carica_raccolta.add_argument("--effective-at", required=True)
+    carica_raccolta.add_argument("--motivo", required=True)
+    carica_raccolta.add_argument("--actor", required=True)
+    carica_raccolta.add_argument("--reason", required=True)
+    carica_raccolta.add_argument("--correlation-id", required=True)
+    carica_raccolta.add_argument("--idempotency-key", required=True)
+    carica_raccolta.add_argument("--confirm", action="store_true", required=True)
     incasso = commands.add_parser("incasso", help="Registrazione governata INCASSO.")
     incasso_commands = incasso.add_subparsers(dest="incasso_command", required=True)
     registra_incasso = incasso_commands.add_parser("registra")
@@ -370,6 +385,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_semina_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "raccolta":
         return run_raccolta_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "movimento":
+        return run_movimento_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "incasso":
         return run_incasso_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "uscita":

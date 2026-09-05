@@ -97,6 +97,7 @@ class UscitaId(PermanentId):
 @dataclass(frozen=True)
 class MovimentoId(PermanentId):
     prefix: ClassVar[str] = "MOV"
+    sequence_name: ClassVar[str] = "MOVIMENTO_ID"
 
 
 @dataclass(frozen=True)

@@ -280,33 +280,33 @@ concepts:
     domain: PHYSICAL_PRODUCTION
     classification: fact
     status: PARTIALLY MIGRATED
-    current_authorities: [{path: docs/architecture/RACCOLTA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}, {path: docs/architecture/RACCOLTA_CORREZIONE_AUTHORITY_FREEZE.md, section: "4", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/RACCOLTA_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}, {path: docs/architecture/RACCOLTA_CORREZIONE_AUTHORITY_FREEZE.md, section: "4", kind: architecture_freeze}, {path: docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md, section: "4", kind: architecture_freeze}]
     core_implementations: [src/tpo_core/domain/entities/raccolta.py, src/tpo_core/application/raccolta/service.py, src/tpo_core/infrastructure/postgresql/raccolta.py]
     persistence_authorities: [tpo.raccolte, tpo.raccolte.rettifica_raccolta_id, tpo.raccolta_recording_requests, tpo.raccolta_correzione_requests]
     identities: [{type: RaccoltaId, prefix: RAC, sequence: RACCOLTA_ID}]
     legacy_predecessors: [docs/registers/RACCOLTE.md, tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
-    preserved_rules: ["A Raccolta is an immutable event; one Semina may have zero, one or many Raccolte."]
+    preserved_rules: ["A Raccolta is an immutable event; one Semina may have zero, one or many Raccolte.", "The future Raccolta -> Movimento publication boundary reserved by RACCOLTA_AUTHORITY_FREEZE.md Section 11 is now RegistraCaricoMagazzino (MOVIMENTO_CARICO_AUTHORITY_FREEZE.md): raccolta_id on the resulting MOVIMENTO is a traceability/audit reference only, never a quantity constraint, and a single Raccolta may originate multiple partial carichi over time since no SET->GRAM conversion factor exists to derive a residual cap (Owner Decisions D11-D12)."]
     explicitly_superseded_rules: ["Raccolta is not a Semina lifecycle state.", "A harvest record may be physically deleted when the event did not occur."]
     forbidden_duplicates: [{alias: RACCOLTA_AS_SEMINA_STATE, reason: "Raccolta is an independent physical fact."}, {alias: LOTTO_PRODUZIONE_FOR_RACCOLTA, reason: "Semina remains the production-group authority."}, {alias: RACCOLTA_TRACEABILITY_SNAPSHOT_AUTHORITY, reason: "AAA-GGMM-L remains authoritative only on Semina."}, {alias: RACCOLTA_DIRECT_STOCK_WRITER, reason: "Inventory changes belong to Movimento Magazzino."}, {alias: RACCOLTA_DESTINATION_AS_ASSIGNMENT, reason: "Physical allocation belongs to the future Assegnazione authority."}, {alias: RACCOLTA_FREE_TEXT_QUALITY, reason: "Quality authority is deferred pending a controlled vocabulary."}]
     conflicts: []
     open_owner_decisions: []
-    correction_semantics: "A correction is a new RAC-* event (CorreggiRaccolta) referencing the original via tpo.raccolte.rettifica_raccolta_id; the original RACCOLTA is never mutated (RACCOLTA_CORREZIONE_AUTHORITY_FREEZE.md). No correction-of-correction chaining; every correction always references the originating event. Same SEMINA and same UOM as the original are required; the net quantity (original plus all its corrections) may never go negative. A correction is admitted regardless of the current SEMINA state."
+    correction_semantics: "A correction is a new RAC-* event (CorreggiRaccolta) referencing the original via tpo.raccolte.rettifica_raccolta_id; the original RACCOLTA is never mutated (RACCOLTA_CORREZIONE_AUTHORITY_FREEZE.md). No correction-of-correction chaining; every correction always references the originating event. Same SEMINA and same UOM as the original are required; the net quantity (original plus all its corrections) may never go negative. A correction is admitted regardless of the current SEMINA state. RACCOLTA_CORREZIONE has no interaction with already-recorded MOVIMENTO CARICO facts (MOVIMENTO_CARICO_AUTHORITY_FREEZE.md Owner Decision D12): the two boundaries operate on distinct quantities (SET vs. GRAM) with no reconciliation between them."
     audit_authority: tpo.audit_eventi
     idempotency_authority: tpo.raccolta_recording_requests
-    verification_tests: [tests/domain/test_raccolta.py, tests/architecture/test_authority_registry.py, tests/application/test_raccolta_correzione.py, tests/infrastructure/postgresql/test_raccolta_correzione_migration.py, tests/integration/postgresql/test_raccolta_correzione.py, tests/cli/test_raccolta_cli.py]
-    reviewed_at_commit: 4e6a127
+    verification_tests: [tests/domain/test_raccolta.py, tests/architecture/test_authority_registry.py, tests/application/test_raccolta_correzione.py, tests/infrastructure/postgresql/test_raccolta_correzione_migration.py, tests/integration/postgresql/test_raccolta_correzione.py, tests/cli/test_raccolta_cli.py, tests/integration/postgresql/test_movimento_carico.py]
+    reviewed_at_commit: 4eaff8f
 
   - concept_id: STOCK
     canonical_name: Physical Stock
     domain: INVENTORY
     classification: state
     status: CONFLICTING
-    current_authorities: [{path: docs/architecture/STOCK.md, section: "Principio fondativo", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}]
+    current_authorities: [{path: docs/architecture/STOCK.md, section: "Principio fondativo", kind: architecture_freeze}, {path: docs/architecture/SEMINA_TRACEABILITY_CODE_AUTHORITY_FREEZE.md, section: "10", kind: architecture_freeze}, {path: docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md, section: "3", kind: architecture_freeze}]
     core_implementations: [src/tpo_core/domain/entities/stock.py]
     persistence_authorities: [tpo.stock]
     identities: []
     legacy_predecessors: [docs/OPERATING_RULES.md, docs/TPO_DATA_DICTIONARY.md]
-    preserved_rules: ["Physical availability, reserved demand and sellable availability are distinct concepts."]
+    preserved_rules: ["Physical availability, reserved demand and sellable availability are distinct concepts.", "A MOVIMENTO CARICO originated from a RACCOLTA increments STOCK.disponibile by a GRAM quantity declared and weighed by the operator at publication time, never derived from the Raccolta's SET quantity by any yield/conversion factor (Owner Decision D11, MOVIMENTO_CARICO_AUTHORITY_FREEZE.md Section 3); no such SET->GRAM factor exists in any frozen authority."]
     explicitly_superseded_rules: []
     forbidden_duplicates: []
     conflicts: ["STOCK is physical authority in the current freeze, official commercial availability in legacy rules, and a derived commercial view in the Data Dictionary."]
@@ -314,29 +314,29 @@ concepts:
     correction_semantics: "Physical changes require authorized movements; commercial corrections are separate."
     audit_authority: tpo.audit_eventi
     idempotency_authority: operation-specific writer authority
-    verification_tests: [tests/domain/test_stock.py]
-    reviewed_at_commit: 4e6a127
+    verification_tests: [tests/domain/test_stock.py, tests/integration/postgresql/test_movimento_carico.py]
+    reviewed_at_commit: 4eaff8f
 
   - concept_id: MOVIMENTO_MAGAZZINO
     canonical_name: Movimento Magazzino
     domain: INVENTORY
     classification: fact
     status: PARTIALLY MIGRATED
-    current_authorities: [{path: docs/architecture/MOVIMENTI_MAGAZZINO.md, section: "Definizione", kind: architecture_freeze}]
-    core_implementations: [src/tpo_core/domain/entities/movimento_magazzino.py]
-    persistence_authorities: [tpo.movimenti_magazzino]
+    current_authorities: [{path: docs/architecture/MOVIMENTI_MAGAZZINO.md, section: "Definizione", kind: architecture_freeze}, {path: docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/domain/entities/movimento_magazzino.py, src/tpo_core/application/movimento_carico/, src/tpo_core/infrastructure/postgresql/movimento_carico.py, src/tpo_core/bootstrap/movimento_carico.py, src/tpo_core/cli/movimento_carico.py]
+    persistence_authorities: [tpo.movimenti_magazzino, tpo.movimento_carico_requests]
     identities: [{type: MovimentoId, prefix: MOV, sequence: MOVIMENTO_ID}]
     legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
-    preserved_rules: ["A movement is an immutable physical stock variation fact."]
+    preserved_rules: ["A movement is an immutable physical stock variation fact.", "RegistraCaricoMagazzino (MOVIMENTO_CARICO_AUTHORITY_FREEZE.md) publishes a CARICO movement from a RACCOLTA: tipo=CARICO and direzione=POSITIVO are fixed, varieta_id is resolved by the writer from raccolta.semina_id -> semina.varieta_id (never caller input), and quantita_pesata (GRAM) is operator-declared, not computed from the Raccolta's SET quantity (Owner Decision D11). No cap on the number of carichi a single Raccolta may originate (Owner Decision D12)."]
     explicitly_superseded_rules: []
     forbidden_duplicates: []
     conflicts: ["The current movement concerns sellable variety stock; generic article inventory remains unmigrated."]
     open_owner_decisions: ["Define the boundary between product stock movements and generic inventory movements."]
-    correction_semantics: "RETTIFICA is a new fact, not overwrite."
+    correction_semantics: "RETTIFICA is a new fact, not overwrite. A CARICO is immutable once recorded; there is no reversal/cancellation, only a new, distinct movement type would apply a correction (deferred, MOVIMENTO_CARICO_AUTHORITY_FREEZE.md Section 8)."
     audit_authority: tpo.audit_eventi
-    idempotency_authority: operation-specific writer authority
-    verification_tests: [tests/domain/test_movimento_magazzino.py]
-    reviewed_at_commit: 4e6a127
+    idempotency_authority: operation-specific writer authority (tpo.movimento_carico_requests, scope MOVIMENTO_CARICO_RACCOLTA_V1, for CARICO)
+    verification_tests: [tests/domain/test_movimento_magazzino.py, tests/application/test_movimento_carico.py, tests/cli/test_movimento_carico_cli.py, tests/infrastructure/postgresql/test_movimento_carico_migration.py, tests/integration/postgresql/test_movimento_carico.py]
+    reviewed_at_commit: 4eaff8f
 
   - concept_id: ORDINE
     canonical_name: Ordine

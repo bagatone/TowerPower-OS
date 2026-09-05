@@ -11,7 +11,7 @@ def test_traceability_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260905_0029"]
+    assert script.get_heads() == ["20260905_0030"]
     revision = script.get_revision("20260826_0021")
     assert revision.down_revision == "20260825_0020"
 

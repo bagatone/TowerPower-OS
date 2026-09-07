@@ -28,7 +28,8 @@ def upgrade() -> None:
             "INSERT INTO tpo.id_sequences "
             "(sequence_name,identifier_type,prefix,next_value,version,updated_at,updated_by) "
             f"VALUES ('{sequence_name}','{identifier_type}','{prefix}',1,0,CURRENT_TIMESTAMP,"
-            "'migration-20260903-0025')"
+            "'migration-20260903-0025') "
+            "ON CONFLICT (sequence_name) DO NOTHING"
         ))
 
 

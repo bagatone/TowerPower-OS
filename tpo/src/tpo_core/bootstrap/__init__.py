@@ -2,6 +2,7 @@
 
 from .articolo import build_articolo_service
 from .assegnazione_fisica import build_assegnazione_fisica_service
+from .clienti_lettura import build_clienti_lettura_service
 from .container import ApplicationContainer
 from .disponibilita_commerciale import build_disponibilita_commerciale_service
 from .delivery_fulfilment import (
@@ -11,6 +12,8 @@ from .delivery_fulfilment import (
 from .errors import OperationalRuntimeUnavailableError
 from .fattura_emissione import build_fattura_emissione_service
 from .fattura_rettifica import build_fattura_rettifica_service
+from .finanze_lettura import build_finanze_lettura_service
+from .fornitura_ordini_consegne_lettura import build_fornitura_ordini_consegne_lettura_service
 from .fatturazione_configuration import (
     build_cliente_fatturazione_writer,
     build_listino_varieta_writer,
@@ -18,6 +21,7 @@ from .fatturazione_configuration import (
 from .factory import _build_operational_application, build_application
 from .identity import build_identity_registration_commissioner
 from .incasso import build_incasso_service
+from .magazzino_lettura import build_magazzino_lettura_service
 from .movimento_articolo import build_movimento_articolo_service
 from .movimento_carico import build_movimento_carico_service
 from .onboarding import build_operational_data_onboarding_service
@@ -27,18 +31,23 @@ from .production_planning import (
     build_production_planning_runtime_from_environment,
 )
 from .raccolta import build_raccolta_service
+from .run_lettura import build_run_lettura_service
 from .seed_lot import build_seed_lot_commissioning_service
 from .semente import build_semente_commissioning_service
+from .semente_lettura import build_semente_lettura_service
 from .semente_impiego import build_semente_impiego_commissioning_service
 from .semina import build_semina_commissioning_service
+from .semina_raccolta_lettura import build_semina_raccolta_lettura_service
 from .semina_lifecycle import build_semina_lifecycle_service
 from .settings import ApplicationSettings, InvalidSettingsError, load_settings
 from .uscita import build_uscita_service
+from .varieta_lettura import build_varieta_lettura_service
 
 __all__ = [
     "ApplicationContainer",
     "build_articolo_service",
     "build_assegnazione_fisica_service",
+    "build_clienti_lettura_service",
     "ApplicationSettings",
     "InvalidSettingsError",
     "build_disponibilita_commerciale_service",
@@ -49,9 +58,12 @@ __all__ = [
     "build_delivery_id_allocator",
     "build_fattura_emissione_service",
     "build_fattura_rettifica_service",
+    "build_finanze_lettura_service",
+    "build_fornitura_ordini_consegne_lettura_service",
     "build_identity_registration_commissioner",
     "build_incasso_service",
     "build_listino_varieta_writer",
+    "build_magazzino_lettura_service",
     "build_movimento_articolo_service",
     "build_movimento_carico_service",
     "build_operational_data_onboarding_service",
@@ -60,12 +72,16 @@ __all__ = [
     "build_production_planning_policy_commissioner",
     "build_production_planning_runtime_from_environment",
     "build_raccolta_service",
+    "build_run_lettura_service",
     "build_uscita_service",
     "build_seed_lot_commissioning_service",
     "build_semente_commissioning_service",
     "build_semente_impiego_commissioning_service",
+    "build_semente_lettura_service",
     "build_semina_commissioning_service",
     "build_semina_lifecycle_service",
+    "build_semina_raccolta_lettura_service",
+    "build_varieta_lettura_service",
     "load_settings",
 ]
 

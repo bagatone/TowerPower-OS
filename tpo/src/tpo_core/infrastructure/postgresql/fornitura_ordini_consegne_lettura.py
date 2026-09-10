@@ -32,7 +32,7 @@ _SELECT_PROGRAMMI = (
     "FROM tpo.programmi_fornitura_versioni pfv "
     "JOIN tpo.programmi_fornitura pf ON pf.id = pfv.programma_fornitura_id "
     "JOIN tpo.clienti cl ON cl.id = pfv.cliente_id "
-    "WHERE pfv.valida_al IS NULL"
+    "WHERE pfv.valida_al IS NULL AND pfv.voided_at IS NULL"
 )
 _SELECT_RIGHE_PROGRAMMA = (
     "SELECT rpf.id, rpf.programma_versione_id, rpf.posizione, v.public_id, v.denominazione, "

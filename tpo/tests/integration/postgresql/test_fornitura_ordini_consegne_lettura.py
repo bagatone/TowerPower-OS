@@ -112,6 +112,47 @@ def test_programmi_fornitura_reads_current_version_with_righe_e_giorni(fornitura
     assert riga.giorni_settimana == (2, 5)
 
 
+def test_programmi_fornitura_ignora_versioni_voided(fornitura_environment):
+    # Regressione (trovata su dati reali di produzione, PF-000001/Abaluus):
+    # la query selezionava solo `valida_al IS NULL`, senza `voided_at IS NULL`.
+    # Una versione corretta con `onboarding correct-never-effective-supply-program`
+    # resta con valida_al NULL ma voided_at valorizzato (vedi
+    # infrastructure/postgresql/onboarding.py, _run_raccolta_correggi-style update):
+    # senza il filtro compariva ancora come "versione corrente" insieme a quella vera.
+    engine = fornitura_environment
+    with engine.begin() as connection:
+        programma_pk, cliente_pk = connection.exec_driver_sql(
+            "SELECT id, cliente_id FROM tpo.programmi_fornitura WHERE public_id='PF-000001'"
+        ).one()
+        vecchia_pk = connection.exec_driver_sql(
+            "SELECT id FROM tpo.programmi_fornitura_versioni "
+            "WHERE programma_fornitura_id=%s AND numero_versione=1", (programma_pk,)
+        ).scalar_one()
+        # Prima si libera lo slot "corrente" (indice unico parziale su
+        # valida_al IS NULL AND voided_at IS NULL), poi si inserisce la nuova
+        # versione — stesso ordine che una correzione reale osserverebbe.
+        connection.exec_driver_sql(
+            "UPDATE tpo.programmi_fornitura_versioni SET voided_at=%s,voided_by='test',"
+            "void_reason='correzione test',void_correlation_id='corr-void-test' "
+            "WHERE id=%s",
+            (BASE, vecchia_pk),
+        )
+        nuova_pk = connection.exec_driver_sql(
+            "INSERT INTO tpo.programmi_fornitura_versioni(programma_fornitura_id,cliente_id,"
+            "numero_versione,stato,data_inizio,finestra_operativa_giorni,valida_dal,created_by) "
+            "VALUES (%s,%s,2,'ATTIVO',DATE '2026-09-01',2,%s,'test') RETURNING id",
+            (programma_pk, cliente_pk, BASE),
+        ).scalar_one()
+        connection.exec_driver_sql(
+            "UPDATE tpo.programmi_fornitura_versioni SET replacement_version_id=%s WHERE id=%s",
+            (nuova_pk, vecchia_pk),
+        )
+    reader = PostgreSQLFornituraOrdiniConsegneLetturaReader(_Factory(engine))
+    result = reader.programmi_fornitura(RichiediElencoProgrammiFornitura())
+    assert len(result.programmi) == 1
+    assert result.programmi[0].numero_versione == 2
+
+
 def test_ordini_reads_row_with_righe(fornitura_environment):
     # NOTA: harvest_environment -> environment seeda gia' ORD-000001/RO-000001
     # (tests.infrastructure.postgresql.test_production_planning_commit_writer

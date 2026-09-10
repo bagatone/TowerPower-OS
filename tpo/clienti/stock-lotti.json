@@ -1,0 +1,117 @@
+{
+  "commentario": "Tracking stock LOTTO_SEME. Valori iniziali da commissioning 2026-09-07",
+  "lotti": [
+    {
+      "lotto_id": "LSE-000001",
+      "varieta_id": "VAR-000004",
+      "denominazione": "Mizuna",
+      "grammi_residui": 780,
+      "grammi_consumati": 220,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000002",
+      "varieta_id": "VAR-000015",
+      "denominazione": "Utrillo (DISMESSA)",
+      "grammi_residui": 4900,
+      "grammi_consumati": 0,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000005",
+      "varieta_id": "VAR-000005",
+      "denominazione": "Hinojo",
+      "grammi_residui": 326,
+      "grammi_consumati": 174,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000007",
+      "varieta_id": "VAR-000007",
+      "denominazione": "Rucola Rocket",
+      "grammi_residui": 1000,
+      "grammi_consumati": 0,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000008",
+      "varieta_id": "VAR-000006",
+      "denominazione": "Basilico",
+      "grammi_residui": 1000,
+      "grammi_consumati": 0,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000009",
+      "varieta_id": "VAR-000009",
+      "denominazione": "Acetosella",
+      "grammi_residui": 240,
+      "grammi_consumati": 10,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000010",
+      "varieta_id": "VAR-000002",
+      "denominazione": "Rabano Vulcano",
+      "grammi_residui": 1000,
+      "grammi_consumati": 0,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000011",
+      "varieta_id": "VAR-000008",
+      "denominazione": "Pak Choi White",
+      "grammi_residui": 1000,
+      "grammi_consumati": 0,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000013",
+      "varieta_id": "VAR-000003",
+      "denominazione": "Cilantro",
+      "grammi_residui": 660,
+      "grammi_consumati": 340,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000014",
+      "varieta_id": "VAR-000001",
+      "denominazione": "Afila",
+      "grammi_residui": 3030,
+      "grammi_consumati": 0,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000015",
+      "varieta_id": "VAR-000011",
+      "denominazione": "Senape",
+      "grammi_residui": 750,
+      "grammi_consumati": 250,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000016",
+      "varieta_id": "VAR-000012",
+      "denominazione": "Cavolo rosso",
+      "grammi_residui": 740,
+      "grammi_consumati": 0,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000017",
+      "varieta_id": "VAR-000013",
+      "denominazione": "Girasole",
+      "grammi_residui": 100,
+      "grammi_consumati": 0,
+      "data_ultimo_consumo": null
+    },
+    {
+      "lotto_id": "LSE-000018",
+      "varieta_id": "VAR-000014",
+      "denominazione": "Lenticchia",
+      "grammi_residui": 660,
+      "grammi_consumati": 0,
+      "data_ultimo_consumo": null
+    }
+  ]
+}

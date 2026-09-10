@@ -1,0 +1,12 @@
+{
+  "id": "cliente-slug",
+  "nome": "Nome Ristorante",
+  "tipo": "ristorante",
+  "contatti": {
+    "email": "info@example.com",
+    "telefono": "+39 123 456 7890",
+    "responsabile": "Nome"
+  },
+  "data_primo_contatto": "2026-09-07",
+  "stato": "attivo"
+}

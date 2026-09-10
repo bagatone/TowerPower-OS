@@ -1,0 +1,19 @@
+{
+  "id": "la-jaira",
+  "nome": "Ristorante La Jaira",
+  "tipo": "ristorante",
+  "contatti": {
+    "email": "info@lajaira.it",
+    "telefono": "+39 123 456 7890",
+    "responsabile": "Matteo"
+  },
+  "indirizzo_consegna": {
+    "via": "Via della Jaira",
+    "numero": "1",
+    "cap": "00000",
+    "citta": "Milano"
+  },
+  "data_primo_contatto": "2026-09-07",
+  "note": "Cliente strategico - consegna bisettimanale lunedi",
+  "stato": "attivo"
+}

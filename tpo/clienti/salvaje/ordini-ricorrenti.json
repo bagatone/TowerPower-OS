@@ -1,0 +1,1 @@
+[{"id":"ordine-001","data_inizio":"2026-09-04","frequenza":"settimanale","giorno_settimana":"giovedi","stato":"attivo","varieta":[{"var_id":"VAR-000001","denominazione":"Afila","quantita":2,"prezzo_unitario":15.00},{"var_id":"VAR-000003","denominazione":"Cilantro","quantita":1,"prezzo_unitario":8.00}],"prossima_consegna":"2026-09-11"}]

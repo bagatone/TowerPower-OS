@@ -1,0 +1,19 @@
+{
+  "id": "abalus",
+  "nome": "Ristorante Abalus",
+  "tipo": "ristorante",
+  "contatti": {
+    "email": "info@abalus.it",
+    "telefono": "+39 123 456 7890",
+    "responsabile": "Chef"
+  },
+  "indirizzo_consegna": {
+    "via": "Via Abalus",
+    "numero": "5",
+    "cap": "00000",
+    "citta": "Milano"
+  },
+  "data_primo_contatto": "2026-09-07",
+  "note": "Cliente nuovo - consegna settimanale martedi",
+  "stato": "attivo"
+}

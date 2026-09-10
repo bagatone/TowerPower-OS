@@ -1,0 +1,25 @@
+[
+  {
+    "id": "ordine-001",
+    "data_inizio": "2026-09-08",
+    "frequenza": "settimanale",
+    "giorno_settimana": "martedi",
+    "stato": "attivo",
+    "varieta": [
+      {
+        "var_id": "VAR-000001",
+        "denominazione": "Afila",
+        "quantita": 1,
+        "prezzo_unitario": 15.00
+      },
+      {
+        "var_id": "VAR-000002",
+        "denominazione": "Rabano",
+        "quantita": 1,
+        "prezzo_unitario": 8.00
+      }
+    ],
+    "prossima_consegna": "2026-09-08",
+    "importo_totale_netto": 23.00
+  }
+]

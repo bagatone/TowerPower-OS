@@ -11,7 +11,7 @@ from ...domain.quantities import Quantity, UnitOfMeasure
 from ...domain.traceability import SeminaTraceabilityCode
 from .errors import (
     InvalidRaccoltaCommandError, InvalidRaccoltaEffectiveAtError,
-    InvalidRaccoltaQuantityError,
+    InvalidRaccoltaQuantityError, RaccoltaCorrectionZeroQuantityRequiresDestinazionePrevistaError,
 )
 
 
@@ -98,13 +98,16 @@ def _decimal(value: Decimal) -> str:
     return normalized or "0"
 
 
-def _signed_quantity(value: Decimal) -> Decimal:
-    """Quantità di rettifica: non zero, esatta, massimo sei decimali, segno libero.
+def _signed_quantity(value: Decimal, *, allow_zero: bool = False) -> Decimal:
+    """Quantità di rettifica: esatta, massimo sei decimali, segno libero.
 
-    A differenza di Quantity (dominio), la rettifica ammette valori negativi
-    (correzione in meno) — per analogia diretta con
+    Non zero di norma — per analogia diretta con
     ``DeliveryFulfilmentLine._signed_quantity`` in
-    application/delivery_fulfilment/models.py.
+    application/delivery_fulfilment/models.py. Zero è ammesso SOLO quando
+    ``allow_zero=True`` (rettifica di sola annotazione, vedi
+    ``destinazione_prevista`` su ``CorreggiRaccolta`` —
+    RACCOLTA_DESTINAZIONE_PREVISTA_CORREZIONE_PROPOSTA.md §3): altrimenti
+    sarebbe una rettifica senza alcun effetto e senza causale.
     """
     if isinstance(value, (float, bool)):
         raise InvalidRaccoltaQuantityError("quantity non accetta float o booleani.")
@@ -112,10 +115,10 @@ def _signed_quantity(value: Decimal) -> Decimal:
         result = value if isinstance(value, Decimal) else Decimal(value)
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise InvalidRaccoltaQuantityError("quantity deve essere decimale.") from exc
-    if not result.is_finite() or result == 0 or result.as_tuple().exponent < -6:
+    if not result.is_finite() or (result == 0 and not allow_zero) or result.as_tuple().exponent < -6:
         raise InvalidRaccoltaQuantityError(
-            "La quantità della rettifica deve essere non zero, finita e con "
-            "massimo sei decimali."
+            "La quantità della rettifica deve essere non zero (salvo annotazione "
+            "con destinazione_prevista), finita e con massimo sei decimali."
         )
     return result
 
@@ -129,6 +132,15 @@ class CorreggiRaccolta:
     ``rettifica_raccolta_id``. Nessuna rettifica-di-rettifica concatenata:
     ``original_raccolta_id`` deve sempre riferire l'evento RACCOLTA
     originario, mai un'altra rettifica (verificato dal writer/DB).
+
+    ``destinazione_prevista`` (opzionale, testo libero — es. "PROVA",
+    "OMAGGIO") annota la rettifica senza spostare quantità: ammesso con
+    ``quantity`` diversa da zero come in precedenza, ed è l'UNICO caso in
+    cui ``quantity`` può essere zero (altrimenti la rettifica sarebbe un
+    no-op senza causale — RACCOLTA_DESTINAZIONE_PREVISTA_CORREZIONE_
+    PROPOSTA.md §3). Resta un campo puramente descrittivo: mai
+    un'autorità di ASSEGNAZIONE fisica o cliente (§10 del Freeze,
+    invariato).
     """
 
     original_raccolta_id: RaccoltaId
@@ -138,13 +150,32 @@ class CorreggiRaccolta:
     effective_at: datetime
     authority: RaccoltaAuthority
     notes: str | None = None
+    destinazione_prevista: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.original_raccolta_id, RaccoltaId):
             raise InvalidRaccoltaCommandError("original_raccolta_id non valido.")
         if not isinstance(self.semina_id, SeminaId):
             raise InvalidRaccoltaCommandError("semina_id non valido.")
-        object.__setattr__(self, "quantity", _signed_quantity(self.quantity))
+        if self.destinazione_prevista is not None:
+            _text("destinazione_prevista", self.destinazione_prevista)
+        try:
+            normalized_quantity = _signed_quantity(
+                self.quantity, allow_zero=self.destinazione_prevista is not None
+            )
+        except InvalidRaccoltaQuantityError:
+            if self.destinazione_prevista is None:
+                try:
+                    parsed = self.quantity if isinstance(self.quantity, Decimal) else Decimal(self.quantity)
+                except Exception:
+                    raise
+                if parsed.is_finite() and parsed == 0 and parsed.as_tuple().exponent >= -6:
+                    raise RaccoltaCorrectionZeroQuantityRequiresDestinazionePrevistaError(
+                        "Una rettifica a quantità zero è ammessa solo se accompagnata "
+                        "da destinazione_prevista (altrimenti è un no-op senza causale)."
+                    ) from None
+            raise
+        object.__setattr__(self, "quantity", normalized_quantity)
         if not isinstance(self.unit, UnitOfMeasure) or self.unit is not UnitOfMeasure.SET:
             raise InvalidRaccoltaQuantityError(
                 "La quantità della rettifica RACCOLTA deve essere espressa in SET."
@@ -165,7 +196,7 @@ class CorreggiRaccolta:
             "RACCOLTA-CORREZIONE-V1", self.original_raccolta_id.value, self.semina_id.value,
             str(self.quantity), self.unit.value,
             self.effective_at.isoformat(timespec="microseconds").replace("+00:00", "Z"),
-            self.notes,
+            self.notes, self.destinazione_prevista,
         )
         return "".join(_frame(value) for value in values)
 
@@ -186,3 +217,4 @@ class CorreggiRaccoltaResult:
     recorded_at: datetime
     net_quantity_after: Decimal
     outcome: str
+    destinazione_prevista: str | None = None

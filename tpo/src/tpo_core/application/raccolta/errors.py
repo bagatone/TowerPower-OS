@@ -21,3 +21,4 @@ class RaccoltaOriginalIsCorrectionError(RaccoltaError): code = "RACCOLTA_ORIGINA
 class RaccoltaCorrectionSeminaMismatchError(RaccoltaError): code = "RACCOLTA_CORRECTION_SEMINA_MISMATCH"
 class RaccoltaCorrectionUnitMismatchError(RaccoltaError): code = "RACCOLTA_CORRECTION_UOM_MISMATCH"
 class RaccoltaCorrectionNetQuantityNegativeError(RaccoltaError): code = "RACCOLTA_CORRECTION_NET_QUANTITY_NEGATIVE"
+class RaccoltaCorrectionZeroQuantityRequiresDestinazionePrevistaError(RaccoltaError): code = "RACCOLTA_CORRECTION_ZERO_QUANTITY_REQUIRES_DESTINAZIONE_PREVISTA"

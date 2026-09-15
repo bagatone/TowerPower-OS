@@ -176,11 +176,11 @@ class PostgreSQLRaccoltaWriter:
                 """INSERT INTO tpo.raccolte
                    (public_id,semina_id,data_raccolta,quantita,unita_misura,
                     rettifica_raccolta_id,operatore,destinazione_prevista,note,created_by)
-                   VALUES (%s,%s,%s,%s,%s,%s,NULL,NULL,%s,%s)
+                   VALUES (%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s)
                    RETURNING id,created_at""",
                 (public_id.value, semina[0], command.effective_at, command.quantity,
-                 command.unit.value, original[0], command.notes,
-                 command.authority.actor.value),
+                 command.unit.value, original[0], command.destinazione_prevista,
+                 command.notes, command.authority.actor.value),
             )
             raccolta_pk, recorded_at = cursor.fetchone()
             before = {
@@ -197,6 +197,7 @@ class PostgreSQLRaccoltaWriter:
                 "effective_at": command.effective_at.isoformat(),
                 "recorded_at": recorded_at.isoformat(),
                 "notes": command.notes,
+                "destinazione_prevista": command.destinazione_prevista,
                 "net_quantity_after": str(net_after),
             }
             cursor.execute(
@@ -235,7 +236,7 @@ class PostgreSQLRaccoltaWriter:
             result = CorreggiRaccoltaResult(
                 public_id, command.original_raccolta_id, command.semina_id, traceability,
                 command.quantity, command.unit, command.effective_at, recorded_at,
-                net_after, "INSERTED",
+                net_after, "INSERTED", command.destinazione_prevista,
             )
             try:
                 connection.commit()
@@ -279,7 +280,8 @@ class PostgreSQLRaccoltaWriter:
         cursor.execute(
             """SELECT q.canonical_payload_hash,q.outcome,r.public_id,r.rettifica_raccolta_id,
                       orig.public_id,s.public_id,s.codice_tracciabilita,
-                      r.quantita,r.unita_misura,r.data_raccolta,r.created_at
+                      r.quantita,r.unita_misura,r.data_raccolta,r.created_at,
+                      r.destinazione_prevista
                FROM tpo.raccolta_correzione_requests q
                LEFT JOIN tpo.raccolte r ON r.id=q.raccolta_id
                LEFT JOIN tpo.raccolte orig ON orig.id=r.rettifica_raccolta_id
@@ -303,7 +305,7 @@ class PostgreSQLRaccoltaWriter:
             return None, CorreggiRaccoltaResult(
                 RaccoltaId(row[2]), RaccoltaId(row[4]), SeminaId(row[5]),
                 SeminaTraceabilityCode(row[6]), Decimal(row[7]), UnitOfMeasure(row[8]),
-                row[9], row[10], net_after, "COMPATIBLE_REPLAY",
+                row[9], row[10], net_after, "COMPATIBLE_REPLAY", row[11],
             )
         except Exception as exc:
             raise RaccoltaPersistenceInvariantError(

@@ -151,3 +151,33 @@ raggiunto per FATTURA. `AUTHORITY_REGISTRY.yaml` (`raccolta_authority_v1.correct
 e `tests/architecture/test_authority_registry.py` vanno aggiornati a
 implementazione completata, con `reviewed_at_commit` sul commit che la
 introduce.
+
+## 11. Estensione 2026-09-15 — rettifica di sola annotazione (`destinazione_prevista`)
+
+**Owner Decision D2** di
+`docs/architecture/RACCOLTA_DESTINAZIONE_PREVISTA_CORREZIONE_PROPOSTA.md`
+(APPROVATA, conversazione Owner 2026-09-10): non contraddice questo Freeze,
+aggiunge un caso ammesso in più al modello di rettifica già approvato (§3-4).
+
+- `CorreggiRaccolta` guadagna un parametro opzionale
+  `destinazione_prevista` (testo libero, es. "PROVA", "OMAGGIO") — CLI
+  `tpo raccolta correggi --destinazione-prevista`.
+- **Nuovo caso ammesso**: una rettifica con quantità **zero** è ammessa
+  **solo se** accompagnata da `destinazione_prevista` non nullo — annota un
+  evento RACCOLTA senza alterarne la quantità netta (§6 resta l'unico altro
+  caso in cui la rettifica agisce sulla quantità, qui invece la quantità
+  netta non cambia per costruzione). Una rettifica a quantità zero senza
+  annotazione resta vietata (sarebbe un no-op senza causale) — errore
+  tipizzato dedicato `RaccoltaCorrectionZeroQuantityRequiresDestinazionePrevistaError`.
+  Tutti i vincoli già in vigore restano invariati: stessa SEMINA, stessa
+  UOM, nessuna rettifica-di-rettifica concatenata, quantità netta mai
+  negativa.
+- `destinazione_prevista` resta un campo puramente descrittivo
+  (`RACCOLTA_AUTHORITY_FREEZE.md` §10, invariato): mai un'autorità di
+  ASSEGNAZIONE fisica o cliente. Annotare una RACCOLTA come "PROVA" non
+  sposta né libera alcuna ASSEGNAZIONE_FISICA esistente.
+- Persistenza: stessa riga `RAC-*` di rettifica (`tpo.raccolte`, colonna
+  `destinazione_prevista` già esistente nello schema, non scritta da alcun
+  comando prima di questa estensione); stesso audit event `CORRECTION` con
+  `destinazione_prevista` incluso in `after_data`; stessa idempotenza
+  (`tpo.raccolta_correzione_requests`), incluso nel payload canonico.

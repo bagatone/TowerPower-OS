@@ -278,6 +278,7 @@ def _parser() -> argparse.ArgumentParser:
     correggi_raccolta.add_argument("--uom", required=True, choices=["SET"])
     correggi_raccolta.add_argument("--effective-at", required=True)
     correggi_raccolta.add_argument("--notes")
+    correggi_raccolta.add_argument("--destinazione-prevista")
     correggi_raccolta.add_argument("--actor", required=True)
     correggi_raccolta.add_argument("--reason", required=True)
     correggi_raccolta.add_argument("--correlation-id", required=True)

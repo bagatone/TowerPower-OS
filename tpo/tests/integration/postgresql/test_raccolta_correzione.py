@@ -9,6 +9,7 @@ from src.tpo_core.application.raccolta.errors import (
     RaccoltaCorrectionNetQuantityNegativeError, RaccoltaCorrectionSeminaMismatchError,
     RaccoltaIdempotencyConflictError, RaccoltaOriginalIsCorrectionError,
     RaccoltaOriginalNotFoundError,
+    RaccoltaCorrectionZeroQuantityRequiresDestinazionePrevistaError,
 )
 from src.tpo_core.application.raccolta.models import CorreggiRaccolta, RaccoltaAuthority
 from src.tpo_core.domain.identifiers import ActorId, RaccoltaId, SeminaId
@@ -22,12 +23,13 @@ from tests.integration.postgresql.test_raccolta import (
 
 
 def correction(key="fix-1", *, original="RAC-000001", semina="SEM-000001",
-               quantity="-0.25", at=None, notes=None):
+               quantity="-0.25", at=None, notes=None, destinazione_prevista=None):
     return CorreggiRaccolta(
         RaccoltaId(original), SeminaId(semina), Decimal(quantity), UnitOfMeasure.SET,
         at or (BASE + timedelta(hours=1)),
         RaccoltaAuthority(ActorId("owner"), "correct harvest", f"corr-{key}", key),
         notes,
+        destinazione_prevista,
     )
 
 
@@ -251,3 +253,73 @@ def test_correction_reuses_the_same_public_identity_sequence_as_recording(harves
     assert scalar(
         engine, "SELECT next_value FROM tpo.id_sequences WHERE sequence_name='RACCOLTA_ID'"
     ) == 3
+
+
+def test_correction_persists_destinazione_prevista(harvest_environment):
+    engine, writer = harvest_environment
+    ready(engine)
+    writer.record(harvest())
+    result = writer.correct(correction("annotated", destinazione_prevista="Cliente Alfa"))
+    assert result.destinazione_prevista == "Cliente Alfa"
+    assert scalar(
+        engine,
+        "SELECT destinazione_prevista FROM tpo.raccolte WHERE public_id='RAC-000002'",
+    ) == "Cliente Alfa"
+
+
+def test_zero_quantity_correction_with_destinazione_prevista_is_accepted_end_to_end(
+    harvest_environment,
+):
+    engine, writer = harvest_environment
+    ready(engine)
+    writer.record(harvest())  # RAC-000001, 0.5 SET
+    result = writer.correct(
+        correction("regalia", quantity="0", destinazione_prevista="OMAGGIO")
+    )
+    assert result.outcome == "INSERTED"
+    assert result.quantity == Decimal("0")
+    assert result.destinazione_prevista == "OMAGGIO"
+    assert result.net_quantity_after == Decimal("0.5")
+    row = None
+    with engine.connect() as connection:
+        row = connection.exec_driver_sql(
+            "SELECT quantita,destinazione_prevista FROM tpo.raccolte "
+            "WHERE public_id='RAC-000002'"
+        ).one()
+    assert row == (Decimal("0.000000"), "OMAGGIO")
+
+
+def test_zero_quantity_correction_without_destinazione_prevista_is_rejected_before_persistence(
+    harvest_environment,
+):
+    engine, writer = harvest_environment
+    ready(engine)
+    writer.record(harvest())
+    with pytest.raises(RaccoltaCorrectionZeroQuantityRequiresDestinazionePrevistaError):
+        correction("no-op", quantity="0")
+    # La command fallisce già in costruzione: nessuna riga RACCOLTA toccata.
+    assert scalar(engine, "SELECT count(*) FROM tpo.raccolte") == 1
+
+
+def test_idempotent_replay_preserves_destinazione_prevista(harvest_environment):
+    engine, writer = harvest_environment
+    ready(engine)
+    writer.record(harvest())
+    first = writer.correct(correction("annotated-replay", destinazione_prevista="Cliente Beta"))
+    replay = writer.correct(correction("annotated-replay", destinazione_prevista="Cliente Beta"))
+    assert replay.outcome == "COMPATIBLE_REPLAY"
+    assert replay.raccolta_id == first.raccolta_id
+    assert replay.destinazione_prevista == "Cliente Beta"
+
+
+def test_audit_event_records_destinazione_prevista(harvest_environment):
+    engine, writer = harvest_environment
+    ready(engine)
+    writer.record(harvest())
+    writer.correct(correction("audited", destinazione_prevista="Cliente Gamma"))
+    with engine.connect() as connection:
+        row = connection.exec_driver_sql(
+            "SELECT after_data->>'destinazione_prevista' FROM tpo.audit_eventi "
+            "WHERE entity_type='RACCOLTA' AND operation='CORRECTION'"
+        ).one()
+    assert row == ("Cliente Gamma",)

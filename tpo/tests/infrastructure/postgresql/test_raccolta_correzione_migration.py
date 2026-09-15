@@ -22,7 +22,7 @@ def test_raccolta_correzione_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260905_0032"]
+    assert script.get_heads() == ["20260915_0033"]
     revision = script.get_revision("20260903_0027")
     assert revision.down_revision == "20260903_0026"
 
@@ -119,7 +119,8 @@ def _semina_pk(connection, public_id: str) -> int:
 
 
 def _insert_raccolta(connection, public_id, semina_public_id, quantita, *,
-                      rettifica_di=None, at=BASE, unita_misura="SET"):
+                      rettifica_di=None, at=BASE, unita_misura="SET",
+                      destinazione_prevista=None):
     semina_pk = _semina_pk(connection, semina_public_id)
     rettifica_pk = None
     if rettifica_di is not None:
@@ -129,9 +130,10 @@ def _insert_raccolta(connection, public_id, semina_public_id, quantita, *,
     return connection.exec_driver_sql(
         """INSERT INTO tpo.raccolte
            (public_id,semina_id,data_raccolta,quantita,unita_misura,
-            rettifica_raccolta_id,created_by)
-           VALUES (%s,%s,%s,%s,%s,%s,'test') RETURNING id""",
-        (public_id, semina_pk, at, quantita, unita_misura, rettifica_pk),
+            rettifica_raccolta_id,destinazione_prevista,created_by)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,'test') RETURNING id""",
+        (public_id, semina_pk, at, quantita, unita_misura, rettifica_pk,
+         destinazione_prevista),
     ).scalar_one()
 
 
@@ -189,6 +191,25 @@ def test_correction_row_rejects_zero_quantity(correzione_engine):
             connection, "RAC-800003", "SEM-000001", "0", rettifica_di="RAC-800002",
         ),
     )
+
+
+def test_correction_row_allows_zero_quantity_when_annotated(correzione_engine):
+    # 20260915_0033: caso nuovo ammesso, Owner Decision D2 di
+    # RACCOLTA_DESTINAZIONE_PREVISTA_CORREZIONE_PROPOSTA.md.
+    connection = correzione_engine
+    _insert_raccolta(connection, "RAC-800004", "SEM-000001", "1")
+    connection.commit()
+    raccolta_pk = _insert_raccolta(
+        connection, "RAC-800005", "SEM-000001", "0", rettifica_di="RAC-800004",
+        destinazione_prevista="OMAGGIO",
+    )
+    _force_constraints(connection)
+    _assert_connection_healthy(connection)
+    connection.commit()
+    assert connection.exec_driver_sql(
+        "SELECT quantita,destinazione_prevista FROM tpo.raccolte WHERE id=%s",
+        (raccolta_pk,),
+    ).one() == (0, "OMAGGIO")
 
 
 def test_self_reference_is_rejected(correzione_engine):
@@ -314,7 +335,7 @@ def test_real_postgresql_downgrade_blocked_once_a_correction_exists(isolated_pos
             connection.rollback()
             assert connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
-            ).scalar_one() == "20260905_0032"
+            ).scalar_one() == "20260915_0033"
     finally:
         engine.dispose()
         with cluster.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:

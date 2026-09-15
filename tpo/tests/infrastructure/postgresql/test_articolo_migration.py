@@ -20,7 +20,7 @@ def test_articolo_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260905_0032"]
+    assert script.get_heads() == ["20260915_0033"]
     revision = script.get_revision("20260905_0031")
     assert revision.down_revision == "20260905_0030"
 
@@ -138,7 +138,7 @@ def test_real_postgresql_downgrade_blocked_once_an_articolo_exists(isolated_post
             connection.rollback()
             assert connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
-            ).scalar_one() == "20260905_0032"
+            ).scalar_one() == "20260915_0033"
     finally:
         engine.dispose()
         with cluster.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:

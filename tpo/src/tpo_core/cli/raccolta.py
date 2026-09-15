@@ -72,6 +72,7 @@ def _run_raccolta_correggi(args: Namespace, *, stdout: TextIO, stderr: TextIO) -
                 ActorId(args.actor), args.reason, args.correlation_id, args.idempotency_key,
             ),
             args.notes,
+            args.destinazione_prevista,
         )
         result = build_raccolta_service(
             PostgreSQLSettings.from_environment()
@@ -99,5 +100,6 @@ def _run_raccolta_correggi(args: Namespace, *, stdout: TextIO, stderr: TextIO) -
     print(f"EFFECTIVE_AT={result.effective_at.isoformat()}", file=stdout)
     print(f"RECORDED_AT={result.recorded_at.isoformat()}", file=stdout)
     print(f"NET_QUANTITY_AFTER={result.net_quantity_after}", file=stdout)
+    print(f"DESTINAZIONE_PREVISTA={result.destinazione_prevista or ''}", file=stdout)
     print(f"OUTCOME={result.outcome}", file=stdout)
     return OperationalExitCode.OPERATION_COMMITTED

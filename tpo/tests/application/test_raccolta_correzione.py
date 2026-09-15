@@ -6,6 +6,7 @@ import pytest
 from src.tpo_core.application.raccolta.errors import (
     InvalidRaccoltaCommandError, InvalidRaccoltaEffectiveAtError,
     InvalidRaccoltaQuantityError,
+    RaccoltaCorrectionZeroQuantityRequiresDestinazionePrevistaError,
 )
 from src.tpo_core.application.raccolta.models import CorreggiRaccolta, RaccoltaAuthority
 from src.tpo_core.application.raccolta.service import RaccoltaService
@@ -41,10 +42,46 @@ def test_positive_correction_is_valid():
     assert value.quantity == Decimal("0.25")
 
 
-@pytest.mark.parametrize("value", ["0", "0.0000001", "-0.0000001"])
-def test_zero_or_overprecision_correction_quantity_is_rejected(value):
+@pytest.mark.parametrize("value", ["0.0000001", "-0.0000001"])
+def test_overprecision_correction_quantity_is_rejected(value):
     with pytest.raises(InvalidRaccoltaQuantityError):
         command(quantity=Decimal(value))
+
+
+def test_zero_correction_quantity_without_destinazione_prevista_is_rejected():
+    # Senza annotazione, una rettifica a zero sarebbe un no-op senza causale:
+    # errore tipizzato dedicato (RACCOLTA_DESTINAZIONE_PREVISTA_CORREZIONE_PROPOSTA.md §3),
+    # non il generico InvalidRaccoltaQuantityError.
+    with pytest.raises(RaccoltaCorrectionZeroQuantityRequiresDestinazionePrevistaError):
+        command(quantity=Decimal("0"))
+
+
+def test_zero_correction_quantity_with_destinazione_prevista_is_accepted():
+    value = command(quantity=Decimal("0"), destinazione_prevista="OMAGGIO")
+    assert value.quantity == Decimal("0")
+    assert value.destinazione_prevista == "OMAGGIO"
+
+
+@pytest.mark.parametrize("value", ["0.0000001", "-0.0000001"])
+def test_overprecision_correction_quantity_is_rejected_even_with_destinazione_prevista(value):
+    # destinazione_prevista ammette la quantità zero, non l'overprecision.
+    with pytest.raises(InvalidRaccoltaQuantityError):
+        command(quantity=Decimal(value), destinazione_prevista="OMAGGIO")
+
+
+def test_blank_destinazione_prevista_is_rejected():
+    with pytest.raises(InvalidRaccoltaCommandError):
+        command(quantity=Decimal("0"), destinazione_prevista="   ")
+    with pytest.raises(InvalidRaccoltaCommandError):
+        command(quantity=Decimal("0"), destinazione_prevista="")
+
+
+def test_distinct_destinazione_prevista_hashes_differently():
+    base = command(quantity=Decimal("0"), destinazione_prevista="OMAGGIO")
+    other = command(quantity=Decimal("0"), destinazione_prevista="PROVA")
+    without_annotation = command(quantity=Decimal("-0.25"))
+    assert base.canonical_payload_hash != other.canonical_payload_hash
+    assert base.canonical_payload_hash != without_annotation.canonical_payload_hash
 
 
 def test_wrong_uom_and_naive_time_are_rejected():

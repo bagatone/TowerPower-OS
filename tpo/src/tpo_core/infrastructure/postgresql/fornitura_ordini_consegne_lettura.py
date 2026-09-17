@@ -28,7 +28,8 @@ from .errors import PostgreSQLError
 
 _SELECT_PROGRAMMI = (
     "SELECT pf.public_id, cl.public_id, cl.denominazione, pfv.id, pfv.numero_versione, "
-    "pfv.stato, pfv.data_inizio, pfv.data_fine, pfv.finestra_operativa_giorni, pfv.valida_dal "
+    "pfv.stato, pfv.data_inizio, pfv.data_fine, pfv.finestra_operativa_giorni, pfv.valida_dal, "
+    "pf.data_ripresa_prevista "
     "FROM tpo.programmi_fornitura_versioni pfv "
     "JOIN tpo.programmi_fornitura pf ON pf.id = pfv.programma_fornitura_id "
     "JOIN tpo.clienti cl ON cl.id = pfv.cliente_id "
@@ -112,9 +113,11 @@ class PostgreSQLFornituraOrdiniConsegneLetturaReader:
                     ProgrammaFornituraId(pf_public_id), ClienteId(cl_public_id), cl_denominazione,
                     numero_versione, stato, data_inizio, data_fine, finestra_operativa_giorni,
                     valida_dal, tuple(righe_per_versione.get(versione_id, [])),
+                    data_ripresa_prevista,
                 )
                 for (pf_public_id, cl_public_id, cl_denominazione, versione_id, numero_versione,
-                     stato, data_inizio, data_fine, finestra_operativa_giorni, valida_dal)
+                     stato, data_inizio, data_fine, finestra_operativa_giorni, valida_dal,
+                     data_ripresa_prevista)
                 in programmi_rows
             )
             return ElencoProgrammiFornitura(programmi)

@@ -106,6 +106,7 @@ class ProgrammaFornitura:
     finestra_operativa_giorni: int
     valida_dal: datetime
     righe: tuple[RigaProgrammaFornitura, ...]
+    data_ripresa_prevista: date | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.programma_id, ProgrammaFornituraId):
@@ -125,6 +126,13 @@ class ProgrammaFornitura:
         if self.finestra_operativa_giorni < 0:
             raise InvalidFornituraOrdiniConsegneLetturaQueryError(
                 "finestra_operativa_giorni non puo' essere negativa."
+            )
+        if self.data_ripresa_prevista is not None and (
+            not isinstance(self.data_ripresa_prevista, date)
+            or isinstance(self.data_ripresa_prevista, datetime)
+        ):
+            raise InvalidFornituraOrdiniConsegneLetturaQueryError(
+                "data_ripresa_prevista deve essere una date valida, se presente."
             )
         if not isinstance(self.righe, tuple) or any(
             not isinstance(r, RigaProgrammaFornitura) for r in self.righe

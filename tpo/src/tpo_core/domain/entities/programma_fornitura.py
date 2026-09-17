@@ -104,6 +104,7 @@ class ProgrammaFornitura:
     finestra_operativa_giorni: int
     data_fine: date | None = None
     orario_generazione: time = time(5, 0)
+    data_ripresa_prevista: date | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, ProgrammaFornituraId):
@@ -135,6 +136,13 @@ class ProgrammaFornitura:
             )
         if not isinstance(self.orario_generazione, time):
             raise InvariantViolationError("L'orario di generazione deve essere un time.")
+        if self.data_ripresa_prevista is not None and (
+            not isinstance(self.data_ripresa_prevista, date)
+            or isinstance(self.data_ripresa_prevista, datetime)
+        ):
+            raise InvariantViolationError(
+                "data_ripresa_prevista deve essere una date valida, se presente."
+            )
         if (
             not isinstance(self.finestra_operativa_giorni, int)
             or isinstance(self.finestra_operativa_giorni, bool)

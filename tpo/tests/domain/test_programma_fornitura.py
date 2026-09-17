@@ -98,6 +98,22 @@ def test_data_fine_precedente_rifiutata() -> None:
         build_programma(data_fine=date(2026, 6, 30))
 
 
+def test_data_ripresa_prevista_facoltativa() -> None:
+    assert build_programma(data_ripresa_prevista=None).data_ripresa_prevista is None
+
+
+def test_data_ripresa_prevista_valorizzata() -> None:
+    assert build_programma(
+        data_ripresa_prevista=date(2026, 10, 1)
+    ).data_ripresa_prevista == date(2026, 10, 1)
+
+
+@pytest.mark.parametrize("valore", ["2026-10-01", datetime(2026, 10, 1)])
+def test_data_ripresa_prevista_deve_essere_date(valore) -> None:
+    with pytest.raises(InvariantViolationError, match="data_ripresa_prevista"):
+        build_programma(data_ripresa_prevista=valore)
+
+
 @pytest.mark.parametrize("stato", [None, "ATTIVO"])
 def test_stato_ufficiale_obbligatorio(stato) -> None:
     with pytest.raises(InvariantViolationError, match="stato ufficiale"):
@@ -127,6 +143,7 @@ def test_identita_programma_basata_esclusivamente_sull_id() -> None:
         data_inizio=date(2027, 1, 1),
         stato=ProgrammaFornituraState.TERMINATO,
         finestra_operativa_giorni=10,
+        data_ripresa_prevista=date(2026, 10, 1),
     )
     assert primo == secondo
     assert hash(primo) == hash(secondo)
@@ -149,6 +166,7 @@ def test_id_programma_differenti_rappresentano_accordi_differenti() -> None:
         "finestra_operativa_giorni",
         "data_fine",
         "orario_generazione",
+        "data_ripresa_prevista",
     ],
 )
 def test_programma_immutabile(attribute) -> None:

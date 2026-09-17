@@ -101,6 +101,20 @@ def test_programma_rejects_invalid_stato():
         _programma(stato="ALTRO")
 
 
+def test_programma_data_ripresa_prevista_facoltativa():
+    assert _programma().data_ripresa_prevista is None
+    assert _programma(
+        data_ripresa_prevista=date(2099, 2, 1)
+    ).data_ripresa_prevista == date(2099, 2, 1)
+
+
+def test_programma_rejects_invalid_data_ripresa_prevista():
+    with pytest.raises(InvalidFornituraOrdiniConsegneLetturaQueryError):
+        _programma(data_ripresa_prevista="2099-02-01")
+    with pytest.raises(InvalidFornituraOrdiniConsegneLetturaQueryError):
+        _programma(data_ripresa_prevista=datetime(2099, 2, 1, tzinfo=timezone.utc))
+
+
 def test_ordine_rejects_consegna_prevista_before_ordine():
     with pytest.raises(InvalidFornituraOrdiniConsegneLetturaQueryError):
         _ordine(data_consegna_prevista=date(2098, 1, 1))

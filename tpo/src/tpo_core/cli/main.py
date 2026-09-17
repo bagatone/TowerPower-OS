@@ -15,6 +15,7 @@ from .assegnazione_fisica import run_assegnazione_fisica_command
 from .movimento_articolo import run_movimento_articolo_command
 from .movimento_carico import run_movimento_command
 from .raccolta import run_raccolta_command
+from .programma_fornitura import run_programma_fornitura_command
 from .onboarding import run_onboarding_command
 from .seed_lot import run_seed_lot_command
 from .semente import run_semente_command
@@ -284,6 +285,32 @@ def _parser() -> argparse.ArgumentParser:
     correggi_raccolta.add_argument("--correlation-id", required=True)
     correggi_raccolta.add_argument("--idempotency-key", required=True)
     correggi_raccolta.add_argument("--confirm", action="store_true", required=True)
+    programma_fornitura = commands.add_parser(
+        "programma-fornitura",
+        help="Sospensione/riattivazione governata PROGRAMMA_FORNITURA.",
+    )
+    programma_fornitura_commands = programma_fornitura.add_subparsers(
+        dest="programma_fornitura_command", required=True
+    )
+    sospendi_programma_fornitura = programma_fornitura_commands.add_parser("sospendi")
+    sospendi_programma_fornitura.add_argument("--programma", required=True)
+    sospendi_programma_fornitura.add_argument("--expected-numero-versione", required=True, type=int)
+    sospendi_programma_fornitura.add_argument("--effective-at", required=True)
+    sospendi_programma_fornitura.add_argument("--data-ripresa-prevista")
+    sospendi_programma_fornitura.add_argument("--actor", required=True)
+    sospendi_programma_fornitura.add_argument("--reason", required=True)
+    sospendi_programma_fornitura.add_argument("--correlation-id", required=True)
+    sospendi_programma_fornitura.add_argument("--idempotency-key", required=True)
+    sospendi_programma_fornitura.add_argument("--confirm", action="store_true", required=True)
+    riattiva_programma_fornitura = programma_fornitura_commands.add_parser("riattiva")
+    riattiva_programma_fornitura.add_argument("--programma", required=True)
+    riattiva_programma_fornitura.add_argument("--expected-numero-versione", required=True, type=int)
+    riattiva_programma_fornitura.add_argument("--effective-at", required=True)
+    riattiva_programma_fornitura.add_argument("--actor", required=True)
+    riattiva_programma_fornitura.add_argument("--reason", required=True)
+    riattiva_programma_fornitura.add_argument("--correlation-id", required=True)
+    riattiva_programma_fornitura.add_argument("--idempotency-key", required=True)
+    riattiva_programma_fornitura.add_argument("--confirm", action="store_true", required=True)
     movimento = commands.add_parser(
         "movimento", help="Pubblicazione governata di MOVIMENTO_MAGAZZINO (CARICO da RACCOLTA)."
     )
@@ -436,6 +463,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_semina_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "raccolta":
         return run_raccolta_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "programma-fornitura":
+        return run_programma_fornitura_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "movimento":
         if args.movimento_command == "carica-raccolta":
             return run_movimento_command(args, stdout=sys.stdout, stderr=sys.stderr)

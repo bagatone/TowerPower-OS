@@ -16,14 +16,15 @@ from src.tpo_core.application.fornitura_ordini_consegne_lettura.models import (
 from src.tpo_core.application.magazzino_lettura.models import (
     Articolo, MovimentoMagazzino, StockArticolo, StockVarieta,
 )
+from src.tpo_core.application.pianificazione_semina_lettura.models import RigaDaSeminare
 from src.tpo_core.application.run_lettura.models import Run, RunLog, RunLogVoce, RunMessaggio
 from src.tpo_core.application.semente_lettura.models import LottoSeme, Semente
 from src.tpo_core.application.semina_raccolta_lettura.models import Raccolta, Semina
 from src.tpo_core.application.varieta_lettura.models import Varieta
 from src.tpo_core.domain.identifiers import (
     ArticoloId, AssegnazioneFisicaId, ClienteId, ConsegnaId, IncassoId, LottoSemeId,
-    MovimentoId, NumeroFattura, OrdineId, ProgrammaFornituraId, RaccoltaId, RunId,
-    SeminaId, UscitaId, VarietaId,
+    MovimentoId, NumeroFattura, OrdineId, ProgrammaFornituraId, RaccoltaId,
+    RigaPianoSeminaId, RunId, SeminaId, UscitaId, VarietaId,
 )
 
 UTC = timezone.utc
@@ -99,6 +100,23 @@ def raccolta(semina_id: SeminaId) -> Raccolta:
         operatore="Giulia",
         destinazione_prevista=None,
         note=None,
+    )
+
+
+def riga_da_seminare() -> RigaDaSeminare:
+    return RigaDaSeminare(
+        riga_id=RigaPianoSeminaId("RPS-000001"),
+        varieta_id=VarietaId("VAR-000002"),
+        varieta_denominazione="Rábano",
+        cliente_id=ClienteId("CLI-000001"),
+        cliente_denominazione="Abaluus",
+        stato="PIANIFICATA",
+        quantita_da_seminare=Decimal("3"),
+        unita_misura="SET",
+        grammi_seme_richiesti=Decimal("42"),
+        sowing_at=datetime(2026, 9, 25, 6, 0, tzinfo=UTC),
+        harvest_target_at=datetime(2026, 10, 6, 6, 0, tzinfo=UTC),
+        data_consegna=date(2026, 10, 7),
     )
 
 

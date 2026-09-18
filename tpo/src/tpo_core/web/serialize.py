@@ -3,7 +3,7 @@ web adapter.
 
 Autorità: docs/architecture/OPERATIONAL_WEB_ADAPTER_GOVERNANCE_FREEZE.md,
 Owner Decision D3 -- il web adapter espone esattamente i campi già presenti
-nei modelli applicativi dei 9 boundary di lettura Fase 1, senza inventare
+nei modelli applicativi dei 10 boundary di lettura Fase 1, senza inventare
 o aggiungere alcun campo. `to_jsonable` converte ricorsivamente una
 dataclass applicativa (o una tupla/mappa di dataclass) in una struttura
 fatta solo di tipi nativi JSON, così che sia la risposta JSON sia la

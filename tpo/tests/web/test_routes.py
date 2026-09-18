@@ -1,4 +1,4 @@
-"""Verifica che ogni pagina/endpoint dei 9 boundary Fase 1 risponda 200,
+"""Verifica che ogni pagina/endpoint dei 10 boundary Fase 1 risponda 200,
 sia in JSON (`/api/...`) sia in HTML (`/...`), con dati iniettati tramite
 reader finti (vedi conftest.py). Non è un test contro PostgreSQL: verifica
 il web adapter (routing, dependency injection, serializzazione), non le
@@ -14,6 +14,7 @@ _LIST_ROUTES = [
     ("/api/sementi", "/sementi"),
     ("/api/lotti-seme", "/lotti-seme"),
     ("/api/semine", "/semine"),
+    ("/api/da-seminare", "/da-seminare"),
     ("/api/magazzino/articoli", "/magazzino/articoli"),
     ("/api/magazzino/stock", "/magazzino/stock"),
     ("/api/magazzino/movimenti", "/magazzino/movimenti"),
@@ -79,6 +80,11 @@ def test_elenco_clienti_contiene_il_cliente_atteso(client) -> None:
 def test_pagina_lista_linka_al_dettaglio(client) -> None:
     response = client.get("/clienti")
     assert 'href="/clienti/CLI-000001"' in response.text
+
+
+def test_da_seminare_contiene_la_riga_attesa(client) -> None:
+    response = client.get("/api/da-seminare")
+    assert response.json()["righe"][0]["riga_id"] == "RPS-000001"
 
 
 def test_magazzino_stock_espone_entrambe_le_sezioni(client) -> None:

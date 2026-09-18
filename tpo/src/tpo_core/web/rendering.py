@@ -199,6 +199,7 @@ _NAV_GROUPS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
         ("Lotti seme", "/lotti-seme"),
     )),
     ("Produzione", (
+        ("Da seminare", "/da-seminare"),
         ("Semine", "/semine"),
     )),
     ("Magazzino", (
@@ -234,9 +235,12 @@ _PILL_GOOD = {
     "SUCCESS", "COMPLETATO", "COMPLETATA", "PRONTA_ALLA_RACCOLTA",
     "APPROVATA", "APPROVATO",
 }
+_PILL_WARNING = {
+    "PRONTA",
+}
 _PILL_CRITICAL = {
     "ANNULLATO", "ANNULLATA", "FAILURE", "RIFIUTATO", "RIFIUTATA",
-    "SCADUTO", "SCADUTA", "FALLITO", "FALLITA",
+    "SCADUTO", "SCADUTA", "FALLITO", "FALLITA", "TARDIVA",
 }
 _ID_PATTERN = re.compile(r"^[A-Z][A-Z0-9]*-[0-9]{6,}$|^[0-9]{4}/[0-9]{4}$")
 _NUMBER_PATTERN = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
@@ -253,6 +257,8 @@ def _label(field_name: str) -> str:
 def _pill(text: str) -> str:
     if text in _PILL_GOOD:
         variant = "good"
+    elif text in _PILL_WARNING:
+        variant = "warning"
     elif text in _PILL_CRITICAL:
         variant = "critical"
     else:

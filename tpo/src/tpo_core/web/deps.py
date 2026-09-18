@@ -1,4 +1,4 @@
-"""Dependency injection dei 9 servizi applicativi di lettura Fase 1.
+"""Dependency injection dei 10 servizi applicativi di lettura Fase 1.
 
 Ogni funzione costruisce il proprio servizio chiamando l'esistente
 composition root in `bootstrap/<boundary>.py` (mai una connessione o una
@@ -23,6 +23,9 @@ from ..application.fornitura_ordini_consegne_lettura.service import (
 )
 from ..application.magazzino_lettura.service import MagazzinoLetturaService
 from ..application.run_lettura.service import RunLetturaService
+from ..application.pianificazione_semina_lettura.service import (
+    PianificazioneSeminaLetturaService,
+)
 from ..application.semente_lettura.service import SementeLetturaService
 from ..application.semina_raccolta_lettura.service import SeminaRaccoltaLetturaService
 from ..application.varieta_lettura.service import VarietaLetturaService
@@ -87,3 +90,13 @@ def get_run_service(request: Request) -> RunLetturaService:
     from ..bootstrap.run_lettura import build_run_lettura_service
 
     return build_run_lettura_service(_settings(request))
+
+
+def get_pianificazione_semina_service(
+    request: Request,
+) -> PianificazioneSeminaLetturaService:
+    from ..bootstrap.pianificazione_semina_lettura import (
+        build_pianificazione_semina_lettura_service,
+    )
+
+    return build_pianificazione_semina_lettura_service(_settings(request))

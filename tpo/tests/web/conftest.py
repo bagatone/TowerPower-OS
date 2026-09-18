@@ -1,4 +1,4 @@
-"""Fixture condivise per i test del web adapter.
+"""Fixture condivise per i test del web adapter (10 boundary Fase 1).
 
 Non tocca mai PostgreSQL: ogni servizio applicativo reale (le stesse
 classi `*Service` di produzione) viene costruito con un reader finto
@@ -22,6 +22,9 @@ from src.tpo_core.application.fornitura_ordini_consegne_lettura.service import (
 )
 from src.tpo_core.application.magazzino_lettura.models import ElencoStock
 from src.tpo_core.application.magazzino_lettura.service import MagazzinoLetturaService
+from src.tpo_core.application.pianificazione_semina_lettura.service import (
+    PianificazioneSeminaLetturaService,
+)
 from src.tpo_core.application.run_lettura.errors import RunLetturaRunNotFoundError
 from src.tpo_core.application.run_lettura.service import RunLetturaService
 from src.tpo_core.application.semente_lettura.errors import SementeLetturaLottoNotFoundError
@@ -167,6 +170,15 @@ class _FakeFinanzeReader:
         return ElencoUscite((f.uscita(),))
 
 
+class _FakePianificazioneSeminaReader:
+    def elenco(self, query):
+        from src.tpo_core.application.pianificazione_semina_lettura.models import (
+            ElencoDaSeminare,
+        )
+
+        return ElencoDaSeminare((f.riga_da_seminare(),))
+
+
 class _FakeRunReader:
     def elenco(self, query):
         from src.tpo_core.application.run_lettura.models import ElencoRun
@@ -207,4 +219,7 @@ def client() -> TestClient:
         _FakeFinanzeReader()
     )
     app.dependency_overrides[deps.get_run_service] = lambda: RunLetturaService(_FakeRunReader())
+    app.dependency_overrides[deps.get_pianificazione_semina_service] = (
+        lambda: PianificazioneSeminaLetturaService(_FakePianificazioneSeminaReader())
+    )
     return TestClient(app, raise_server_exceptions=False)

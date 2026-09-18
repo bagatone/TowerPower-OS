@@ -1,7 +1,7 @@
 """Composition root del web adapter Fase 1 (OPERATIONAL_WEB_ADAPTER).
 
 Autorità: docs/architecture/OPERATIONAL_WEB_ADAPTER_GOVERNANCE_FREEZE.md.
-Espone i 9 boundary applicativi di sola lettura già esistenti come API
+Espone i 10 boundary applicativi di sola lettura già esistenti come API
 JSON (`/api/...`) e pagine HTML semplici (`/...`), senza introdurre alcuna
 scrittura, alcun secondo Writer o alcuna regola di validazione nuova (D3,
 Sezione 5). Non legge mai Google Sheets direttamente. Pensato per l'uso
@@ -17,8 +17,8 @@ from ..infrastructure.postgresql.settings import PostgreSQLSettings
 from .errors import register_exception_handlers
 from .rendering import render_index_page
 from .routers import (
-    clienti, disponibilita_commerciale, finanze, fornitura, magazzino, run,
-    semente, semina_raccolta, varieta,
+    clienti, disponibilita_commerciale, finanze, fornitura, magazzino,
+    pianificazione_semina, run, semente, semina_raccolta, varieta,
 )
 
 _ROUTERS = (
@@ -27,6 +27,7 @@ _ROUTERS = (
     disponibilita_commerciale.router,
     semente.router,
     semina_raccolta.router,
+    pianificazione_semina.router,
     magazzino.router,
     fornitura.router,
     finanze.router,
@@ -41,7 +42,7 @@ def create_app(postgresql_settings: PostgreSQLSettings) -> FastAPI:
     app = FastAPI(
         title="Tower Power OS — Sala Operativa",
         description=(
-            "OPERATIONAL_WEB_ADAPTER Fase 1: query a sola lettura sui 9 boundary "
+            "OPERATIONAL_WEB_ADAPTER Fase 1: query a sola lettura sui 10 boundary "
             "applicativi già esistenti. Nessuna scrittura è possibile da questa API."
         ),
     )

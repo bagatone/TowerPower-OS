@@ -25,6 +25,7 @@ from .magazzino_lettura import build_magazzino_lettura_service
 from .movimento_articolo import build_movimento_articolo_service
 from .movimento_carico import build_movimento_carico_service
 from .onboarding import build_operational_data_onboarding_service
+from .pianificazione_semina_lettura import build_pianificazione_semina_lettura_service
 from .production_planning import (
     build_production_planning_policy_commissioner,
     build_production_planning_runtime,
@@ -75,6 +76,7 @@ __all__ = [
     "build_programma_fornitura_sospensione_service",
     "build_raccolta_service",
     "build_run_lettura_service",
+    "build_pianificazione_semina_lettura_service",
     "build_uscita_service",
     "build_seed_lot_commissioning_service",
     "build_semente_commissioning_service",

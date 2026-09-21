@@ -1,4 +1,12 @@
-"""Thin CLI adapter for Movimento Carico Raccolta V1 (RegistraCaricoMagazzino)."""
+"""Thin CLI adapter for Movimento Carico Raccolta (RegistraCaricoMagazzino).
+
+V1 (GRAM, Owner Decision D11/D12): --unita-misura GRAM (default, backward
+compatible), quantita' sempre dichiarata dall'operatore via --quantita-pesata.
+
+V2 (SET, Owner Decision D13/D14): --unita-misura SET, --quantita-pesata NON
+ammesso: la quantita' e' presa direttamente dalla RACCOLTA collegata (gia'
+denominata SET), mai dichiarata di nuovo.
+"""
 from argparse import Namespace
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -14,6 +22,7 @@ from ..application.movimento_carico.models import (
 )
 from ..bootstrap import build_movimento_carico_service
 from ..domain.identifiers import ActorId, RaccoltaId
+from ..domain.quantities import UnitOfMeasure
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 from .exit_codes import OperationalExitCode
 
@@ -24,11 +33,32 @@ def run_movimento_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) ->
         return OperationalExitCode.OPERATION_INTERNAL_ERROR
     try:
         try:
-            quantita_pesata = Decimal(args.quantita_pesata)
-        except InvalidOperation as exc:
+            unita_misura = UnitOfMeasure(getattr(args, "unita_misura", "GRAM") or "GRAM")
+        except ValueError as exc:
             raise InvalidMovimentoCaricoCommandError(
-                "--quantita-pesata deve essere un numero decimale."
+                "--unita-misura deve essere GRAM o SET."
             ) from exc
+
+        quantita_pesata_raw = getattr(args, "quantita_pesata", None)
+        if unita_misura is UnitOfMeasure.GRAM:
+            if not quantita_pesata_raw:
+                raise InvalidMovimentoCaricoCommandError(
+                    "--quantita-pesata e' obbligatoria per un CARICO in GRAM."
+                )
+            try:
+                quantita_pesata = Decimal(quantita_pesata_raw)
+            except InvalidOperation as exc:
+                raise InvalidMovimentoCaricoCommandError(
+                    "--quantita-pesata deve essere un numero decimale."
+                ) from exc
+        else:
+            if quantita_pesata_raw:
+                raise InvalidMovimentoCaricoCommandError(
+                    "--quantita-pesata non e' ammessa per un CARICO in SET: la "
+                    "quantita' e' sempre presa dalla RACCOLTA collegata (D14)."
+                )
+            quantita_pesata = None
+
         try:
             effective_at = datetime.fromisoformat(args.effective_at)
         except ValueError as exc:
@@ -37,6 +67,7 @@ def run_movimento_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) ->
             ) from exc
         command = RegistraCaricoMagazzino(
             raccolta_id=RaccoltaId(args.raccolta),
+            unita_misura=unita_misura,
             quantita_pesata=quantita_pesata,
             effective_at=effective_at,
             motivo=args.motivo,
@@ -63,7 +94,7 @@ def run_movimento_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) ->
     print(f"RACCOLTA_ID={result.raccolta_id.value}", file=stdout)
     print(f"VARIETA_ID={result.varieta_id.value}", file=stdout)
     print(f"QUANTITA={result.quantita}", file=stdout)
-    print("UOM=GRAM", file=stdout)
+    print(f"UOM={result.unita_misura.value}", file=stdout)
     print(f"EFFECTIVE_AT={result.effective_at.isoformat()}", file=stdout)
     print(f"RECORDED_AT={result.recorded_at.isoformat()}", file=stdout)
     print(f"STOCK_DISPONIBILE={result.stock_disponibile}", file=stdout)

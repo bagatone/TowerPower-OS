@@ -182,7 +182,7 @@ class PostgreSQLProductionPlanningInputAdapter:
                JOIN tpo.righe_piano_semina rps ON rps.id=a.riga_piano_semina_id
                JOIN tpo.righe_ordine ro ON ro.id=rps.riga_ordine_id
                LEFT JOIN tpo.allocazioni_stock ast ON ast.allocation_id=a.id
-               LEFT JOIN tpo.stock st ON st.varieta_id=ast.stock_varieta_id
+               LEFT JOIN tpo.stock st ON st.varieta_id=ast.stock_varieta_id AND st.unita_misura=ast.stock_unita_misura
                LEFT JOIN tpo.varieta vs ON vs.id=st.varieta_id
                LEFT JOIN tpo.allocazioni_produzione_in_corso aip ON aip.allocation_id=a.id
                LEFT JOIN tpo.semine sem ON sem.id=aip.semina_id
@@ -220,13 +220,31 @@ class PostgreSQLProductionPlanningInputAdapter:
 
     @staticmethod
     def _stock(cursor: Any, balances) -> tuple[StockResourceSnapshot, ...]:
+        # Dal 19/9/2026 tpo.stock ha chiave composita (varieta_id,
+        # unita_misura): una VARIETA puo' avere piu' righe, una per unita'.
+        # Si preferisce l'unica riga viva (disponibile>0); se ambiguo
+        # (nessuna viva o piu' di una) si fallisce chiuso, mai una risorsa
+        # duplicata con la stessa identita' PublicId.
         cursor.execute(
             """SELECT v.public_id,s.disponibile,s.unita_misura,s.version
                FROM tpo.stock s JOIN tpo.varieta v ON v.id=s.varieta_id
-               ORDER BY v.public_id"""
+               ORDER BY v.public_id, s.unita_misura"""
         )
-        result = []
+        by_varieta: dict[str, list[tuple]] = {}
         for r in cursor.fetchall():
+            by_varieta.setdefault(r[0], []).append(r)
+        result = []
+        for public_id, rows in by_varieta.items():
+            if len(rows) == 1:
+                r = rows[0]
+            else:
+                live = [row for row in rows if Decimal(row[1]) > 0]
+                if len(live) != 1:
+                    raise _input(
+                        "STOCK_RESOURCE_CONFLICT",
+                        f"VARIETA {public_id}: piu' righe STOCK senza un'unica riga viva (disponibile>0).",
+                    )
+                r = live[0]
             eligible, unit = Decimal(r[1]), UnitOfMeasure(r[2])
             allocated, allocated_uom = balances.get(("STOCK", r[0]), (Decimal("0"), r[2]))
             _balance(eligible, r[2], allocated, allocated_uom)

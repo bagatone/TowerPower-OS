@@ -1,14 +1,32 @@
-"""Writer PostgreSQL atomico per Movimento Carico Raccolta Boundary V1.
+"""Writer PostgreSQL atomico per Movimento Carico Raccolta Boundary V1/V2.
 
 Autorità: docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md. Implementa
 la riserva di RACCOLTA_AUTHORITY_FREEZE.md Sezione 11: pubblica un CARICO
 originato da una RACCOLTA reale e incrementa lo STOCK della VARIETA
 corrispondente (risolta da raccolta.semina_id -> semina.varieta_id, mai
-input diretto del chiamante). La quantità in GRAM è dichiarata
-dall'operatore (Owner Decision D11); raccolta_id sul MOVIMENTO è un
-riferimento di tracciabilità, non un vincolo di quantità massima cumulabile
-(Owner Decision D12: più CARICHI parziali per la stessa RACCOLTA sono
-ammessi, nessuna colonna UNIQUE su raccolta_id).
+input diretto del chiamante). Due percorsi (Owner Decision D13, addendum
+19/9/2026):
+
+- GRAM: la quantità in GRAM è dichiarata dall'operatore (Owner Decision
+  D11); raccolta_id sul MOVIMENTO è un riferimento di tracciabilità, non
+  un vincolo di quantità massima cumulabile (Owner Decision D12: più
+  CARICHI parziali per la stessa RACCOLTA sono ammessi, nessuna colonna
+  UNIQUE su raccolta_id).
+- SET: la quantità è presa direttamente da ``tpo.raccolte.quantita`` della
+  RACCOLTA referenziata (già in SET, vincolo CHECK ``ck_raccolte_uom_set``
+  del dominio RACCOLTA) -- mai una nuova dichiarazione, mai un fattore di
+  conversione (Owner Decision D14).
+
+``tpo.stock`` ha chiave primaria composita ``(varieta_id,unita_misura)``
+dal 19/9/2026 (Owner Decision, docs/architecture/
+STOCK_UNITA_VENDITA_INTERA_PROPOSTA.md e migrations/versions/
+20260919_0035_stock_unita_composita.py): una VARIETA puo' avere piu' righe
+STOCK, una per unita' di misura, ma mai due VIVE (``disponibile>0``)
+contemporaneamente. ``_lock_or_create_stock`` fallisce chiuso
+(``MovimentoCaricoStockUnitMismatchError``) solo se una riga STOCK della
+stessa VARIETA in un'unita' diversa e' ancora viva -- una riga storica
+congelata a ``disponibile=0`` (es. lo STOCK in GRAM di Afila/Cilantro,
+mai piu' toccato dopo la conversione a SET) non blocca il nuovo CARICO.
 """
 from __future__ import annotations
 
@@ -34,6 +52,7 @@ from ...application.movimento_carico.models import (
     RegistraCaricoMagazzino, RegistraCaricoMagazzinoResult,
 )
 from ...domain.identifiers import MovimentoId, RaccoltaId, VarietaId
+from ...domain.quantities import UnitOfMeasure
 from .connection import PostgreSQLConnectionFactory
 
 SCOPE = "MOVIMENTO_CARICO_RACCOLTA_V1"
@@ -57,18 +76,22 @@ class PostgreSQLMovimentoCaricoWriter:
                 raise MovimentoCaricoReconciliationRequiredError(
                     "Reservation MOVIMENTO_CARICO non riconciliabile."
                 )
-            raccolta_pk, semina_pk = self._lock_raccolta(cursor, command)
+            raccolta_pk, semina_pk, raccolta_quantita = self._lock_raccolta(cursor, command)
             varieta_pk, varieta_public_id = self._resolve_varieta(cursor, semina_pk)
-            self._lock_or_create_stock(cursor, varieta_pk)
+            self._lock_or_create_stock(cursor, varieta_pk, command.unita_misura)
+            quantita = (
+                command.quantita_pesata if command.unita_misura is UnitOfMeasure.GRAM
+                else raccolta_quantita
+            )
             public_id, sequence = self._allocate(cursor)
             cursor.execute(
                 """INSERT INTO tpo.movimenti_magazzino
                    (public_id,varieta_id,unita_misura,tipo,direzione,quantita,
                     data_movimento,motivo,origine_tipo,origine_riferimento,
                     raccolta_id,created_by)
-                   VALUES (%s,%s,'GRAM','CARICO','POSITIVO',%s,%s,%s,'RACCOLTA',
+                   VALUES (%s,%s,%s,'CARICO','POSITIVO',%s,%s,%s,'RACCOLTA',
                            %s,%s,%s) RETURNING id,created_at""",
-                (public_id.value, varieta_pk, command.quantita_pesata,
+                (public_id.value, varieta_pk, command.unita_misura.value, quantita,
                  command.effective_at, command.motivo, command.raccolta_id.value,
                  raccolta_pk, command.authority.actor.value),
             )
@@ -76,21 +99,22 @@ class PostgreSQLMovimentoCaricoWriter:
             cursor.execute(
                 """UPDATE tpo.stock SET disponibile=disponibile+%s,
                           ultimo_movimento_id=%s,updated_at=%s,version=version+1
-                   WHERE varieta_id=%s""",
-                (command.quantita_pesata, movimento_pk, recorded_at, varieta_pk),
+                   WHERE varieta_id=%s AND unita_misura=%s""",
+                (quantita, movimento_pk, recorded_at, varieta_pk, command.unita_misura.value),
             )
             if cursor.rowcount != 1:
                 raise MovimentoCaricoConcurrencyError("STOCK non aggiornabile.")
             cursor.execute(
-                "SELECT disponibile FROM tpo.stock WHERE varieta_id=%s", (varieta_pk,),
+                "SELECT disponibile FROM tpo.stock WHERE varieta_id=%s AND unita_misura=%s",
+                (varieta_pk, command.unita_misura.value),
             )
             stock_disponibile = Decimal(cursor.fetchone()[0])
             after = {
                 "public_id": public_id.value,
                 "raccolta_id": command.raccolta_id.value,
                 "varieta_id": varieta_public_id,
-                "quantita_pesata": str(command.quantita_pesata),
-                "uom": "GRAM",
+                "quantita": str(quantita),
+                "uom": command.unita_misura.value,
                 "effective_at": command.effective_at.isoformat(),
                 "recorded_at": recorded_at.isoformat(),
                 "motivo": command.motivo,
@@ -130,7 +154,7 @@ class PostgreSQLMovimentoCaricoWriter:
             cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
             result = RegistraCaricoMagazzinoResult(
                 public_id, command.raccolta_id, VarietaId(varieta_public_id),
-                command.quantita_pesata, command.effective_at, recorded_at,
+                command.unita_misura, quantita, command.effective_at, recorded_at,
                 stock_disponibile, "INSERTED",
             )
             try:
@@ -187,11 +211,12 @@ class PostgreSQLMovimentoCaricoWriter:
             return row[0], None
         cursor.execute(
             """SELECT q.canonical_payload_hash,q.outcome,m.public_id,m.raccolta_id,
-                      v.public_id,m.quantita,m.data_movimento,q.recorded_at,s.disponibile
+                      v.public_id,m.quantita,m.unita_misura,m.data_movimento,
+                      q.recorded_at,s.disponibile
                FROM tpo.movimento_carico_requests q
                LEFT JOIN tpo.movimenti_magazzino m ON m.id=q.movimento_id
                LEFT JOIN tpo.varieta v ON v.id=m.varieta_id
-               LEFT JOIN tpo.stock s ON s.varieta_id=m.varieta_id
+               LEFT JOIN tpo.stock s ON s.varieta_id=m.varieta_id AND s.unita_misura=m.unita_misura
                WHERE q.operation_scope=%s AND q.idempotency_key=%s FOR UPDATE OF q""",
             (SCOPE, command.authority.idempotency_key),
         )
@@ -218,19 +243,20 @@ class PostgreSQLMovimentoCaricoWriter:
             )
         return None, RegistraCaricoMagazzinoResult(
             MovimentoId(row[2]), RaccoltaId(raccolta_row[0]), VarietaId(row[4]),
-            Decimal(row[5]), row[6], row[7], Decimal(row[8]), "COMPATIBLE_REPLAY",
+            UnitOfMeasure(row[6]), Decimal(row[5]), row[7], row[8], Decimal(row[9]),
+            "COMPATIBLE_REPLAY",
         )
 
     @staticmethod
-    def _lock_raccolta(cursor: Any, command: RegistraCaricoMagazzino) -> tuple[int, int]:
+    def _lock_raccolta(cursor: Any, command: RegistraCaricoMagazzino) -> tuple[int, int, Decimal]:
         cursor.execute(
-            "SELECT id,semina_id FROM tpo.raccolte WHERE public_id=%s FOR SHARE",
+            "SELECT id,semina_id,quantita FROM tpo.raccolte WHERE public_id=%s FOR SHARE",
             (command.raccolta_id.value,),
         )
         row = cursor.fetchone()
         if row is None:
             raise MovimentoCaricoRaccoltaNotFoundError("RACCOLTA inesistente.")
-        return row[0], row[1]
+        return row[0], row[1], Decimal(row[2])
 
     @staticmethod
     def _resolve_varieta(cursor: Any, semina_pk: int) -> tuple[int, str]:
@@ -247,21 +273,34 @@ class PostgreSQLMovimentoCaricoWriter:
         return row[0], row[1]
 
     @staticmethod
-    def _lock_or_create_stock(cursor: Any, varieta_pk: int) -> None:
+    def _lock_or_create_stock(cursor: Any, varieta_pk: int, unita_misura: UnitOfMeasure) -> None:
         cursor.execute(
             """INSERT INTO tpo.stock(varieta_id,disponibile,unita_misura,updated_at,version)
-               VALUES (%s,0,'GRAM',CURRENT_TIMESTAMP,0)
-               ON CONFLICT (varieta_id) DO NOTHING""",
-            (varieta_pk,),
+               VALUES (%s,0,%s,CURRENT_TIMESTAMP,0)
+               ON CONFLICT (varieta_id,unita_misura) DO NOTHING""",
+            (varieta_pk, unita_misura.value),
         )
         cursor.execute(
-            "SELECT unita_misura FROM tpo.stock WHERE varieta_id=%s FOR UPDATE",
-            (varieta_pk,),
+            "SELECT 1 FROM tpo.stock WHERE varieta_id=%s AND unita_misura=%s FOR UPDATE",
+            (varieta_pk, unita_misura.value),
         )
-        row = cursor.fetchone()
-        if row is None or row[0] != "GRAM":
+        if cursor.fetchone() is None:
+            raise MovimentoCaricoPersistenceInvariantError(
+                "STOCK non creabile per questa VARIETA/unita' di misura."
+            )
+        # Una VARIETA puo' avere piu' righe STOCK (una per unita'), ma mai
+        # due VIVE insieme: una riga storica congelata a disponibile=0 in
+        # un'altra unita' non blocca questo CARICO, solo una riga ancora
+        # viva (disponibile>0) lo fa fallire chiuso.
+        cursor.execute(
+            """SELECT 1 FROM tpo.stock
+               WHERE varieta_id=%s AND unita_misura<>%s AND disponibile>0
+               FOR UPDATE""",
+            (varieta_pk, unita_misura.value),
+        )
+        if cursor.fetchone() is not None:
             raise MovimentoCaricoStockUnitMismatchError(
-                "STOCK esistente per questa VARIETA non è in GRAM."
+                f"STOCK esistente per questa VARIETA e' vivo in un'unita' diversa da {unita_misura.value}."
             )
 
     @staticmethod

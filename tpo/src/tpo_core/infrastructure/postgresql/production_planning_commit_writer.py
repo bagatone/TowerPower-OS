@@ -357,22 +357,34 @@ class PostgreSQLProductionPlanningCommitWriter:
         if set(variety_rows) != set(varieties):
             raise _input("VARIETY_MISSING", "VARIETÀ Planning assente.")
 
+        # Dal 19/9/2026 tpo.stock ha chiave composita (varieta_id,
+        # unita_misura): la stessa VARIETA puo' avere piu' righe (es. una
+        # storica congelata a disponibile=0 e una viva). Il lock/confronto
+        # deve individuare esattamente la riga che lo snapshot referenziava
+        # (identificata dalla sua unita'), mai una riga qualunque della
+        # VARIETA -- altrimenti una VARIETA con piu' righe romperebbe la
+        # CAS silenziosamente confrontando la riga sbagliata.
         stock_ids = sorted({item.resource_public_id.value for item in write_set.input_snapshot.stock})
         stock_rows: dict[str, tuple[Any, ...]] = {}
         if stock_ids:
             cursor.execute(
                 """SELECT v.public_id,s.varieta_id,s.disponibile,s.unita_misura,s.version
                    FROM tpo.stock s JOIN tpo.varieta v ON v.id=s.varieta_id
-                   WHERE v.public_id=ANY(%s) ORDER BY s.varieta_id FOR UPDATE OF s""",
+                   WHERE v.public_id=ANY(%s)
+                   ORDER BY s.varieta_id, s.unita_misura FOR UPDATE OF s""",
                 (stock_ids,),
             )
-            stock_rows = {row[0]: row for row in cursor.fetchall()}
-            if set(stock_rows) != set(stock_ids):
+            stock_by_varieta: dict[str, dict[str, tuple[Any, ...]]] = {}
+            for row in cursor.fetchall():
+                stock_by_varieta.setdefault(row[0], {})[row[3]] = row
+            if set(stock_by_varieta) != set(stock_ids):
                 raise _input("STOCK_MISSING", "STOCK Planning assente.")
             for snapshot in write_set.input_snapshot.stock:
-                row = stock_rows[snapshot.resource_public_id.value]
-                if row[4] != snapshot.version or Decimal(row[2]) != snapshot.eligible.value or row[3] != snapshot.eligible.unit.value:
+                by_unit = stock_by_varieta[snapshot.resource_public_id.value]
+                row = by_unit.get(snapshot.eligible.unit.value)
+                if row is None or row[4] != snapshot.version or Decimal(row[2]) != snapshot.eligible.value:
                     raise _conflict("STOCK_CHANGED", "STOCK modificato dopo lo snapshot.")
+                stock_rows[snapshot.resource_public_id.value] = row
 
         semina_ids = sorted({item.semina_public_id.value for item in write_set.input_snapshot.in_progress})
         semine: dict[str, tuple[Any, ...]] = {}
@@ -1172,12 +1184,21 @@ class PostgreSQLProductionPlanningCommitWriter:
                     )
                 table, column, _ = _CHILDREN[draft.allocation_type]
                 source_id = _allocation_source_id(cursor, draft, authority)
-                cursor.execute(
-                    f"SELECT {column} FROM tpo.{table} WHERE allocation_id=%s",
-                    (existing[0],),
-                )
+                if draft.allocation_type == "STOCK":
+                    source_unit = _stock_source_unit(draft, authority)
+                    cursor.execute(
+                        f"SELECT {column},stock_unita_misura FROM tpo.{table} WHERE allocation_id=%s",
+                        (existing[0],),
+                    )
+                    expected_child = (source_id, source_unit)
+                else:
+                    cursor.execute(
+                        f"SELECT {column} FROM tpo.{table} WHERE allocation_id=%s",
+                        (existing[0],),
+                    )
+                    expected_child = (source_id,)
                 child = cursor.fetchone()
-                if child != (source_id,):
+                if child != expected_child:
                     raise _allocation(
                         "ALLOCATION_REPLAY_MISMATCH",
                         "Child allocazione committed incompatibile con il replay.",
@@ -1190,6 +1211,11 @@ class PostgreSQLProductionPlanningCommitWriter:
             ):
                 source_id = _allocation_source_id(cursor, draft, authority)
                 table, column, _ = _CHILDREN[draft.allocation_type]
+                extra_condition = ""
+                extra_params: tuple[Any, ...] = ()
+                if draft.allocation_type == "STOCK":
+                    extra_condition = " AND child.stock_unita_misura=%s"
+                    extra_params = (_stock_source_unit(draft, authority),)
                 cursor.execute(
                     f"""SELECT a.id,a.public_id
                          FROM tpo.allocazioni a
@@ -1197,10 +1223,10 @@ class PostgreSQLProductionPlanningCommitWriter:
                          WHERE a.riga_piano_semina_id=%s
                            AND a.allocation_type=%s AND a.quantity=%s
                            AND a.unita_misura=%s AND a.state=%s
-                           AND child.{column}=%s
+                           AND child.{column}=%s{extra_condition}
                          ORDER BY a.public_id""",
                     (line_id, draft.allocation_type, draft.quantity.value,
-                     draft.quantity.unit.value, draft.state, source_id),
+                     draft.quantity.unit.value, draft.state, source_id, *extra_params),
                 )
                 matches = tuple(cursor.fetchall())
                 if len(matches) != 1:
@@ -1226,10 +1252,17 @@ class PostgreSQLProductionPlanningCommitWriter:
             result[draft.public_id.value] = allocation_id
             table, column, _ = _CHILDREN[draft.allocation_type]
             source_id = _allocation_source_id(cursor, draft, authority)
-            cursor.execute(
-                f"INSERT INTO tpo.{table} (allocation_id,{column}) VALUES (%s,%s)",
-                (allocation_id, source_id),
-            )
+            if draft.allocation_type == "STOCK":
+                cursor.execute(
+                    f"INSERT INTO tpo.{table} (allocation_id,{column},stock_unita_misura) "
+                    "VALUES (%s,%s,%s)",
+                    (allocation_id, source_id, _stock_source_unit(draft, authority)),
+                )
+            else:
+                cursor.execute(
+                    f"INSERT INTO tpo.{table} (allocation_id,{column}) VALUES (%s,%s)",
+                    (allocation_id, source_id),
+                )
         return result, persisted_public_ids
 
     @staticmethod
@@ -1399,6 +1432,21 @@ def _allocation_source_id(
     if draft.allocation_type == "STOCK":
         return row[1]
     return row[0]
+
+
+def _stock_source_unit(
+    draft: AllocationDraft, authority: dict[str, dict[str, tuple[Any, ...]]],
+) -> str:
+    """Unita' di misura della riga STOCK sorgente -- dal 19/9/2026
+    ``allocazioni_stock`` referenzia tpo.stock con chiave composita
+    (stock_varieta_id,stock_unita_misura), quindi ogni scrittura/verifica
+    del child deve portare anche l'unita', non solo la VARIETA."""
+    row = authority["stock"].get(draft.source_public_id.value)
+    if row is None:
+        raise _allocation(
+            "ALLOCATION_SOURCE_MISSING", "Sorgente allocazione non revalidata."
+        )
+    return row[3]
 
 
 def _transition_facts(

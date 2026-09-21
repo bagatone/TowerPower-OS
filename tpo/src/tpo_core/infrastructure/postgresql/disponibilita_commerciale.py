@@ -19,6 +19,7 @@ from decimal import Decimal
 import psycopg
 
 from ...application.disponibilita_commerciale.errors import (
+    DisponibilitaCommercialeStockConflictError,
     DisponibilitaCommercialeVarietaNotFoundError,
 )
 from ...application.disponibilita_commerciale.models import (
@@ -34,6 +35,28 @@ _DEFAULT_UOM = "GRAM"
 class PostgreSQLDisponibilitaCommercialeReader:
     def __init__(self, factory: PostgreSQLConnectionFactory) -> None:
         self._factory = factory
+
+    @staticmethod
+    def _resolve_stock_row(stock_rows: list) -> tuple:
+        """Applica la politica confermata (Owner Decision 19/9/2026): con
+        tpo.stock a chiave composita una VARIETA puo' avere piu' righe, una
+        per unita'. Nessuna riga -> 0/_DEFAULT_UOM (invariato). Una sola
+        riga -> quella, invariato anche se disponibile=0 (es. STOCK storico
+        mai piu' toccato). Piu' righe -> si preferisce l'unica con
+        disponibile>0; se questo e' ambiguo (zero righe vive o piu' di una)
+        si fallisce chiuso invece di indovinare."""
+        if not stock_rows:
+            return Decimal(0), _DEFAULT_UOM
+        if len(stock_rows) == 1:
+            return Decimal(stock_rows[0][0]), stock_rows[0][1]
+        live = [row for row in stock_rows if Decimal(row[0]) > 0]
+        if len(live) != 1:
+            raise DisponibilitaCommercialeStockConflictError(
+                "Piu' righe STOCK per questa VARIETA senza un'unica riga viva "
+                "(disponibile>0): impossibile determinare la disponibilita' "
+                "commerciale senza ambiguita'."
+            )
+        return Decimal(live[0][0]), live[0][1]
 
     def disponibilita(
         self, query: RichiediDisponibilitaCommerciale
@@ -56,9 +79,8 @@ class PostgreSQLDisponibilitaCommercialeReader:
                     "SELECT disponibile,unita_misura FROM tpo.stock WHERE varieta_id=%s",
                     (varieta_pk,),
                 )
-                stock_row = cursor.fetchone()
-                disponibile = Decimal(stock_row[0]) if stock_row else Decimal(0)
-                unita_misura = stock_row[1] if stock_row else _DEFAULT_UOM
+                stock_rows = cursor.fetchall()
+                disponibile, unita_misura = self._resolve_stock_row(stock_rows)
 
                 cursor.execute(
                     """SELECT COALESCE(SUM(GREATEST(ro.quantita - COALESCE(rc.consegnato, 0), 0)), 0)
@@ -80,7 +102,10 @@ class PostgreSQLDisponibilitaCommercialeReader:
                 query.varieta_id, unita_misura, disponibile, prenotato, vendibile,
                 vendibile < 0,
             )
-        except DisponibilitaCommercialeVarietaNotFoundError:
+        except (
+            DisponibilitaCommercialeVarietaNotFoundError,
+            DisponibilitaCommercialeStockConflictError,
+        ):
             raise
         except psycopg.Error as exc:
             raise PostgreSQLError(

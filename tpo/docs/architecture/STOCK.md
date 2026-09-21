@@ -152,3 +152,24 @@ Le future evoluzioni non devono attribuire allo STOCK responsabilità proprie de
 - MOVIMENTI_MAGAZZINO.
 
 Lo STOCK deve continuare a rappresentare esclusivamente lo stato corrente della disponibilità.
+
+## Addendum (19/9/2026): più righe per VARIETÀ, mai due vive insieme
+
+Dal 19/9/2026 (`migrations/versions/20260919_0035_stock_unita_composita.py`,
+Owner Decision Matteo — dettagli in
+`docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md` §11) la chiave del
+Register STOCK è composita `(VARIETÀ, unità di misura)`, non più `VARIETÀ`
+da sola: una VARIETÀ può avere più record STOCK, uno per unità di misura,
+tipicamente uno vivo (`DISPONIBILE>0`) e uno o più storici congelati a
+`DISPONIBILE=0`, mai riscritti.
+
+Questo non modifica alcun principio architetturale sopra: "Ogni record di
+STOCK appartiene ad una sola VARIETÀ" resta vero (un record non ne
+riferisce mai due); resta lo stato corrente, non un evento storico; resta
+vincolato a non andare mai sotto zero. Cambia solo la cardinalità
+VARIETÀ→record, da 1:1 a 1:N. Dove un consumatore ha bisogno de "il" record
+STOCK di una VARIETÀ (es. disponibilità commerciale), si preferisce
+l'unico record vivo (`DISPONIBILE>0`); se ambiguo (nessuno vivo, o più di
+uno vivo insieme) il consumatore fallisce chiuso invece di indovinare —
+mai una responsabilità di questo Register, che resta un puro stato
+persistito.

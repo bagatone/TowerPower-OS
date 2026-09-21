@@ -130,3 +130,21 @@ Aggiornamento `AUTHORITY_REGISTRY.yaml`: `STOCK` passa da `CONFLICTING` a
 `FROZEN`, coerente con lo stile già usato per gli altri concetti risolti
 in questa sessione; nuova cross-reference in `ORDINE`/`PRENOTAZIONE` verso
 questo freeze doc.
+
+## 8. Addendum (19/9/2026): tpo.stock a chiave composita
+
+`tpo.stock` è passata a chiave composita `(varieta_id,unita_misura)`
+(`migrations/versions/20260919_0035_stock_unita_composita.py`,
+`docs/architecture/MOVIMENTO_CARICO_AUTHORITY_FREEZE.md` §11): una VARIETA
+può avere più righe STOCK. §3/§4 sopra assumevano implicitamente una sola
+riga (`tpo.stock.disponibile` per quella `varieta_id`); questo resta vero
+nel caso comune (nessun cambio all'interfaccia `DisponibilitaCommerciale`),
+ma il reader (`PostgreSQLDisponibilitaCommercialeReader`) applica ora
+esplicitamente questa risoluzione quando esistono più righe: si preferisce
+l'unica riga con `disponibile>0`; se ambiguo (nessuna riga viva, o più di
+una viva insieme — un'anomalia che non deve mai accadere in condizioni
+normali) la query fallisce chiuso con
+`DisponibilitaCommercialeStockConflictError`
+(`DISPONIBILITA_COMMERCIALE_STOCK_CONFLICT`) invece di indovinare quale
+riga rappresenta la disponibilità reale. Resta vero il resto di §5: nessuna
+migrazione di questo boundary, nessuna scrittura da questa query.

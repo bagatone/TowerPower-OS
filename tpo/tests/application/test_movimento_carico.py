@@ -11,6 +11,7 @@ from src.tpo_core.application.movimento_carico.models import (
 )
 from src.tpo_core.application.movimento_carico.service import MovimentoCaricoService
 from src.tpo_core.domain.identifiers import ActorId, RaccoltaId
+from src.tpo_core.domain.quantities import UnitOfMeasure
 
 
 AUTH = MovimentoCaricoAuthority(ActorId("magazziniere"), "peso reale", "corr", "idem")
@@ -19,9 +20,23 @@ AUTH = MovimentoCaricoAuthority(ActorId("magazziniere"), "peso reale", "corr", "
 def command(**changes):
     values = dict(
         raccolta_id=RaccoltaId("RAC-000001"),
+        unita_misura=UnitOfMeasure.GRAM,
         quantita_pesata=Decimal("450.5"),
         effective_at=datetime(2026, 9, 5, 8, tzinfo=timezone.utc),
         motivo="pesatura carico magazzino",
+        authority=AUTH,
+    )
+    values.update(changes)
+    return RegistraCaricoMagazzino(**values)
+
+
+def set_command(**changes):
+    values = dict(
+        raccolta_id=RaccoltaId("RAC-000001"),
+        unita_misura=UnitOfMeasure.SET,
+        quantita_pesata=None,
+        effective_at=datetime(2026, 9, 5, 8, tzinfo=timezone.utc),
+        motivo="carico SET da raccolta",
         authority=AUTH,
     )
     values.update(changes)
@@ -41,6 +56,39 @@ def test_canonical_payload_is_sensitive_to_quantity_and_raccolta():
     different_raccolta = command(raccolta_id=RaccoltaId("RAC-000002"))
     assert base.canonical_payload_hash != different_quantity.canonical_payload_hash
     assert base.canonical_payload_hash != different_raccolta.canonical_payload_hash
+
+
+def test_canonical_payload_is_sensitive_to_unita_misura():
+    gram = command()
+    set_variant = set_command()
+    assert gram.canonical_payload_hash != set_variant.canonical_payload_hash
+
+
+def test_set_path_canonical_payload_is_deterministic_without_declared_quantity():
+    value = set_command()
+    assert len(value.canonical_payload_hash) == 64
+    assert value.canonical_payload_hash == set_command().canonical_payload_hash
+
+
+def test_set_path_accepts_none_quantita_pesata():
+    value = set_command()
+    assert value.unita_misura is UnitOfMeasure.SET
+    assert value.quantita_pesata is None
+
+
+def test_set_path_rejects_declared_quantita_pesata():
+    with pytest.raises(InvalidMovimentoCaricoCommandError):
+        set_command(quantita_pesata=Decimal("1"))
+
+
+def test_gram_path_requires_quantita_pesata():
+    with pytest.raises(InvalidMovimentoCaricoCommandError):
+        command(quantita_pesata=None)
+
+
+def test_unknown_unita_misura_is_rejected():
+    with pytest.raises(InvalidMovimentoCaricoCommandError):
+        command(unita_misura="KG")
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "1.0000001"])

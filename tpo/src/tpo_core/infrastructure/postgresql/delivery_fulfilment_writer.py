@@ -151,25 +151,34 @@ class PostgreSQLDeliveryFulfilmentWriter:
         if correction:
             originals = self._load_originals(cursor, command.lines, order_lines)
 
-        stock: dict[int, list[Any]] = {}
+        # Dal 19/9/2026 tpo.stock ha chiave composita (varieta_id,
+        # unita_misura): una VARIETA puo' avere piu' righe STOCK, una per
+        # unita'. La lookup e' quindi tenuta per VARIETA -> {unita: riga},
+        # mai piu' una singola riga per varieta_id (altrimenti una seconda
+        # riga della stessa VARIETA in un'altra unita' sovrascriverebbe
+        # silenziosamente quella richiesta dalla RIGA_ORDINE).
+        stock_by_varieta: dict[int, dict[str, list[Any]]] = {}
         if not correction:
             variety_pks = sorted({order_lines[line.order_line_id][3] for line in command.lines})
             cursor.execute(
                 """SELECT varieta_id,disponibile,unita_misura,version
                    FROM tpo.stock WHERE varieta_id = ANY(%s)
-                   ORDER BY varieta_id FOR UPDATE""",
+                   ORDER BY varieta_id, unita_misura FOR UPDATE""",
                 (variety_pks,),
             )
             stock_rows = cursor.fetchall()
-            stock = {row[0]: [Decimal(row[1]), row[2], row[3]] for row in stock_rows}
-            if set(stock) != set(variety_pks):
+            for row in stock_rows:
+                stock_by_varieta.setdefault(row[0], {})[row[2]] = [Decimal(row[1]), row[2], row[3]]
+            if set(stock_by_varieta) != set(variety_pks):
                 raise DeliveryValidationError("STOCK richiesto non inizializzato.")
             for line in command.lines:
                 row = order_lines[line.order_line_id]
-                if stock[row[3]][1] != line.unit.value:
+                by_unit = stock_by_varieta[row[3]]
+                if line.unit.value not in by_unit:
                     raise DeliveryValidationError("UOM STOCK non coincidente.")
-                stock[row[3]][0] -= line.quantity
-                if stock[row[3]][0] < 0:
+                entry = by_unit[line.unit.value]
+                entry[0] -= line.quantity
+                if entry[0] < 0:
                     raise DeliveryValidationError("STOCK insufficiente.")
 
         delivered = self._delivered(cursor, tuple(order_lines.values()))

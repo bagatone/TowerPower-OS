@@ -20,7 +20,7 @@ def test_assegnazione_fisica_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20260916_0034"]
+    assert script.get_heads() == ["20260919_0035"]
     revision = script.get_revision("20260905_0032")
     assert revision.down_revision == "20260905_0031"
 

@@ -45,6 +45,14 @@ _TOOL = {
                             "description": "public_id esatto (es. VAR-000004), solo dal contesto fornito, "
                                             "mai inventato. null se non identificabile con certezza.",
                         },
+                        "semina_public_id": {
+                            "type": ["string", "null"],
+                            "description": "solo per semina_transition: public_id esatto della semina "
+                                            "(es. SEM-000007), SOLO se l'utente lo ha scritto esplicitamente "
+                                            "nel testo, copiato carattere per carattere. null se l'utente non "
+                                            "ha specificato un codice semina -- in quel caso il sistema lo "
+                                            "determina da solo dalla varietà.",
+                        },
                         "num_set": {
                             "type": ["string", "null"],
                             "description": "solo per semina_commission: numero di SET seminati, come stringa.",
@@ -84,6 +92,7 @@ class RichiestaInterpretata:
     azione: str
     varieta_public_id: str | None
     varieta_nome: str | None
+    semina_public_id: str | None
     num_set: str | None
     origin: str | None
     physical_started_at: str | None
@@ -117,6 +126,10 @@ Regole stringenti:
   servono (es. LUCE prima di CRESCITA), basta il target_state finale richiesto, il
   sistema calcola da solo i passaggi mancanti e li mostra tutti all'utente prima di
   eseguire.
+- Se l'utente scrive esplicitamente il codice di una semina (es. "SEM-000007"), riportalo in
+  semina_public_id esattamente come scritto, in maiuscolo. Se non lo scrive, lascia
+  semina_public_id=null: il sistema lo determina da solo dalla varietà, e se ce ne fosse più di
+  una attiva chiederà lui stesso di specificare.
 - "Seminato N set di X" è sempre semina_commission con quella varietà e quel num_set.
 - Se manca un'informazione essenziale per semina_commission (numero di SET), usa
   azione="chiarimento" per quella voce.
@@ -140,8 +153,8 @@ def interpreta(testo: str, settings: PostgreSQLSettings) -> list[RichiestaInterp
     blocco = next((b for b in risposta.content if b.type == "tool_use"), None)
     if blocco is None:
         return [RichiestaInterpretata(
-            azione="chiarimento", varieta_public_id=None, varieta_nome=None, num_set=None,
-            origin=None, physical_started_at=None, target_state=None,
+            azione="chiarimento", varieta_public_id=None, varieta_nome=None, semina_public_id=None,
+            num_set=None, origin=None, physical_started_at=None, target_state=None,
             chiarimento="Non sono riuscito a interpretare la richiesta, riprova riformulando.",
         )]
     risultati = []
@@ -150,13 +163,14 @@ def interpreta(testo: str, settings: PostgreSQLSettings) -> list[RichiestaInterp
         nome = by_id[vid].denominazione if vid in by_id else None
         if r.get("azione") != "chiarimento" and vid not in by_id:
             risultati.append(RichiestaInterpretata(
-                azione="chiarimento", varieta_public_id=None, varieta_nome=None, num_set=None,
-                origin=None, physical_started_at=None, target_state=None,
+                azione="chiarimento", varieta_public_id=None, varieta_nome=None, semina_public_id=None,
+                num_set=None, origin=None, physical_started_at=None, target_state=None,
                 chiarimento=f"Varietà non riconosciuta con certezza in: {testo!r}",
             ))
             continue
         risultati.append(RichiestaInterpretata(
             azione=r.get("azione"), varieta_public_id=vid, varieta_nome=nome,
+            semina_public_id=r.get("semina_public_id"),
             num_set=r.get("num_set"), origin=r.get("origin") or "RIPRISTINO_STOCK",
             physical_started_at=r.get("physical_started_at"), target_state=r.get("target_state"),
             chiarimento=r.get("chiarimento"),

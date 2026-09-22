@@ -83,7 +83,9 @@ def interpreta(body: dict, _: str = Depends(richiedi_autenticazione)) -> JSONRes
                 if not r.target_state:
                     errori.append(f"{r.varieta_nome}: non ho capito a quale stadio deve passare.")
                     continue
-                p = actions.prepara_transition(settings, r.varieta_public_id, r.varieta_nome, r.target_state)
+                p = actions.prepara_transition(
+                    settings, r.varieta_public_id, r.varieta_nome, r.target_state, r.semina_public_id,
+                )
                 proposte.append({
                     "tipo": "semina_transition", "varieta_public_id": p.varieta_public_id,
                     "semina_public_id": p.semina_public_id, "varieta_nome": p.varieta_nome,

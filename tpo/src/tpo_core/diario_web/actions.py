@@ -105,16 +105,29 @@ def prepara_commission(
 
 def prepara_transition(
     settings: PostgreSQLSettings, varieta_public_id: str, varieta_nome: str, target_state: str,
+    semina_public_id: str | None = None,
 ) -> PropostaTransition:
     if target_state not in ORDINE_STATI:
         raise PropostaAmbigua(f"Stato '{target_state}' non riconosciuto.")
     attive = db_context.semine_attive_per_varieta(settings, varieta_public_id)
     if not attive:
         raise SeminaNonTrovata(f"Nessuna semina attiva trovata per {varieta_nome}.")
-    if len(attive) > 1:
+    if semina_public_id:
+        # L'utente ha indicato esplicitamente quale semina -- usa quella,
+        # non serve chiedere anche se ce ne fossero altre attive per la
+        # stessa varietà. Verificata comunque contro le semine attive lette
+        # ora (mai un valore proposto in precedenza).
+        semina = next((s for s in attive if s.public_id == semina_public_id), None)
+        if semina is None:
+            raise SeminaNonTrovata(
+                f"{semina_public_id} non risulta una semina attiva di {varieta_nome} "
+                f"(chiusa, di un'altra varietà, o codice sbagliato)."
+            )
+    elif len(attive) > 1:
         codici = ", ".join(s.public_id for s in attive)
         raise PropostaAmbigua(f"Più semine attive per {varieta_nome}: {codici}. Specifica quale.")
-    semina = attive[0]
+    else:
+        semina = attive[0]
     idx_attuale = ORDINE_STATI.index(semina.stato)
     idx_target = ORDINE_STATI.index(target_state)
     if idx_target <= idx_attuale:

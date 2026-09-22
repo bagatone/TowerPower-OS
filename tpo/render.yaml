@@ -1,6 +1,7 @@
 services:
   - type: web
     name: tpo-diario
+    rootDir: tpo
     runtime: python
     plan: free
     buildCommand: "pip install -r requirements.txt"

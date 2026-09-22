@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: tpo-diario
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn src.tpo_core.diario_web.app:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /healthz
+    envVars:
+      - key: TPO_DATABASE_HOST
+        sync: false
+      - key: TPO_DATABASE_PORT
+        sync: false
+      - key: TPO_DATABASE_NAME
+        sync: false
+      - key: TPO_DATABASE_USER
+        sync: false
+      - key: TPO_DATABASE_PASSWORD
+        sync: false
+      - key: TPO_DATABASE_SSLMODE
+        sync: false
+      - key: TPO_DATABASE_CONNECT_TIMEOUT
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DIARIO_PASSWORD
+        sync: false
+      - key: DIARIO_ACTOR
+        value: "giulia@towerpower"
+      - key: DIARIO_MODEL
+        value: "claude-sonnet-4-5"

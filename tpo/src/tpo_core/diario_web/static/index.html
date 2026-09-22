@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diario — Tower Power</title>
+<style>
+  :root{
+    --bg:#F5F3EC; --surface:#FFFFFF; --border:#E3DFD0; --text:#1C231D;
+    --muted:#646F5E; --accent:#6D28D9; --accent-strong:#5416B8;
+    --good:#2E8B54; --good-soft:#E3F2E7; --bad:#BC3B31; --bad-soft:#FBE6E3;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12160F; --surface:#1B2118; --border:#33392E; --text:#EDEAE0;
+      --muted:#A2AC97; --accent:#B08CF0; --accent-strong:#C7ABF5;
+      --good:#5CBA82; --good-soft:#1B2E20; --bad:#E38177; --bad-soft:#3A2019;
+    }
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,"Segoe UI",sans-serif; font-size:16px; line-height:1.5;
+  }
+  .wrap{max-width:640px; margin:0 auto; padding:20px 16px 60px;}
+  h1{font-size:20px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
+  textarea{
+    width:100%; min-height:90px; font:inherit; font-size:16px; padding:12px;
+    border-radius:10px; border:1px solid var(--border); background:var(--surface);
+    color:var(--text); resize:vertical;
+  }
+  button{
+    font:inherit; font-size:15px; font-weight:600; padding:12px 18px;
+    border-radius:10px; border:1px solid var(--accent); background:var(--accent);
+    color:#fff; cursor:pointer; margin-top:10px;
+  }
+  button:active{background:var(--accent-strong);}
+  button.secondary{background:transparent; color:var(--muted); border-color:var(--border);}
+  button:disabled{opacity:.5; cursor:default;}
+  .card{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:14px 16px; margin-top:14px;
+  }
+  .card h3{margin:0 0 8px; font-size:15px;}
+  .card .riga{display:flex; justify-content:space-between; gap:10px; padding:3px 0; font-size:14px;}
+  .card .riga .k{color:var(--muted);}
+  .errore{
+    background:var(--bad-soft); color:var(--bad); border-radius:10px;
+    padding:10px 14px; margin-top:10px; font-size:14px;
+  }
+  .esito{
+    background:var(--good-soft); color:var(--good); border-radius:10px;
+    padding:10px 14px; margin-top:10px; font-size:14px; white-space:pre-wrap;
+  }
+  .esito.fallito{background:var(--bad-soft); color:var(--bad);}
+  .stato{font-size:13px; color:var(--muted); margin-top:10px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Diario Tower Power</h1>
+  <div class="sub">Scrivi cosa è successo. Ti mostro l'azione esatta prima di registrarla.</div>
+
+  <textarea id="testo" placeholder='Es. "Mizuna e Rábano sono passate in luce" oppure "Seminato 2 set di rucola"'></textarea>
+  <div>
+    <button id="btnInterpreta">Interpreta</button>
+  </div>
+  <div id="stato" class="stato"></div>
+  <div id="risultati"></div>
+</div>
+
+<script>
+const testoEl = document.getElementById("testo");
+const statoEl = document.getElementById("stato");
+const risultatiEl = document.getElementById("risultati");
+const btnInterpreta = document.getElementById("btnInterpreta");
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function campo(k, v) {
+  return `<div class="riga"><span class="k">${escapeHtml(k)}</span><span>${escapeHtml(v)}</span></div>`;
+}
+
+function cardProposta(p, idx) {
+  const div = document.createElement("div");
+  div.className = "card";
+  if (p.tipo === "semina_commission") {
+    div.innerHTML = `
+      <h3>Nuova semina — ${escapeHtml(p.varieta_nome)}</h3>
+      ${campo("Set", p.num_set)}
+      ${campo("Grammi", p.grammi + " g")}
+      ${campo("Lotto seme", p.lotto_seme_public_id)}
+      ${campo("Protocollo", p.protocollo_versione_public_id)}
+      ${campo("Origine", p.origin)}
+      ${campo("Avvio", p.physical_started_at)}
+      ${campo("Residuo dopo", p.residuo_dopo + " g")}
+    `;
+  } else {
+    div.innerHTML = `
+      <h3>Cambio stadio — ${escapeHtml(p.varieta_nome)}</h3>
+      ${campo("Semina", p.semina_public_id)}
+      ${campo("Da", p.stato_attuale)}
+      ${campo("A", p.passi[p.passi.length - 1])}
+      ${p.passi.length > 1 ? campo("Passi", p.passi.join(" → ")) : ""}
+    `;
+  }
+  const btn = document.createElement("button");
+  btn.textContent = "Conferma ed esegui";
+  const btnAnnulla = document.createElement("button");
+  btnAnnulla.textContent = "Annulla";
+  btnAnnulla.className = "secondary";
+  const esitoDiv = document.createElement("div");
+  btn.onclick = async () => {
+    btn.disabled = true; btnAnnulla.disabled = true;
+    btn.textContent = "Eseguo…";
+    try {
+      const r = await fetch("/api/conferma", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({proposta: p}),
+      });
+      const data = await r.json();
+      esitoDiv.className = "esito" + (data.ok ? "" : " fallito");
+      esitoDiv.textContent = data.messaggio;
+      btn.remove(); btnAnnulla.remove();
+    } catch (e) {
+      esitoDiv.className = "esito fallito";
+      esitoDiv.textContent = "Errore di rete: " + e;
+    }
+  };
+  btnAnnulla.onclick = () => div.remove();
+  div.appendChild(document.createElement("div"));
+  const azioni = document.createElement("div");
+  azioni.appendChild(btn); azioni.appendChild(btnAnnulla);
+  div.appendChild(azioni);
+  div.appendChild(esitoDiv);
+  return div;
+}
+
+btnInterpreta.onclick = async () => {
+  const testo = testoEl.value.trim();
+  if (!testo) return;
+  btnInterpreta.disabled = true;
+  statoEl.textContent = "Interpreto…";
+  risultatiEl.innerHTML = "";
+  try {
+    const r = await fetch("/api/interpreta", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({testo}),
+    });
+    const data = await r.json();
+    statoEl.textContent = "";
+    (data.proposte || []).forEach((p, i) => risultatiEl.appendChild(cardProposta(p, i)));
+    (data.errori || []).forEach((e) => {
+      const d = document.createElement("div");
+      d.className = "errore";
+      d.textContent = e;
+      risultatiEl.appendChild(d);
+    });
+    if (!(data.proposte || []).length && !(data.errori || []).length) {
+      statoEl.textContent = "Nessuna proposta.";
+    }
+  } catch (e) {
+    statoEl.textContent = "Errore: " + e;
+  } finally {
+    btnInterpreta.disabled = false;
+  }
+};
+</script>
+</body>
+</html>

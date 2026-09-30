@@ -40,8 +40,12 @@ launcher_failure() {
     exit "$2"
 }
 
-if [ "$CANARY_TIME" != "$BUSINESS_TIME" ]; then
-    launcher_failure "MISSED_EXECUTION: outside authorized Atlantic/Canary schedule" 1
+CANARY_MINUTES_SINCE_MIDNIGHT=$(( 10#${CANARY_TIME%%:*} * 60 + 10#${CANARY_TIME##*:} ))
+BUSINESS_MINUTES_SINCE_MIDNIGHT=$(( 10#${BUSINESS_TIME%%:*} * 60 + 10#${BUSINESS_TIME##*:} ))
+SCHEDULE_WINDOW_MINUTES=15
+SCHEDULE_DELTA_MINUTES=$(( CANARY_MINUTES_SINCE_MIDNIGHT - BUSINESS_MINUTES_SINCE_MIDNIGHT ))
+if [ "$SCHEDULE_DELTA_MINUTES" -lt 0 ] || [ "$SCHEDULE_DELTA_MINUTES" -gt "$SCHEDULE_WINDOW_MINUTES" ]; then
+    launcher_failure "MISSED_EXECUTION: outside authorized Atlantic/Canary schedule (window ${BUSINESS_TIME}-+${SCHEDULE_WINDOW_MINUTES}min, invoked ${CANARY_TIME})" 1
 fi
 
 if [ ! -f "$SETTINGS" ] || [ ! -r "$SETTINGS" ]; then

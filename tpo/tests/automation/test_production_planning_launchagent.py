@@ -125,9 +125,15 @@ def test_overlap_and_missed_occurrence_fail_before_cli(tmp_path: Path):
     assert not calls.exists()
     lock.rmdir()
     environment["PATH"] = environment["PATH"]
-    root2, environment2, calls2 = _project(tmp_path / "missed", canary_time="06:31")
+    root2, environment2, calls2 = _project(tmp_path / "missed", canary_time="06:46")
     assert _run(root2, environment2).returncode == 1
     assert not calls2.exists()
+
+
+def test_canary_time_entro_i_15_minuti_di_tolleranza_esegue_normalmente(tmp_path: Path):
+    root, environment, calls = _project(tmp_path, canary_time="06:45")
+    assert _run(root, environment).returncode == 0
+    assert calls.exists()
 
 
 def test_failure_is_not_retried_and_logging_is_sanitized(tmp_path: Path):

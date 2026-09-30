@@ -29,8 +29,11 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
     exit 1
 fi
 if [ -z "${DIARIO_PASSWORD:-}" ]; then
-    echo "OPERATION_INPUT_INVALID: esporta DIARIO_PASSWORD prima di lanciare questo script." >&2
-    exit 1
+    DIARIO_PASSWORD="$(openssl rand -hex 8)"
+    export DIARIO_PASSWORD
+    echo "DIARIO_PASSWORD non impostata: ne ho generata una temporanea solo per questo test:"
+    echo "  DIARIO_PASSWORD=$DIARIO_PASSWORD"
+    echo "(vale solo per questa esecuzione locale, non è quella vera di Render)"
 fi
 
 ENV_ASSIGNMENTS="$(cd "$ROOT" && "$PYTHON" - <<'PYEOF'

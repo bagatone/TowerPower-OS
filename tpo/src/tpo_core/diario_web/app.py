@@ -18,7 +18,9 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from . import actions, db_context, interpreter
+from datetime import datetime, timezone
+
+from . import actions, db_context, interpreter, rendiconto
 from .auth import richiedi_autenticazione
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 
@@ -136,3 +138,44 @@ def salute(_: str = Depends(richiedi_autenticazione)) -> dict:
     settings = _settings()
     varieta = db_context.elenca_varieta(settings)
     return {"ok": True, "varieta_nel_sistema": len(varieta)}
+
+
+@app.get("/api/rendiconto")
+def api_rendiconto(_: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Rendiconto Mattutino, Fase 1 Parte A (docs/architecture/
+    RENDICONTO_MATTUTINO_PROPOSTA.md): sola lettura, nessuna scrittura --
+    compone da seminare oggi/in ritardo + consegne oggi con stock gia'
+    risolto, separando le righe con un dato mancante/insufficiente."""
+    settings = _settings()
+    try:
+        r = rendiconto.componi(settings, datetime.now(timezone.utc))
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"errore": f"Rendiconto non disponibile: {exc}"}, status_code=503)
+    return JSONResponse({
+        "data": r.data,
+        "da_chiarire": [
+            {
+                "ordine": x.ordine_public_id, "cliente": x.cliente_denominazione,
+                "varieta": x.varieta_denominazione, "quantita": str(x.quantita_richiesta),
+                "unita": x.unita, "motivo": x.motivo,
+            }
+            for x in r.da_chiarire
+        ],
+        "consegne": [
+            {
+                "ordine": x.ordine_public_id, "cliente": x.cliente_denominazione,
+                "varieta": x.varieta_denominazione, "quantita": str(x.quantita),
+                "unita": x.unita, "stock_disponibile": str(x.stock_disponibile),
+            }
+            for x in r.consegne
+        ],
+        "da_seminare": [
+            {
+                "riga": x.riga_public_id, "varieta": x.varieta_denominazione,
+                "cliente": x.cliente_denominazione, "stato": x.stato,
+                "quantita": str(x.quantita), "unita": x.unita,
+                "sowing_at": x.sowing_at.isoformat(),
+            }
+            for x in r.da_seminare
+        ],
+    })

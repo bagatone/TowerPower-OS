@@ -55,12 +55,27 @@
   }
   .esito.fallito{background:var(--bad-soft); color:var(--bad);}
   .stato{font-size:13px; color:var(--muted); margin-top:10px;}
+  .rendiconto{margin-bottom:24px;}
+  .rendiconto h2{font-size:16px; margin:18px 0 8px;}
+  .rendiconto h2:first-child{margin-top:0;}
+  .riga-r{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:10px 12px; margin-top:6px; font-size:14px; display:flex;
+    justify-content:space-between; gap:10px; align-items:baseline;
+  }
+  .riga-r.chiarire{border-color:var(--bad); background:var(--bad-soft);}
+  .riga-r .principale{font-weight:600;}
+  .riga-r .dettaglio{color:var(--muted); font-size:13px;}
+  .riga-r.chiarire .dettaglio{color:var(--bad);}
+  .rendiconto .vuoto{color:var(--muted); font-size:14px; padding:4px 0;}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Diario Tower Power</h1>
   <div class="sub">Scrivi cosa è successo. Ti mostro l'azione esatta prima di registrarla.</div>
+
+  <div id="rendiconto" class="rendiconto"><div class="vuoto">Carico il rendiconto di oggi…</div></div>
 
   <textarea id="testo" placeholder='Es. "Mizuna e Rábano sono passate in luce" oppure "Seminato 2 set di rucola"'></textarea>
   <div>
@@ -140,6 +155,57 @@ function cardProposta(p, idx) {
   div.appendChild(esitoDiv);
   return div;
 }
+
+function rigaConsegna(x) {
+  return `<div class="riga-r">
+    <div><span class="principale">${escapeHtml(x.cliente)}</span> — ${escapeHtml(x.varieta)}</div>
+    <div class="dettaglio">${escapeHtml(x.quantita)} ${escapeHtml(x.unita)} · ${escapeHtml(x.ordine)}</div>
+  </div>`;
+}
+function rigaChiarire(x) {
+  return `<div class="riga-r chiarire">
+    <div><span class="principale">${escapeHtml(x.cliente)}</span> — ${escapeHtml(x.varieta)}</div>
+    <div class="dettaglio">${escapeHtml(x.motivo)}</div>
+  </div>`;
+}
+function rigaSemina(x) {
+  return `<div class="riga-r">
+    <div><span class="principale">${escapeHtml(x.varieta)}</span> per ${escapeHtml(x.cliente)}</div>
+    <div class="dettaglio">${escapeHtml(x.quantita)} ${escapeHtml(x.unita)} · ${escapeHtml(x.stato)}</div>
+  </div>`;
+}
+
+async function caricaRendiconto() {
+  const el = document.getElementById("rendiconto");
+  try {
+    const r = await fetch("/api/rendiconto");
+    const data = await r.json();
+    if (data.errore) {
+      el.innerHTML = `<div class="errore">${escapeHtml(data.errore)}</div>`;
+      return;
+    }
+    const nulla = !(data.da_chiarire || []).length && !(data.consegne || []).length
+      && !(data.da_seminare || []).length;
+    if (nulla) {
+      el.innerHTML = `<div class="vuoto">Rendiconto del ${escapeHtml(data.data)}: nessuna consegna né semina in scadenza oggi.</div>`;
+      return;
+    }
+    let html = "";
+    if ((data.da_chiarire || []).length) {
+      html += `<h2>Da chiarire</h2>` + data.da_chiarire.map(rigaChiarire).join("");
+    }
+    if ((data.consegne || []).length) {
+      html += `<h2>Consegne di oggi</h2>` + data.consegne.map(rigaConsegna).join("");
+    }
+    if ((data.da_seminare || []).length) {
+      html += `<h2>Da seminare oggi</h2>` + data.da_seminare.map(rigaSemina).join("");
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="errore">Rendiconto non caricato: ${escapeHtml(String(e))}</div>`;
+  }
+}
+caricaRendiconto();
 
 btnInterpreta.onclick = async () => {
   const testo = testoEl.value.trim();

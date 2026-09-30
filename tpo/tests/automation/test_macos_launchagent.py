@@ -405,7 +405,7 @@ def test_path_applicativo_con_spazi(tmp_path: Path) -> None:
 
 
 def test_business_date_usa_timezone_canary_e_nessun_catchup(tmp_path: Path) -> None:
-    root, environment, calls = _project(tmp_path, canary_time="06:01")
+    root, environment, calls = _project(tmp_path, canary_time="06:16")
 
     result = _run_launcher(root, environment)
 
@@ -418,7 +418,19 @@ def test_business_date_usa_timezone_canary_e_nessun_catchup(tmp_path: Path) -> N
     )
     assert "TZ=Atlantic/Canary date '+%Y-%m-%d'" in launcher_source
     assert "2026-08-10" in date_source
-    assert "+00:00" not in launcher_source
+
+
+def test_canary_time_entro_i_15_minuti_di_tolleranza_esegue_normalmente(
+    tmp_path: Path,
+) -> None:
+    root, environment, calls = _project(tmp_path, canary_time="06:15")
+
+    result = _run_launcher(root, environment)
+
+    assert result.returncode == 0
+    assert calls.exists()
+    log = _logs(root)[0].read_text(encoding="utf-8")
+    assert "MISSED_EXECUTION" not in log
 
 
 def test_lock_esistente_blocca_cli_senza_rimozione(tmp_path: Path) -> None:

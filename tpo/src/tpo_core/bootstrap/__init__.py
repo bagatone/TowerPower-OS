@@ -27,6 +27,7 @@ from .movimento_carico import build_movimento_carico_service
 from .onboarding import build_operational_data_onboarding_service
 from .pianificazione_semina_lettura import build_pianificazione_semina_lettura_service
 from .production_planning import (
+    build_agronomic_protocol_commissioner,
     build_production_planning_policy_commissioner,
     build_production_planning_runtime,
     build_production_planning_runtime_from_environment,
@@ -47,6 +48,7 @@ from .varieta_lettura import build_varieta_lettura_service
 
 __all__ = [
     "ApplicationContainer",
+    "build_agronomic_protocol_commissioner",
     "build_articolo_service",
     "build_assegnazione_fisica_service",
     "build_clienti_lettura_service",

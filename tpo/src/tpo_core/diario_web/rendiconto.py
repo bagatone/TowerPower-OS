@@ -77,6 +77,16 @@ class RendicontoDelGiorno:
         return not (self.da_chiarire or self.consegne or self.da_seminare)
 
 
+# 2026-10-01: scoperto che possono esistere piu' tpo.piani_produzione
+# contemporaneamente "correnti" (sostituita_at IS NULL sulla loro revisione
+# attuale) -- es. PP-000001 (bootstrap manuale, 23/8) mai chiuso quando il
+# production-planning-scheduler ha creato PP-000003 (24/9) come piano
+# nuovo invece di una nuova revisione dello stesso piano. Senza scoping
+# esplicito al piano piu' recente, righe_piano_semina del piano vecchio
+# ricompaiono come se fossero ancora da fare (gia' verificato: il piano
+# nuovo le copre tutte, nessuna persa). Root cause nello scheduler non
+# ancora indagata -- qui ci si limita a leggere solo il piano vivo piu'
+# recente, stesso principio del filtro sostituita_at ma esplicito.
 _SELECT_DA_SEMINARE = (
     "SELECT rps.public_id, v.denominazione, c.denominazione, rps.stato, "
     "rps.quantita_residua_da_avviare, rps.unita_domanda, rps.sowing_at "
@@ -86,8 +96,13 @@ _SELECT_DA_SEMINARE = (
     "JOIN tpo.righe_ordine ro ON ro.id = rps.riga_ordine_id "
     "JOIN tpo.ordini o ON o.id = ro.ordine_id "
     "JOIN tpo.clienti c ON c.id = o.cliente_id "
-    "WHERE pr.sostituita_at IS NULL AND rps.stato IN ('PIANIFICATA','PRONTA','TARDIVA') "
+    "WHERE pr.id = ( "
+    "    SELECT r.id FROM tpo.piano_produzione_revisioni r "
+    "    WHERE r.sostituita_at IS NULL ORDER BY r.created_at DESC LIMIT 1 "
+    ") "
+    "AND rps.stato IN ('PIANIFICATA','PRONTA','TARDIVA') "
     "AND rps.sowing_at::date <= %s "
+    "AND rps.quantita_residua_da_avviare > 0 "
     "ORDER BY rps.sowing_at ASC"
 )
 

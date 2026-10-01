@@ -21,6 +21,7 @@ from .seed_lot import run_seed_lot_command
 from .semente import run_semente_command
 from .semente_impiego import run_semente_impiego_command
 from .semina import run_semina_command
+from .protocollo import run_protocollo_command
 from .delivery import run_delivery_command
 from .fattura import run_fattura_command
 from .incasso import run_incasso_command
@@ -167,6 +168,40 @@ def _parser() -> argparse.ArgumentParser:
     commission_seed_lot.add_argument("--correlation-id", required=True)
     commission_seed_lot.add_argument("--idempotency-key", required=True)
     commission_seed_lot.add_argument("--confirm", action="store_true", required=True)
+    protocollo = commands.add_parser(
+        "protocollo", help="Commissioning governato PROTOCOLLO agronomico.",
+    )
+    protocollo_commands = protocollo.add_subparsers(dest="protocollo_command", required=True)
+    commission_protocollo = protocollo_commands.add_parser("commission")
+    commission_protocollo.add_argument("--variety-id", required=True)
+    commission_protocollo.add_argument("--variety-name", required=True)
+    commission_protocollo.add_argument("--cultivar-name", required=True)
+    commission_protocollo.add_argument("--productive-use-code", required=True)
+    commission_protocollo.add_argument("--productive-use-name", required=True)
+    commission_protocollo.add_argument("--protocol-name", required=True)
+    commission_protocollo.add_argument("--protocol-version-id", required=True)
+    commission_protocollo.add_argument("--version", required=True, type=int)
+    commission_protocollo.add_argument("--valid-from", required=True)
+    commission_protocollo.add_argument("--valid-to")
+    commission_protocollo.add_argument("--hydration-hours", required=True)
+    commission_protocollo.add_argument("--planned-sowing-time", required=True)
+    commission_protocollo.add_argument("--target-harvest-time", required=True)
+    commission_protocollo.add_argument("--germination-days", required=True, type=int)
+    commission_protocollo.add_argument("--light-growth-days", required=True, type=int)
+    commission_protocollo.add_argument("--seed-grams-per-set", required=True)
+    commission_protocollo.add_argument("--expected-yield", required=True)
+    commission_protocollo.add_argument("--production-granularity", required=True)
+    commission_protocollo.add_argument("--harvest-min-lead-days", required=True, type=int)
+    commission_protocollo.add_argument("--harvest-max-lead-days", required=True, type=int)
+    commission_protocollo.add_argument("--temporal-buffer-minutes", required=True, type=int)
+    commission_protocollo.add_argument("--content", required=True)
+    commission_protocollo.add_argument("--motivation", required=True)
+    commission_protocollo.add_argument("--evidence")
+    commission_protocollo.add_argument("--provenance", required=True)
+    commission_protocollo.add_argument("--actor", required=True)
+    commission_protocollo.add_argument("--reason", required=True)
+    commission_protocollo.add_argument("--correlation-id", required=True)
+    commission_protocollo.add_argument("--confirm", action="store_true", required=True)
     semina = commands.add_parser("semina", help="Commissioning governato SEMINA.")
     semina_commands = semina.add_subparsers(dest="semina_command", required=True)
     commission_semina = semina_commands.add_parser("commission")
@@ -462,6 +497,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_seed_lot_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "semina":
         return run_semina_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "protocollo":
+        return run_protocollo_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "raccolta":
         return run_raccolta_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "programma-fornitura":

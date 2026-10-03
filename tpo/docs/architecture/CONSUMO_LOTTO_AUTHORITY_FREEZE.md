@@ -150,3 +150,22 @@ SQL/plpgsql, verificabile riga per riga in
 2. Se verde: stesso ciclo su Supabase reale (`alembic upgrade head`) —
    nessuna riga "bolla" da costruire ancora, questo è solo il fondamento.
 3. Solo dopo, fase 2: documento bolla.
+
+## 9. Addendum 3/10/2026 — D5: giacenza senza origine tracciabile
+
+Verificato sui dati reali (script `2026-10-03_check_consumo_lotto.py`): i
+CARICO storici di Afila e Cilantro sono in GRAM (933 e 408), lo STOCK in
+GRAM e' congelato a 0, e la giacenza attuale e' in SET (Afila 2, Cilantro 1)
+senza alcun MOVIMENTO CARICO in SET. Senza correzione, il primo CARICO in SET
+futuro avrebbe fatto attribuire al suo codice consegne fisicamente servite
+da quella giacenza senza origine -- un codice sbagliato su una bolla.
+
+- **D5**: la giacenza senza CARICO e' piu' vecchia di qualsiasi CARICO futuro:
+  in FIFO si consuma per prima e non viene attribuita a nessun codice (resta
+  "senza origine", come D2/D4). Calcolata a runtime in `_consume_lots`:
+  giacenza prima dello scarico - residuo di tutti i CARICO della VARIETA+UNITA.
+- Il backfill della 0036 sui dati reali di oggi non fa nulla (nessun CARICO
+  in SET): resta valido per il caso generale ma non sa distinguere giacenza
+  senza origine pre-esistente; limite noto, irrilevante sul database attuale.
+- Test aggiunto: `test_real_postgresql_consumo_lotto_untraced_opening_stock_is_consumed_first`.
+

@@ -366,8 +366,27 @@ class PostgreSQLDeliveryFulfilmentWriter:
                FOR UPDATE OF m""",
             (varieta_pk, unit),
         )
+        carichi = cursor.fetchall()
+        # Giacenza SENZA origine tracciabile (D5, 3/10/2026): lo STOCK gia'
+        # presente quando e' nato il ledger (es. SET convertiti dai GRAM
+        # storici) non ha alcun MOVIMENTO CARICO. Esisteva prima di qualsiasi
+        # CARICO futuro, quindi in FIFO e' il piu' vecchio: si consuma per
+        # primo e NON viene attribuito a nessun codice. Calcolata a runtime
+        # come: giacenza prima di questo scarico - residuo di tutti i CARICO.
+        cursor.execute(
+            "SELECT disponibile FROM tpo.stock WHERE varieta_id=%s AND unita_misura=%s",
+            (varieta_pk, unit),
+        )
+        stock_row = cursor.fetchone()
         remaining = quantity_needed
-        for carico_id, residuo in cursor.fetchall():
+        if stock_row is not None:
+            traced_residual = sum(
+                (Decimal(r) for _, r in carichi if r is not None and r > 0), Decimal(0)
+            )
+            untraced = Decimal(stock_row[0]) + quantity_needed - traced_residual
+            if untraced > 0:
+                remaining -= min(untraced, remaining)
+        for carico_id, residuo in carichi:
             if remaining <= 0:
                 break
             if residuo is None or residuo <= 0:

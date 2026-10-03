@@ -637,3 +637,23 @@ def test_real_postgresql_consumo_lotto_bounds_trigger_rejects_overconsumption(wr
                 connection.exec_driver_sql("SET CONSTRAINTS ALL IMMEDIATE")
         finally:
             savepoint.rollback()
+
+
+def test_real_postgresql_consumo_lotto_untraced_opening_stock_is_consumed_first(writer_postgresql_engine) -> None:
+    """D5: lo STOCK gia' presente prima del ledger (nessun CARICO) e' piu'
+    vecchio di qualsiasi CARICO futuro: va consumato per primo e non deve
+    mai essere attribuito al codice di un CARICO nuovo."""
+    engine = writer_postgresql_engine
+    # giacenza 7 = 2 senza origine + 5 del CARICO nuovo
+    _seed(engine, 920005, stock="7", order_quantity="3")
+    _seed_carico(engine, 920005, 920501, "5", datetime(2099, 1, 1, 8, tzinfo=TZ))
+    writer = _writer(engine)
+    # consegna 1: tutta dalla giacenza senza origine -> nessun codice
+    writer.publish(_command(920005, "2", movement=920005))
+    assert _consumi_per_scarico(engine, "MOV-920005") == []
+    # consegna 2 sullo stesso ordine: ora la giacenza senza origine e' finita
+    writer.publish(_command(
+        920006, "1", order_version=1, line_version=1, movement=920006,
+        line_number=920005, client_number=920005,
+    ))
+    assert _consumi_per_scarico(engine, "MOV-920006") == [("MOV-920501", Decimal("1"))]

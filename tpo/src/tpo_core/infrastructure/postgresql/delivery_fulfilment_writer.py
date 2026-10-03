@@ -25,6 +25,7 @@ from ...application.delivery_fulfilment.models import (
 from ...application.ports.clock import Clock
 from ...domain.identifiers import OrdineId
 from .connection import PostgreSQLConnectionFactory
+from .consumo_lotto import consume_lots
 
 
 class PostgreSQLDeliveryFulfilmentWriter:
@@ -256,6 +257,9 @@ class PostgreSQLDeliveryFulfilmentWriter:
                 self._consume_lots(
                     cursor, row[3], line.unit.value, movement_pk, line.quantity,
                     persistence_at, command.actor.value,
+                    origin_semina=(
+                        None if line.origin_semina is None else line.origin_semina.value
+                    ),
                 )
                 movement_count += 1
             self._audit_line(
@@ -339,75 +343,22 @@ class PostgreSQLDeliveryFulfilmentWriter:
     def _consume_lots(
         cursor: Any, varieta_pk: int, unit: str, movimento_scarico_id: int,
         quantity_needed: Decimal, persistence_at: datetime, actor: str,
+        origin_semina: str | None = None,
     ) -> None:
-        """Spiega, in ordine FIFO per data di carico, da quali MOVIMENTI
-        CARICO (ingressi da RACCOLTA) proviene la quantita' appena scaricata
-        da questa CONSEGNA -- preservando i codici di tracciabilita' di
-        origine senza fonderli (CONSUMO_LOTTO, vedi
-        docs/architecture/CONSUMO_LOTTO_AUTHORITY_FREEZE.md).
+        """Spiega da quali lotti (CARICO da RACCOLTA) proviene la quantita'
+        appena scaricata, preservando i codici di origine senza fonderli.
 
-        Unita' di tracciabilita' (migrazione 20261003_0037): un CARICO con
-        RACCOLTA e' misurato nell'unita' e nella quantita' della RACCOLTA (SET),
-        anche se il MOVIMENTO e' in GRAM (carichi storici di Afila/Cilantro);
-        un CARICO senza RACCOLTA nella propria unita'.
-
-        Non bloccante: se la provenienza tracciabile disponibile non basta a
-        spiegare l'intera quantita' (tipicamente stock residuo da prima che
-        questo meccanismo esistesse, gia' gestito una tantum dal backfill
-        della migrazione 20261002_0036), la CONSEGNA procede comunque --
-        STOCK e RIGHE_ORDINE restano l'autorita' commerciale, invariata. La
-        parte non spiegata resta semplicemente senza lotto di origine, non
-        viene mai inventata.
+        Logica condivisa con la rettifica di giacenza: vedi
+        ``consumo_lotto.consume_lots`` (FIFO, giacenza senza origine D5,
+        provenienza dichiarata dall'operatore).
         """
-        cursor.execute(
-            """SELECT m.id,
-                      COALESCE(r.quantita, m.quantita) - COALESCE(consumato.totale, 0) AS residuo
-               FROM tpo.movimenti_magazzino m
-               LEFT JOIN tpo.raccolte r ON r.id = m.raccolta_id
-               LEFT JOIN (
-                   SELECT movimento_carico_id, SUM(quantita) AS totale
-                   FROM tpo.consumi_lotto GROUP BY movimento_carico_id
-               ) consumato ON consumato.movimento_carico_id = m.id
-               WHERE m.varieta_id = %s AND m.tipo = 'CARICO'
-                 AND COALESCE(r.unita_misura, m.unita_misura)::text = %s
-               ORDER BY m.data_movimento ASC, m.id ASC
-               FOR UPDATE OF m""",
-            (varieta_pk, unit),
+        consume_lots(
+            cursor, varieta_pk=varieta_pk, unit=unit,
+            movimento_scarico_id=movimento_scarico_id,
+            quantity_needed=quantity_needed, persistence_at=persistence_at,
+            actor=actor, tipo_consumo="CONSEGNA", origin_semina=origin_semina,
+            fail=DeliveryValidationError,
         )
-        carichi = cursor.fetchall()
-        # Giacenza SENZA origine tracciabile (D5, 3/10/2026): lo STOCK gia'
-        # presente quando e' nato il ledger (es. SET convertiti dai GRAM
-        # storici) non ha alcun MOVIMENTO CARICO. Esisteva prima di qualsiasi
-        # CARICO futuro, quindi in FIFO e' il piu' vecchio: si consuma per
-        # primo e NON viene attribuito a nessun codice. Calcolata a runtime
-        # come: giacenza prima di questo scarico - residuo di tutti i CARICO.
-        cursor.execute(
-            "SELECT disponibile FROM tpo.stock WHERE varieta_id=%s AND unita_misura=%s",
-            (varieta_pk, unit),
-        )
-        stock_row = cursor.fetchone()
-        remaining = quantity_needed
-        if stock_row is not None:
-            traced_residual = sum(
-                (Decimal(r) for _, r in carichi if r is not None and r > 0), Decimal(0)
-            )
-            untraced = Decimal(stock_row[0]) + quantity_needed - traced_residual
-            if untraced > 0:
-                remaining -= min(untraced, remaining)
-        for carico_id, residuo in carichi:
-            if remaining <= 0:
-                break
-            if residuo is None or residuo <= 0:
-                continue
-            take = residuo if residuo < remaining else remaining
-            cursor.execute(
-                """INSERT INTO tpo.consumi_lotto
-                   (movimento_carico_id, movimento_scarico_id, tipo_consumo,
-                    quantita, created_at, created_by)
-                   VALUES (%s,%s,'CONSEGNA',%s,%s,%s)""",
-                (carico_id, movimento_scarico_id, take, persistence_at, actor),
-            )
-            remaining -= take
 
     @staticmethod
     def _order_state(cursor: Any, order_pk: int) -> str:

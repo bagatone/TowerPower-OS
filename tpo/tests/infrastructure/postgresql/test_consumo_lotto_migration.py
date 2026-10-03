@@ -251,3 +251,90 @@ def test_0037_bounds_use_raccolta_capacity_and_downgrade_restores_0036(at_0036_e
         assert connection.exec_driver_sql(
             "SELECT count(*) FROM tpo.consumi_lotto WHERE created_by LIKE 'migration-20261003-0037%%'"
         ).scalar_one() == 0
+
+
+def test_0037_rettifica_giacenza_schema_and_downgrade_guard(at_0036_engine) -> None:
+    with at_0036_engine.begin() as connection:
+        variety = _variety(connection, 950004)
+        _gram_carico_with_set_raccolta(connection, variety, 950701, "2", "622", 8)
+        _movement(connection, variety, 950801, "SCARICO", "1", 10, unit="SET")
+    _upgrade_head(at_0036_engine)
+    with at_0036_engine.connect() as connection:
+        carico_pk = connection.exec_driver_sql(
+            "SELECT id FROM tpo.movimenti_magazzino WHERE public_id='MOV-950701'").scalar_one()
+        scarico_pk = connection.exec_driver_sql(
+            "SELECT id FROM tpo.movimenti_magazzino WHERE public_id='MOV-950801'").scalar_one()
+        connection.rollback()
+        # RETTIFICA_GIACENZA senza scarico: rifiutata dal CHECK di coerenza
+        trans = connection.begin()
+        with pytest.raises(sa.exc.IntegrityError, match="ck_consumi_lotto_tipo_coerente"):
+            connection.exec_driver_sql("""
+              INSERT INTO tpo.consumi_lotto
+                (movimento_carico_id, movimento_scarico_id, tipo_consumo, quantita, created_at, created_by)
+              VALUES (%s,NULL,'RETTIFICA_GIACENZA',1,now(),'test')
+            """, (carico_pk,))
+        trans.rollback()
+        # con scarico e' valida, ma la stessa coppia (scarico, carico) non si ripete
+        trans = connection.begin()
+        connection.exec_driver_sql("""
+          INSERT INTO tpo.consumi_lotto
+            (movimento_carico_id, movimento_scarico_id, tipo_consumo, quantita, created_at, created_by)
+          VALUES (%s,%s,'RETTIFICA_GIACENZA',1,now(),'test')
+        """, (carico_pk, scarico_pk))
+        connection.exec_driver_sql("SET CONSTRAINTS ALL IMMEDIATE")
+        with pytest.raises(sa.exc.IntegrityError, match="uq_consumi_lotto_scarico_carico_unico"):
+            connection.exec_driver_sql("""
+              INSERT INTO tpo.consumi_lotto
+                (movimento_carico_id, movimento_scarico_id, tipo_consumo, quantita, created_at, created_by)
+              VALUES (%s,%s,'RETTIFICA_GIACENZA',1,now(),'test')
+            """, (carico_pk, scarico_pk))
+        trans.rollback()
+        # nuovo scope di idempotenza accettato, scope sconosciuto no
+        trans = connection.begin()
+        connection.exec_driver_sql("""
+          INSERT INTO tpo.movimento_carico_requests
+            (operation_scope,idempotency_key,canonical_payload_hash,outcome,recorded_at,created_by)
+          VALUES ('MOVIMENTO_RETTIFICA_GIACENZA_V1','k',repeat('a',64),'RESERVED',now(),'test')
+        """)
+        trans.rollback()
+        trans = connection.begin()
+        with pytest.raises(sa.exc.IntegrityError, match="ck_movimento_carico_scope"):
+            connection.exec_driver_sql("""
+              INSERT INTO tpo.movimento_carico_requests
+                (operation_scope,idempotency_key,canonical_payload_hash,outcome,recorded_at,created_by)
+              VALUES ('ALTRO','k',repeat('a',64),'RESERVED',now(),'test')
+            """)
+        trans.rollback()
+    # downgrade rifiutato se esiste storico di rettifiche
+    with at_0036_engine.begin() as connection:
+        connection.exec_driver_sql("""
+          INSERT INTO tpo.consumi_lotto
+            (movimento_carico_id, movimento_scarico_id, tipo_consumo, quantita, created_at, created_by)
+          SELECT mc.id, ms.id, 'RETTIFICA_GIACENZA', 1, now(), 'test'
+          FROM tpo.movimenti_magazzino mc, tpo.movimenti_magazzino ms
+          WHERE mc.public_id='MOV-950701' AND ms.public_id='MOV-950801'
+        """)
+    with at_0036_engine.connect() as connection:
+        with pytest.raises(sa.exc.DBAPIError, match="RETTIFICA_GIACENZA history exists"):
+            alembic_command.downgrade(make_config(connection=connection), "20261002_0036")
+
+
+def test_0037_ordine_manuale_requests_table_downgrade_guard_and_cleanup(at_0036_engine) -> None:
+    _upgrade_head(at_0036_engine)
+    with at_0036_engine.connect() as connection:
+        assert connection.exec_driver_sql(
+            "SELECT to_regclass('tpo.ordine_manuale_requests') IS NOT NULL").scalar_one()
+        alembic_command.downgrade(make_config(connection=connection), "20261002_0036")
+        connection.commit()
+        assert not connection.exec_driver_sql(
+            "SELECT to_regclass('tpo.ordine_manuale_requests') IS NOT NULL").scalar_one()
+    _upgrade_head(at_0036_engine)
+    with at_0036_engine.begin() as connection:
+        connection.exec_driver_sql("""
+          INSERT INTO tpo.ordine_manuale_requests
+            (idempotency_key,canonical_payload_hash,outcome,recorded_at,created_by)
+          VALUES ('k',repeat('b',64),'RESERVED',now(),'test')
+        """)
+    with at_0036_engine.connect() as connection:
+        with pytest.raises(sa.exc.DBAPIError, match="ORDINE MANUALE history exists"):
+            alembic_command.downgrade(make_config(connection=connection), "20261002_0036")

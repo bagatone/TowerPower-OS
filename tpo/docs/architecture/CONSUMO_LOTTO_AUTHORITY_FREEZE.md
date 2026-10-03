@@ -138,8 +138,9 @@ SQL/plpgsql, verificabile riga per riga in
   immediato prima che esista la bolla vera.
 - Qualunque esposizione CLI del dettaglio lotto (oggi `tpo delivery fulfil`
   resta silenzioso su questo, come prima).
-- Un test di migrazione dedicato per il backfill: aggiunto il 3/10/2026
-  (`test_consumo_lotto_migration.py`, PostgreSQL reale).
+- Un test di migrazione dedicato che simuli dati storici pre-esistenti e
+  verifichi il backfill end-to-end (oggi verificato solo per lettura
+  diretta del codice SQL, non con un test automatico — da aggiungere).
 
 ## 8. Prossimo passo
 
@@ -168,33 +169,35 @@ da quella giacenza senza origine -- un codice sbagliato su una bolla.
   senza origine pre-esistente; limite noto, irrilevante sul database attuale.
 - Test aggiunto: `test_real_postgresql_consumo_lotto_untraced_opening_stock_is_consumed_first`.
 
-## 10. Addendum 3/10/2026 (sera) — D6: unità di tracciabilità = unità della RACCOLTA
 
-Verificato sui dati reali: i CARICO storici di Afila (311 g, 622 g) e Cilantro
-(204 g, 204 g) sono in GRAM, ma ciascuno è legato a una RACCOLTA in SET
-(1, 2, 1, 1 SET; `ck_raccolte_uom_set`), e le CONSEGNE scaricano in SET. Con la
-0036 questi lotti non erano selezionabili (unità diversa), quindi le bolle di
-Afila/Cilantro sarebbero uscite "senza origine" pur essendo l'origine
-registrata (tutta SEM-000002 `AFI-1309-A` per Afila, tutta SEM-000001
-`CIL-0709-A` per Cilantro; i numeri tornano: 3 raccolti - 1 consegnato = 2 in
-stock; 2 - 1 = 1).
+## 11. Addendum 3/10/2026 — provenienza dichiarata, rettifica di giacenza, ordine manuale
 
-- **D6** (approvata da Matteo, 3/10/2026): l'unità di tracciabilità (TU) di un
-  CARICO è l'unità della sua RACCOLTA, se ne ha una (altrimenti quella del
-  CARICO); la capacità del lotto è la quantità della RACCOLTA. Nessun fattore di
-  conversione è inventato: grammi e SET della stessa RACCOLTA sono già
-  entrambi registrati.
-- Migrazione `20261003_0037`: nuovo controllo di bound in TU; backfill
-  ricalcolato in TU (rimuove prima eventuali righe BACKFILL della 0036
-  calcolate in unità sbagliata; sui dati reali la tabella era vuota). Sui dati
-  reali il backfill pre-consuma 1 SET di Afila dal lotto più vecchio
-  (RAC-000003) e 1 SET di Cilantro (RAC-000004): restano 2 SET e 1 SET
-  tracciabili = lo stock.
-- Writer `_consume_lots`: seleziona i CARICO per TU, capacità =
-  quantità della RACCOLTA.
-- Limite noto: se dopo la 0036 fossero state registrate CONSEGNE che spiegano
-  solo in parte i propri scarichi, il backfill 0037 potrebbe pre-consumare
-  quella differenza. Non esiste nei dati reali (nessuna CONSEGNA dopo la 0036).
-- Test (PostgreSQL reale): `test_consumo_lotto_migration.py` (3 nuovi),
-  `test_bolla_lettura_reader.py` (caso Afila in GRAM -> codice in bolla).
+Decisioni di Matteo (3/10/2026): le vendite storiche non registrate non si
+ricostruiscono ("non posso risalire a tutti i lotti venduti"): si riparte dallo
+stato reale; ogni bolla da ora ha un ORDINE assegnato.
 
+- **D7 — Provenienza dichiarata per riga.** Nel file righe di `delivery fulfil`
+  ogni riga puo' avere `"semina": "SEM-######"`. Il writer consuma
+  esclusivamente i lotti (CARICO da RACCOLTA) di quella semina; se la semina
+  non esiste, e' di un'altra VARIETA o non ha residuo sufficiente, l'intera
+  CONSEGNA e' rifiutata (nessun fallback silenzioso su un altro codice).
+  Senza il campo vale il FIFO (D1/D5). Le rettifiche commerciali non possono
+  dichiarare una semina. Logica condivisa in
+  `infrastructure/postgresql/consumo_lotto.py`.
+- **D8 — Rettifica di giacenza (`tpo movimento rettifica-giacenza`).** Per merce
+  che il sistema crede presente ma non esiste piu' (venduta/uscita senza
+  registrazione). Solo diminuzioni. Scrive un nuovo MOVIMENTO `SCARICO`
+  (`origine_tipo='RETTIFICA_GIACENZA'`, motivo obbligatorio), decrementa lo
+  STOCK, spiega i lotti con CONSUMO_LOTTO `tipo_consumo='RETTIFICA_GIACENZA'`
+  (FIFO o `--semina` dichiarata) e scrive audit; idempotente
+  (`tpo.movimento_carico_requests`, scope `MOVIMENTO_RETTIFICA_GIACENZA_V1`).
+  Non altera RACCOLTE, CARICHI o CONSEGNE gia' committati. Cosi' un lotto
+  rettificato non puo' piu' comparire su una bolla.
+- **D9 — Ordine manuale (`tpo ordine registra-manuale`).** ORDINE
+  `tipo_creazione='MANUALE'` (vendita extra / fuori programma) per un CLIENTE
+  esistente, righe `--riga VAR-######:QTA:UNITA` di VARIETA ATTIVE. Identita'
+  ORD-/RO- da `tpo.id_sequences`; idempotenza in `tpo.ordine_manuale_requests`.
+  Non consegna nulla (la CONSEGNA resta l'unico fatto che muove lo STOCK).
+  Stampa le versioni (ORDINE_VERSION, VERSION riga) da usare in `delivery fulfil`.
+- Schema: tutto nella migrazione `20261003_0037` (non ancora applicata al
+  database reale alla data di questo addendum).

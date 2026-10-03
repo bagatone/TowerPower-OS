@@ -2,6 +2,8 @@
 
 from .articolo import build_articolo_service
 from .bolla_lettura import build_bolla_lettura_service
+from .ordine_manuale import build_ordine_manuale_service
+from .rettifica_giacenza import build_rettifica_giacenza_service
 from .assegnazione_fisica import build_assegnazione_fisica_service
 from .clienti_lettura import build_clienti_lettura_service
 from .container import ApplicationContainer
@@ -78,7 +80,9 @@ __all__ = [
     "build_production_planning_policy_commissioner",
     "build_production_planning_runtime_from_environment",
     "build_programma_fornitura_sospensione_service",
+    "build_ordine_manuale_service",
     "build_raccolta_service",
+    "build_rettifica_giacenza_service",
     "build_run_lettura_service",
     "build_pianificazione_semina_lettura_service",
     "build_uscita_service",

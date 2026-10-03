@@ -14,6 +14,8 @@ from .articolo import run_articolo_command
 from .assegnazione_fisica import run_assegnazione_fisica_command
 from .movimento_articolo import run_movimento_articolo_command
 from .movimento_carico import run_movimento_command
+from .ordine_manuale import run_ordine_command
+from .rettifica_giacenza import run_rettifica_giacenza_command
 from .raccolta import run_raccolta_command
 from .programma_fornitura import run_programma_fornitura_command
 from .onboarding import run_onboarding_command
@@ -369,6 +371,18 @@ def _parser() -> argparse.ArgumentParser:
     carica_raccolta.add_argument("--correlation-id", required=True)
     carica_raccolta.add_argument("--idempotency-key", required=True)
     carica_raccolta.add_argument("--confirm", action="store_true", required=True)
+    rettifica_giacenza = movimento_commands.add_parser("rettifica-giacenza")
+    rettifica_giacenza.add_argument("--varieta", required=True)
+    rettifica_giacenza.add_argument("--unita-misura", required=True, choices=["GRAM", "SET"])
+    rettifica_giacenza.add_argument("--quantita", required=True)
+    rettifica_giacenza.add_argument("--semina", required=False)
+    rettifica_giacenza.add_argument("--effective-at", required=True)
+    rettifica_giacenza.add_argument("--motivo", required=True)
+    rettifica_giacenza.add_argument("--actor", required=True)
+    rettifica_giacenza.add_argument("--reason", required=True)
+    rettifica_giacenza.add_argument("--correlation-id", required=True)
+    rettifica_giacenza.add_argument("--idempotency-key", required=True)
+    rettifica_giacenza.add_argument("--confirm", action="store_true", required=True)
     for name in ("carica-articolo", "scarica-articolo", "rettifica-articolo"):
         movimento_articolo = movimento_commands.add_parser(name)
         movimento_articolo.add_argument("--articolo", required=True)
@@ -385,6 +399,19 @@ def _parser() -> argparse.ArgumentParser:
         movimento_articolo.add_argument("--correlation-id", required=True)
         movimento_articolo.add_argument("--idempotency-key", required=True)
         movimento_articolo.add_argument("--confirm", action="store_true", required=True)
+    ordine = commands.add_parser("ordine", help="Registrazione governata ORDINE MANUALE.")
+    ordine_commands = ordine.add_subparsers(dest="ordine_command", required=True)
+    registra_ordine = ordine_commands.add_parser("registra-manuale")
+    registra_ordine.add_argument("--client", required=True)
+    registra_ordine.add_argument("--data-ordine", required=True)
+    registra_ordine.add_argument("--data-consegna-prevista", required=False)
+    registra_ordine.add_argument("--riga", required=True, action="append",
+                                 help="VAR-000001:QUANTITA:SET (ripetibile)")
+    registra_ordine.add_argument("--actor", required=True)
+    registra_ordine.add_argument("--reason", required=True)
+    registra_ordine.add_argument("--correlation-id", required=True)
+    registra_ordine.add_argument("--idempotency-key", required=True)
+    registra_ordine.add_argument("--confirm", action="store_true", required=True)
     articolo = commands.add_parser("articolo", help="Commissioning governato ARTICOLO.")
     articolo_commands = articolo.add_subparsers(dest="articolo_command", required=True)
     commission_articolo = articolo_commands.add_parser("commissiona")
@@ -514,7 +541,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "movimento":
         if args.movimento_command == "carica-raccolta":
             return run_movimento_command(args, stdout=sys.stdout, stderr=sys.stderr)
+        if args.movimento_command == "rettifica-giacenza":
+            return run_rettifica_giacenza_command(args, stdout=sys.stdout, stderr=sys.stderr)
         return run_movimento_articolo_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "ordine":
+        return run_ordine_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "articolo":
         return run_articolo_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "assegnazione":

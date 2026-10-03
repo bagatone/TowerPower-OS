@@ -11,6 +11,11 @@ rilanciare alla cieca: deve fornire esplicitamente --consegna-id e i
 "movement_id" già allocati nel file --lines (vedi campo opzionale per riga) per
 riutilizzare le stesse identità già commissionate, oppure verificare lo stato
 reale prima di allocarne di nuove.
+
+Provenienza (tracciabilità): ogni riga può dichiarare il campo opzionale
+"semina" (es. "SEM-000010"), la SEMINA da cui proviene fisicamente il prodotto.
+Il sistema consuma esattamente i lotti di quella semina oppure rifiuta la
+consegna (nessun codice viene mai indovinato); senza il campo vale il FIFO.
 """
 
 from __future__ import annotations
@@ -33,7 +38,7 @@ from ..application.delivery_fulfilment.models import (
 )
 from ..application.identity.errors import IdentityAllocationError
 from ..bootstrap import build_delivery_fulfilment_service, build_delivery_id_allocator
-from ..domain.identifiers import ActorId, ClienteId, ConsegnaId, MovimentoId, OrdineId
+from ..domain.identifiers import ActorId, ClienteId, ConsegnaId, MovimentoId, OrdineId, SeminaId
 from ..domain.quantities import UnitOfMeasure
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 from .exit_codes import OperationalExitCode
@@ -74,6 +79,9 @@ def run_delivery_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) -> 
                 expected_order_version=raw_line["expected_order_version"],
                 expected_order_line_version=raw_line["expected_order_line_version"],
                 movement_id=movement_id,
+                origin_semina=(
+                    SeminaId(raw_line["semina"]) if raw_line.get("semina") else None
+                ),
             ))
 
         command = DeliveryFulfilmentCommand(

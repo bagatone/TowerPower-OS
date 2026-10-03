@@ -135,3 +135,29 @@ def test_cli_reconciliation_required_reports_consegna_id_to_reconcile(monkeypatc
     stdout, stderr = StringIO(), StringIO()
     assert run_delivery_command(namespace, stdout=stdout, stderr=stderr) == 4
     assert "CONSEGNA_ID_DA_RICONCILIARE: CON-000001" in stderr.getvalue()
+
+
+def test_cli_passes_declared_semina_per_line(monkeypatch, tmp_path):
+    captured = {}
+
+    class Service:
+        def publish(self, command):
+            captured["origins"] = [line.origin_semina for line in command.lines]
+            return DeliveryFulfilmentResult(
+                delivery_id=command.delivery_id, order_states=(),
+                delivery_line_count=2, movement_count=2,
+            )
+    import src.tpo_core.cli.delivery as module
+    monkeypatch.setattr(module, "build_delivery_fulfilment_service", lambda settings: Service())
+    monkeypatch.setattr(module, "build_delivery_id_allocator", lambda settings: _FakeAllocator())
+    monkeypatch.setattr(module.PostgreSQLSettings, "from_environment", lambda: object())
+    base = {"order_id": "ORD-000001", "unit": "SET", "quantity": "1",
+            "expected_order_version": 0, "expected_order_line_version": 0}
+    lines_file = _lines_file(tmp_path, [
+        {**base, "order_line_id": "RO-000001", "semina": "SEM-000010"},
+        {**base, "order_line_id": "RO-000002"},
+    ])
+    namespace = main_module._parser().parse_args(args(lines_file))
+    stdout, stderr = StringIO(), StringIO()
+    assert run_delivery_command(namespace, stdout=stdout, stderr=stderr) == 0
+    assert [o.value if o else None for o in captured["origins"]] == ["SEM-000010", None]

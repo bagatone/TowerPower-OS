@@ -12,6 +12,7 @@ from ...domain.identifiers import (
     ConsegnaId,
     MovimentoId,
     OrdineId,
+    SeminaId,
 )
 from ...domain.quantities import UnitOfMeasure
 from ...domain.time_reference import CurrentSystemDate
@@ -68,6 +69,11 @@ class DeliveryFulfilmentLine:
     expected_order_line_version: int
     movement_id: MovimentoId | None = None
     correction_of: DeliveryLineReference | None = None
+    # Provenienza dichiarata dall'operatore: la SEMINA da cui proviene fisicamente
+    # il prodotto di questa riga. Se presente il writer consuma ESATTAMENTE i
+    # lotti (CARICO da RACCOLTA) di quella semina o rifiuta la consegna; se
+    # assente vale il FIFO automatico.
+    origin_semina: SeminaId | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.order_id, OrdineId):
@@ -87,6 +93,13 @@ class DeliveryFulfilmentLine:
                 )
         elif self.movement_id is not None:
             raise InvalidDeliveryCommandError("Una rettifica commerciale non ammette movement_id.")
+        if self.origin_semina is not None:
+            if not isinstance(self.origin_semina, SeminaId):
+                raise InvalidDeliveryCommandError("origin_semina non valida.")
+            if self.correction_of is not None:
+                raise InvalidDeliveryCommandError(
+                    "Una rettifica commerciale non ammette origin_semina."
+                )
 
     @property
     def is_correction(self) -> bool:

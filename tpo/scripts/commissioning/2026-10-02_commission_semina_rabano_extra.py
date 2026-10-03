@@ -1,45 +1,29 @@
-"""Commissiona 4 delle 7 semine reali di oggi (1/10/2026), dettate da
-Matteo prima di uscire ("2 set cilantro, 2 set mizuna, 3 set rabano, 1
-rucola, 2 basilco 1 amaranto e 1 pak choy", "tutti stamattina", "cilantro
-idratato ieri sera e piantato oggi") e confermate al suo ritorno ("ok,
-iniziamo dal punto primo, cliente lo stabiliremo dopo").
+"""Commissiona la semina REALE di Rabano fatta da Matteo oggi (2/10/2026,
+ore 11:00, 14g = 1 SET al grammaggio ufficiale 14g/set), per coprire il
+fabbisogno della settimana 5-11/10 individuato dal report
+`2026-10-02_fabbisogno_set_prossima_settimana.py`.
 
-Qui SOLO le 4 varieta' con catena protocollo+seme+lotto gia' completa a
-sistema (vedi 2026-10-01_check_protocolli_semine_oggi.py):
-  - Cilantro 2 SET (14g/set ufficiale -> 28g)
-  - Mizuna   2 SET (10g/set ufficiale -> 20g)
-  - Rabano   3 SET (14g/set ufficiale -> 42g), lotto Golinucci esplicitamente
-             scelto da Matteo ("rabano golinucci, i semi hy farm sono
-             pochissimi e li manteniamo a modo stock storico")
-  - Amaranto 1 SET (10g/set ufficiale -> 10g)
+Formula occasionale, dettata da Matteo in chat: "14 g piantoto alle
+11.00". Niente di nuovo da costruire -- stesso protocollo Rabano gia'
+esistente, stesso lotto Golinucci usato ieri (esplicitamente preferito
+da Matteo: "rabano golinucci, i semi hy farm sono pochissimi e li
+manteniamo a modo stock storico"), stessa identica procedura di
+commissioning SEMINA usata tutta la giornata del 1/10.
 
-NON incluse qui (bloccate, gestite separatamente):
-  - Rucola e Pak Choi: richiedono prima
-    2026-10-01_commission_protocolli_rucola_pakchoy.py (protocollo v1),
-    e inoltre nessuna SEMENTE/SEMENTE_IMPIEGO/LOTTO_SEME esiste ancora
-    per loro -- dato mai fornito, da chiedere a Matteo.
-  - Basilico: protocollo PV-000006 esiste ma NESSUN SEMENTE_IMPIEGO/LOTTO
-    risulta collegato al suo cultivar_uso -- stesso gap, dato da chiedere.
+NON si riusa il codice di tracciabilita' di ieri (RAB-0110-A): questa e'
+una semina fisica diversa, avvenuta oggi, e riceve correttamente il suo
+proprio codice (basato sulla data reale di oggi) dal comando governato
+stesso -- cosi' la tracciabilita' resta onesta rispetto a quando e'
+stata realmente piantata.
 
-origin=RIPRISTINO_STOCK per tutte (nessun cliente/ordine assegnato,
-fase transitoria esplicitamente dichiarata da Matteo: "cliente lo
-stabiliremo dopo").
+origin=RIPRISTINO_STOCK (nessun cliente/ordine specifico assegnato,
+copertura di fabbisogno generale individuato dal report settimanale).
 
-Orario fisico di avvio: placeholder 08:00 di oggi per tutte (Matteo ha
-detto solo "tutti stamattina", nessun orario esatto fornito) -- se vuoi
-un orario diverso, cambia PHYSICAL_HOUR prima di eseguire. Non influisce
-sul codice di tracciabilita' (basato su giorno/mese) ne' sulla validita'
-del protocollo (stessa data).
-
-Rucola e Rabano: per Rabano si usa il lotto Golinucci richiesto
-esplicitamente; per le altre si prende dinamicamente il LOTTO_SEME con
-raccomandazione migliore e scorta sufficiente, mai hardcoded.
-
-Idempotente: se una semina della stessa varieta' con data_avvio = oggi
-esiste gia', salta quella varieta'.
+Idempotente: se una semina di Rabano con data_avvio = oggi esiste gia',
+salta.
 
 Uso: dalla cartella del progetto, con il venv attivato:
-  .venv/bin/python3 scripts/commissioning/2026-10-01_commission_semine_oggi.py
+  .venv/bin/python3 scripts/commissioning/2026-10-02_commission_semina_rabano_extra.py
 """
 import subprocess
 import sys
@@ -54,19 +38,14 @@ import psycopg
 
 RUN = str(ROOT / "scripts" / "commissioning" / "run_tpo.sh")
 TZ = timezone(timedelta(hours=1))
-TODAY = datetime(2026, 10, 1)
-PHYSICAL_HOUR = 8  # placeholder: Matteo ha detto solo "tutti stamattina"
+TODAY = datetime(2026, 10, 2)
 
-SEMINE = [
-    {"denominazione": "Cilantro", "sigla": "CIL", "set": 2, "grams_per_set": 14,
-     "fornitore_filter": None, "minute": 0},
-    {"denominazione": "Mizuna", "sigla": "MIZ", "set": 2, "grams_per_set": 10,
-     "fornitore_filter": None, "minute": 5},
-    {"denominazione": "Rábano", "sigla": "RAB", "set": 3, "grams_per_set": 14,
-     "fornitore_filter": "Golinucci", "minute": 10},
-    {"denominazione": "Amaranto", "sigla": "AMA", "set": 1, "grams_per_set": 10,
-     "fornitore_filter": None, "minute": 15},
-]
+NOME = "Rábano"
+SIGLA = "RAB"
+TOTAL_GRAMS = 14
+FORNITORE_FILTER = "Golinucci"
+PHYSICAL_HOUR = 11
+PHYSICAL_MINUTE = 0
 
 
 def db():
@@ -145,50 +124,46 @@ def resolve_seed_lot(cur, nome, needed_grams, fornitore_filter):
 conn = db()
 try:
     with conn.cursor() as cur:
-        for var in SEMINE:
-            nome = var["denominazione"]
-            sigla = var["sigla"]
-            print(f"=== {nome} ({sigla}) ===")
-            cur.execute(
-                "SELECT s.public_id FROM tpo.semine s JOIN tpo.varieta v ON v.id = s.varieta_id "
-                "WHERE v.codice_tracciabilita = %s AND s.data_avvio::date = %s",
-                (sigla, TODAY.date()),
-            )
-            existing = cur.fetchall()
-            if existing:
-                print(f"{nome}: semina di oggi gia' commissionata ({existing[0][0]}). Salto.")
-                continue
-
-            pv_public_id = resolve_protocol_version(cur, nome)
+        print(f"=== {NOME} ({SIGLA}) -- extra 2/10/2026 ===")
+        cur.execute(
+            "SELECT s.public_id FROM tpo.semine s JOIN tpo.varieta v ON v.id = s.varieta_id "
+            "WHERE v.codice_tracciabilita = %s AND s.data_avvio::date = %s",
+            (SIGLA, TODAY.date()),
+        )
+        existing = cur.fetchall()
+        if existing:
+            print(f"{NOME}: semina di oggi gia' commissionata ({existing[0][0]}). Salto.")
+        else:
+            pv_public_id = resolve_protocol_version(cur, NOME)
             lse_public_id, lse_version = resolve_seed_lot(
-                cur, nome, var["set"] * var["grams_per_set"], var["fornitore_filter"],
+                cur, NOME, TOTAL_GRAMS, FORNITORE_FILTER,
             )
-            total_grams = var["set"] * var["grams_per_set"]
             started_at = TODAY.replace(
-                hour=PHYSICAL_HOUR, minute=var["minute"], second=0, tzinfo=TZ,
+                hour=PHYSICAL_HOUR, minute=PHYSICAL_MINUTE, second=0, tzinfo=TZ,
             )
-            idem = f"semina-{sigla.lower()}-2026-10-01"
-            corr = f"SEMINA-2026-10-01-{sigla}"
+            idem = f"semina-{SIGLA.lower()}-2026-10-02-extra"
+            corr = f"SEMINA-2026-10-02-{SIGLA}-EXTRA"
 
             out = run_cmd([
                 RUN, "semina", "commission",
                 "--seed-lot", lse_public_id,
                 "--expected-seed-lot-version", str(lse_version),
                 "--protocol-version", pv_public_id,
-                "--actual-seed-grams", str(total_grams),
+                "--actual-seed-grams", str(TOTAL_GRAMS),
                 "--physical-started-at", started_at.isoformat(),
                 "--origin", "RIPRISTINO_STOCK",
                 "--provenance", '{"physical_started_at":"OWNER_AUTHORIZED","actual_seed_grams":"OWNER_AUTHORIZED","selected_lse":"OWNER_AUTHORIZED","selected_pv":"OWNER_AUTHORIZED","origin":"OWNER_AUTHORIZED"}',
                 "--actor", "matteo",
                 "--reason", (
-                    f"Semina reale {nome} di oggi 1/10/2026 ({var['set']} SET, {total_grams}g), "
-                    f"dettata da Matteo prima di uscire; cliente/ordine da assegnare in seguito "
-                    f"(fase transitoria, cfr. appunti-in-sospeso-2026-10-01.md)."
+                    f"Semina reale extra {NOME} del 2/10/2026 ({TOTAL_GRAMS}g, 1 SET), "
+                    f"dettata da Matteo ('14 g piantoto alle 11.00') per coprire il "
+                    f"fabbisogno Rabano della settimana 5-11/10 individuato dal report "
+                    f"settimanale; cliente/ordine da assegnare in seguito."
                 ),
                 "--correlation-id", corr,
                 "--idempotency-key", idem,
                 "--confirm",
-            ], f"commissiona semina {nome} ({var['set']} SET, {total_grams}g, {lse_public_id})")
+            ], f"commissiona semina extra {NOME} (1 SET, {TOTAL_GRAMS}g, {lse_public_id})")
 
             sem_pid = trace = None
             for line in out.splitlines():
@@ -196,9 +171,8 @@ try:
                     sem_pid = line.split(":", 1)[1].strip()
                 if line.startswith("TRACEABILITY_CODE:"):
                     trace = line.split(":", 1)[1].strip()
-            print(f"{nome}: semina {sem_pid}, codice tracciabilita {trace}")
-            print()
+            print(f"{NOME}: semina {sem_pid}, codice tracciabilita {trace}")
 finally:
     conn.close()
 
-print("=== FATTO ===")
+print("\n=== FATTO ===")

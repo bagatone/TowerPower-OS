@@ -253,6 +253,10 @@ class PostgreSQLDeliveryFulfilmentWriter:
                 )
                 if cursor.rowcount != 1:
                     raise DeliveryConcurrencyError("STOCK cambiato durante il fulfilment.")
+                self._consume_lots(
+                    cursor, row[3], line.unit.value, movement_pk, line.quantity,
+                    persistence_at, command.actor.value,
+                )
                 movement_count += 1
             self._audit_line(
                 cursor, command, line, position, row[7], persistence_at
@@ -330,6 +334,53 @@ class PostgreSQLDeliveryFulfilmentWriter:
             (ids,),
         )
         return {row[0]: Decimal(row[1]) for row in cursor.fetchall()}
+
+    @staticmethod
+    def _consume_lots(
+        cursor: Any, varieta_pk: int, unit: str, movimento_scarico_id: int,
+        quantity_needed: Decimal, persistence_at: datetime, actor: str,
+    ) -> None:
+        """Spiega, in ordine FIFO per data di carico, da quali MOVIMENTI
+        CARICO (ingressi da RACCOLTA) proviene la quantita' appena scaricata
+        da questa CONSEGNA -- preservando i codici di tracciabilita' di
+        origine senza fonderli (CONSUMO_LOTTO, vedi
+        docs/architecture/CONSUMO_LOTTO_AUTHORITY_FREEZE.md).
+
+        Non bloccante: se la provenienza tracciabile disponibile non basta a
+        spiegare l'intera quantita' (tipicamente stock residuo da prima che
+        questo meccanismo esistesse, gia' gestito una tantum dal backfill
+        della migrazione 20261002_0036), la CONSEGNA procede comunque --
+        STOCK e RIGHE_ORDINE restano l'autorita' commerciale, invariata. La
+        parte non spiegata resta semplicemente senza lotto di origine, non
+        viene mai inventata.
+        """
+        cursor.execute(
+            """SELECT m.id, m.quantita - COALESCE(consumato.totale, 0) AS residuo
+               FROM tpo.movimenti_magazzino m
+               LEFT JOIN (
+                   SELECT movimento_carico_id, SUM(quantita) AS totale
+                   FROM tpo.consumi_lotto GROUP BY movimento_carico_id
+               ) consumato ON consumato.movimento_carico_id = m.id
+               WHERE m.varieta_id = %s AND m.unita_misura = %s AND m.tipo = 'CARICO'
+               ORDER BY m.data_movimento ASC, m.id ASC
+               FOR UPDATE OF m""",
+            (varieta_pk, unit),
+        )
+        remaining = quantity_needed
+        for carico_id, residuo in cursor.fetchall():
+            if remaining <= 0:
+                break
+            if residuo is None or residuo <= 0:
+                continue
+            take = residuo if residuo < remaining else remaining
+            cursor.execute(
+                """INSERT INTO tpo.consumi_lotto
+                   (movimento_carico_id, movimento_scarico_id, tipo_consumo,
+                    quantita, created_at, created_by)
+                   VALUES (%s,%s,'CONSEGNA',%s,%s,%s)""",
+                (carico_id, movimento_scarico_id, take, persistence_at, actor),
+            )
+            remaining -= take
 
     @staticmethod
     def _order_state(cursor: Any, order_pk: int) -> str:

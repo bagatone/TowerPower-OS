@@ -149,7 +149,7 @@ class _BlockingFactory(_Factory):
 
 
 def _seed(engine, number: int, *, stock: str = "2", lines: int = 1,
-          client_offset: int = 0) -> None:
+          client_offset: int = 0, order_quantity: str = "1") -> None:
     with engine.begin() as connection:
         client = connection.exec_driver_sql("""
           INSERT INTO tpo.clienti(public_id,denominazione,created_by,updated_at,updated_by)
@@ -169,8 +169,9 @@ def _seed(engine, number: int, *, stock: str = "2", lines: int = 1,
             connection.exec_driver_sql("""
               INSERT INTO tpo.righe_ordine
                 (ordine_id,posizione,varieta_id,quantita,unita_misura,public_id)
-              VALUES (%s,%s,%s,1,'SET',%s)
-            """, (order, position, variety, f"RO-{number + position - 1:06d}"))
+              VALUES (%s,%s,%s,%s,'SET',%s)
+            """, (order, position, variety, order_quantity,
+                  f"RO-{number + position - 1:06d}"))
         connection.exec_driver_sql("""
           INSERT INTO tpo.stock(varieta_id,disponibile,unita_misura,updated_at)
           VALUES (%s,%s,'SET',%s)
@@ -515,3 +516,124 @@ def test_real_postgresql_same_order_concurrency_is_serialized_then_conflicts(wri
     assert _facts(engine, 990001)[:5] == (
         "PARZIALMENTE_EVASO", 1, 1, Decimal("1.500000"), 1,
     )
+
+
+def _seed_carico(engine, variety_number: int, carico_number: int, quantity: str,
+                 when: datetime) -> None:
+    with engine.begin() as connection:
+        variety_pk = connection.exec_driver_sql(
+            "SELECT id FROM tpo.varieta WHERE public_id=%s",
+            (f"VAR-{variety_number:06d}",),
+        ).scalar_one()
+        connection.exec_driver_sql("""
+          INSERT INTO tpo.movimenti_magazzino
+            (public_id,varieta_id,unita_misura,tipo,direzione,quantita,data_movimento,
+             motivo,origine_tipo,created_at,created_by)
+          VALUES (%s,%s,'SET','CARICO','POSITIVO',%s,%s,'seed di test','TEST_SEED',%s,'writer-test')
+        """, (f"MOV-{carico_number:06d}", variety_pk, quantity, when, NOW))
+
+
+def _seed_scarico(engine, variety_number: int, scarico_number: int, quantity: str,
+                  when: datetime) -> int:
+    with engine.begin() as connection:
+        variety_pk = connection.exec_driver_sql(
+            "SELECT id FROM tpo.varieta WHERE public_id=%s",
+            (f"VAR-{variety_number:06d}",),
+        ).scalar_one()
+        return connection.exec_driver_sql("""
+          INSERT INTO tpo.movimenti_magazzino
+            (public_id,varieta_id,unita_misura,tipo,direzione,quantita,data_movimento,
+             motivo,origine_tipo,created_at,created_by)
+          VALUES (%s,%s,'SET','SCARICO','NEGATIVO',%s,%s,'seed di test','TEST_SEED',%s,'writer-test')
+          RETURNING id
+        """, (f"MOV-{scarico_number:06d}", variety_pk, quantity, when, NOW)).scalar_one()
+
+
+def _consumi_per_scarico(engine, scarico_public_id: str) -> list[tuple[str, Decimal]]:
+    with engine.connect() as connection:
+        rows = connection.exec_driver_sql("""
+          SELECT mc.public_id, cl.quantita FROM tpo.consumi_lotto cl
+          JOIN tpo.movimenti_magazzino mc ON mc.id = cl.movimento_carico_id
+          JOIN tpo.movimenti_magazzino ms ON ms.id = cl.movimento_scarico_id
+          WHERE ms.public_id = %s
+          ORDER BY mc.public_id
+        """, (scarico_public_id,)).all()
+        return [(row[0], row[1]) for row in rows]
+
+
+def test_real_postgresql_consumo_lotto_picks_oldest_carico_first(writer_postgresql_engine) -> None:
+    """CONSUMO_LOTTO (migrazione 20261002_0036): tra piu' CARICO disponibili
+    per la stessa VARIETA, la consegna deve spiegare la provenienza dal piu'
+    vecchio per data di carico (FIFO), anche se un CARICO piu' recente da
+    solo basterebbe a coprire la quantita'."""
+    engine = writer_postgresql_engine
+    _seed(engine, 920001, stock="3", order_quantity="3")
+    _seed_carico(engine, 920001, 920101, "2", datetime(2099, 1, 1, 8, tzinfo=TZ))
+    _seed_carico(engine, 920001, 920102, "5", datetime(2099, 1, 1, 9, tzinfo=TZ))
+    writer = _writer(engine)
+    writer.publish(_command(920001, "2", movement=920001))
+    assert _consumi_per_scarico(engine, "MOV-920001") == [("MOV-920101", Decimal("2"))]
+
+
+def test_real_postgresql_consumo_lotto_splits_across_multiple_lotti(writer_postgresql_engine) -> None:
+    """Quando il CARICO piu' vecchio non basta, la consegna deve spiegare il
+    resto dal CARICO successivo (FIFO), riportando entrambi i codici con le
+    rispettive quantita' -- non uno solo, non una quantita' indovinata."""
+    engine = writer_postgresql_engine
+    _seed(engine, 920002, stock="3", order_quantity="3")
+    _seed_carico(engine, 920002, 920201, "1", datetime(2099, 1, 1, 8, tzinfo=TZ))
+    _seed_carico(engine, 920002, 920202, "5", datetime(2099, 1, 1, 9, tzinfo=TZ))
+    writer = _writer(engine)
+    writer.publish(_command(920002, "3", movement=920002))
+    assert _consumi_per_scarico(engine, "MOV-920002") == [
+        ("MOV-920201", Decimal("1")), ("MOV-920202", Decimal("2")),
+    ]
+
+
+def test_real_postgresql_consumo_lotto_absent_does_not_block_delivery(writer_postgresql_engine) -> None:
+    """Nessun CARICO tracciabile per la VARIETA (es. stock residuo da prima
+    che il meccanismo esistesse, o un seed di test che non ne crea uno): la
+    CONSEGNA deve procedere comunque -- STOCK resta l'autorita' commerciale
+    -- e semplicemente non viene spiegata nessuna provenienza di lotto."""
+    engine = writer_postgresql_engine
+    _seed(engine, 920003, stock="2")
+    result = _writer(engine).publish(_command(920003, "1", movement=920003))
+    assert result.movement_count == 1
+    assert _consumi_per_scarico(engine, "MOV-920003") == []
+
+
+def test_real_postgresql_consumo_lotto_bounds_trigger_rejects_overconsumption(writer_postgresql_engine) -> None:
+    """Rete di sicurezza a livello database: anche scrivendo direttamente in
+    tpo.consumi_lotto (bypassando il writer), non si puo' mai far risultare
+    da un CARICO piu' di quanto quel CARICO abbia realmente portato in
+    stock -- il vincolo differito ct_consumi_lotto_bounds deve rifiutare il
+    commit."""
+    engine = writer_postgresql_engine
+    _seed(engine, 920004, stock="2")
+    _seed_carico(engine, 920004, 920401, "1", datetime(2099, 1, 1, 8, tzinfo=TZ))
+    scarico_a = _seed_scarico(engine, 920004, 920402, "1", datetime(2099, 1, 1, 9, tzinfo=TZ))
+    scarico_b = _seed_scarico(engine, 920004, 920403, "1", datetime(2099, 1, 1, 9, tzinfo=TZ))
+    with engine.connect() as connection:
+        carico_pk = connection.exec_driver_sql(
+            "SELECT id FROM tpo.movimenti_magazzino WHERE public_id=%s", ("MOV-920401",)
+        ).scalar_one()
+    with engine.begin() as connection:
+        connection.exec_driver_sql("""
+          INSERT INTO tpo.consumi_lotto
+            (movimento_carico_id, movimento_scarico_id, tipo_consumo, quantita,
+             created_at, created_by)
+          VALUES (%s,%s,'CONSEGNA',1,%s,'writer-test')
+        """, (carico_pk, scarico_a, NOW))
+    with engine.begin() as connection:
+        savepoint = connection.begin_nested()
+        try:
+            connection.exec_driver_sql("""
+              INSERT INTO tpo.consumi_lotto
+                (movimento_carico_id, movimento_scarico_id, tipo_consumo, quantita,
+                 created_at, created_by)
+              VALUES (%s,%s,'CONSEGNA',1,%s,'writer-test')
+            """, (carico_pk, scarico_b, NOW))
+            with pytest.raises(sa.exc.DBAPIError, match="ct_consumi_lotto_carico_bounds violated"):
+                connection.exec_driver_sql("SET CONSTRAINTS ALL IMMEDIATE")
+        finally:
+            savepoint.rollback()

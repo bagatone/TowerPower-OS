@@ -3,7 +3,18 @@ clienti con il loro programma di fornitura CORRENTE (se esiste), per avere
 un punto della situazione leggibile prima di qualunque correzione --
 cosi' si vede insieme cosa dice oggi il database, invece di correggere a
 memoria. Un cliente senza programma corrente compare comunque, con
-"(nessun programma di fornitura corrente)"."""
+"(nessun programma di fornitura corrente)".
+
+Corretto il 2/10/2026: la join su pfv.valida_al IS NULL mostrava, per
+quasi ogni cliente, sia la versione corrente sia quella appena sostituita
+(entrambe con valida_al IS NULL finche' non vengono chiuse formalmente
+con valida_al, ma quella vecchia ha voided_at impostato). Verificato con
+2026-10-02_check_voided_programmi_fornitura.py: NON era un bug nel
+sistema reale (l'indice unico uq_programmi_fornitura_versioni_corrente
+esclude correttamente le righe voided_at NOT NULL), solo questa query
+diagnostica non filtrava voided_at -- stesso genere di falso allarme gia'
+verificato ed escluso per il protocollo Hinojo il 19/9. Aggiunto
+"AND pfv.voided_at IS NULL" alla condizione di join."""
 import sys
 from pathlib import Path
 
@@ -29,7 +40,7 @@ try:
                FROM tpo.clienti c
                LEFT JOIN tpo.programmi_fornitura pf ON pf.cliente_id = c.id
                LEFT JOIN tpo.programmi_fornitura_versioni pfv
-                      ON pfv.programma_fornitura_id = pf.id AND pfv.valida_al IS NULL
+                      ON pfv.programma_fornitura_id = pf.id AND pfv.valida_al IS NULL AND pfv.voided_at IS NULL
                ORDER BY c.denominazione"""
         )
         clienti = cur.fetchall()

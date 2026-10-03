@@ -136,7 +136,7 @@ try:
             sigla = var["sigla"]
             print(f"=== {nome} ({sigla}) ===")
             cur.execute(
-                "SELECT public_id FROM tpo.semine s JOIN tpo.varieta v ON v.id = s.varieta_id "
+                "SELECT s.public_id FROM tpo.semine s JOIN tpo.varieta v ON v.id = s.varieta_id "
                 "WHERE v.codice_tracciabilita = %s AND s.data_avvio::date = %s",
                 (sigla, TODAY.date()),
             )

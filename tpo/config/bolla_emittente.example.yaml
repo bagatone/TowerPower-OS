@@ -1,0 +1,8 @@
+# Copia questo file in config/bolla_emittente.yaml e compila le righe
+# dell'intestazione della bolla (la prima riga e' in grassetto).
+# Il sistema non conosce questi dati e non li inventa: se il file
+# bolla_emittente.yaml non esiste, la bolla riporta solo "Tower Power".
+righe:
+  - "DA COMPILARE: ragione sociale"
+  - "DA COMPILARE: indirizzo"
+  - "DA COMPILARE: NIF/CIF e altri dati fiscali"

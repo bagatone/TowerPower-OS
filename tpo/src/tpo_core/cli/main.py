@@ -22,6 +22,7 @@ from .semente import run_semente_command
 from .semente_impiego import run_semente_impiego_command
 from .semina import run_semina_command
 from .protocollo import run_protocollo_command
+from .bolla import run_bolla_command
 from .delivery import run_delivery_command
 from .fattura import run_fattura_command
 from .incasso import run_incasso_command
@@ -251,6 +252,13 @@ def _parser() -> argparse.ArgumentParser:
     fulfil_delivery.add_argument("--reason", required=True)
     fulfil_delivery.add_argument("--correlation-id", required=True)
     fulfil_delivery.add_argument("--confirm", action="store_true", required=True)
+    bolla = commands.add_parser("bolla", help="Bolla di consegna in PDF (sola lettura).")
+    bolla_commands = bolla.add_subparsers(dest="bolla_command", required=True)
+    genera_bolla = bolla_commands.add_parser("genera")
+    genera_bolla.add_argument("--consegna", required=True)
+    genera_bolla.add_argument("--output-dir")
+    genera_bolla.add_argument("--emittente-file")
+    genera_bolla.add_argument("--sovrascrivi", action="store_true")
     fattura = commands.add_parser("fattura", help="Emissione governata FATTURA.")
     fattura_commands = fattura.add_subparsers(dest="fattura_command", required=True)
     emetti_fattura = fattura_commands.add_parser("emetti")
@@ -517,6 +525,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_uscita_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "delivery":
         return run_delivery_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "bolla":
+        return run_bolla_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "fattura":
         return run_fattura_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "listino-varieta":

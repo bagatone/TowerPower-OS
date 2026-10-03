@@ -1,6 +1,7 @@
 """Bootstrap esplicito dell'applicazione Tower Power Operations."""
 
 from .articolo import build_articolo_service
+from .bolla_lettura import build_bolla_lettura_service
 from .assegnazione_fisica import build_assegnazione_fisica_service
 from .clienti_lettura import build_clienti_lettura_service
 from .container import ApplicationContainer
@@ -50,6 +51,7 @@ __all__ = [
     "ApplicationContainer",
     "build_agronomic_protocol_commissioner",
     "build_articolo_service",
+    "build_bolla_lettura_service",
     "build_assegnazione_fisica_service",
     "build_clienti_lettura_service",
     "ApplicationSettings",

@@ -138,9 +138,8 @@ SQL/plpgsql, verificabile riga per riga in
   immediato prima che esista la bolla vera.
 - Qualunque esposizione CLI del dettaglio lotto (oggi `tpo delivery fulfil`
   resta silenzioso su questo, come prima).
-- Un test di migrazione dedicato che simuli dati storici pre-esistenti e
-  verifichi il backfill end-to-end (oggi verificato solo per lettura
-  diretta del codice SQL, non con un test automatico — da aggiungere).
+- Un test di migrazione dedicato per il backfill: aggiunto il 3/10/2026
+  (`test_consumo_lotto_migration.py`, PostgreSQL reale).
 
 ## 8. Prossimo passo
 

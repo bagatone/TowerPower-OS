@@ -71,4 +71,5 @@ def test_render_pdf_contains_codes_and_untraced_notice() -> None:
     assert b"(CON-000001" in pdf
     assert b"RAB-0210-A" in pdf
     assert b"RAC-000001" in pdf
-    assert b"Origine non tracciata" in pdf
+    assert b"ALBAR" in pdf
+    assert b"Origen no trazado" in pdf

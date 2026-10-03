@@ -25,8 +25,13 @@ from tests.infrastructure.postgresql.test_delivery_fulfilment_writer import (  #
 
 
 def _seed_carico_da_raccolta(engine, number: int, quantity: str, codice: str,
-                             when: datetime) -> None:
-    """Semina SEM/RAC/MOV-CARICO collegati, per la VARIETA VAR-<number>."""
+                             when: datetime, *, carico_unit: str = "SET",
+                             carico_quantity: str | None = None) -> None:
+    """Semina SEM/RAC/MOV-CARICO collegati, per la VARIETA VAR-<number>.
+
+    La RACCOLTA e' sempre in SET (``quantity``); il MOVIMENTO CARICO puo' essere
+    in GRAM (``carico_unit="GRAM"``, ``carico_quantity`` = peso), come i carichi
+    storici di Afila e Cilantro."""
     with engine.begin() as connection:
         connection.exec_driver_sql("SET LOCAL session_replication_role = replica")
         variety_pk = connection.exec_driver_sql(
@@ -50,9 +55,11 @@ def _seed_carico_da_raccolta(engine, number: int, quantity: str, codice: str,
           INSERT INTO tpo.movimenti_magazzino
             (public_id,varieta_id,unita_misura,tipo,direzione,quantita,data_movimento,
              motivo,origine_tipo,raccolta_id,created_at,created_by)
-          VALUES (%s,%s,'SET','CARICO','POSITIVO',%s,%s,'carico da raccolta','RACCOLTA',
+          VALUES (%s,%s,%s,'CARICO','POSITIVO',%s,%s,'carico da raccolta','RACCOLTA',
                   %s,%s,'bolla-test')
-        """, (f"MOV-{number + 100:06d}", variety_pk, quantity, when, raccolta_pk, NOW))
+        """, (f"MOV-{number + 100:06d}", variety_pk, carico_unit,
+              carico_quantity if carico_quantity is not None else quantity,
+              when, raccolta_pk, NOW))
 
 
 def _service(engine) -> BollaLetturaService:
@@ -101,3 +108,23 @@ def test_bolla_without_lot_ledger_shows_everything_as_untraced(writer_postgresql
 def test_bolla_unknown_consegna_is_reported(writer_postgresql_engine) -> None:
     with pytest.raises(ConsegnaNonTrovataError):
         _service(writer_postgresql_engine).bolla(RichiediBolla(ConsegnaId("CON-999999")))
+
+
+def test_bolla_traces_gram_carico_through_its_set_raccolta(writer_postgresql_engine) -> None:
+    """Caso reale di Afila/Cilantro: il CARICO e' in GRAM (311 g) ma la sua
+    RACCOLTA e' 1 SET. Una CONSEGNA in SET deve poter consumare quel lotto, e
+    la bolla riporta il codice con la quantita' in SET della RACCOLTA, senza
+    alcuna conversione inventata."""
+    engine = writer_postgresql_engine
+    _seed(engine, 930003, stock="1", order_quantity="1")
+    _seed_carico_da_raccolta(engine, 930003, "1", "AFI-1309-A",
+                             datetime(2099, 1, 1, 8, tzinfo=TZ),
+                             carico_unit="GRAM", carico_quantity="311")
+    _writer(engine).publish(_command(930003, "1", movement=930003))
+
+    riga = _service(engine).bolla(RichiediBolla(ConsegnaId("CON-930003"))).righe[0]
+
+    assert [(o.codice_tracciabilita, o.raccolta_id, o.quantita) for o in riga.origini] == [
+        ("AFI-1309-A", "RAC-930003", Decimal("1")),
+    ]
+    assert riga.quantita_senza_origine == Decimal("0")

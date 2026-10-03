@@ -13,6 +13,8 @@ più bolle. Nessuna modifica a FATTURA.
 ## 2. Owner Decisions (Matteo, 3/10/2026)
 
 - Output: file PDF salvato in una cartella locale (non vista a schermo).
+- Lingua del documento: tutto in spagnolo ("Albarán de entrega"); i
+  messaggi del comando restano in italiano per l'operatore.
 - Valgono D1–D5 di CONSUMO_LOTTO: FIFO, nessuna bolla retroattiva con codici
   per le consegne storiche, split su più lotti con tutti i codici elencati,
   mai bloccare una consegna per un gap di tracciabilità, giacenza senza

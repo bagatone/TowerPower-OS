@@ -346,6 +346,11 @@ class PostgreSQLDeliveryFulfilmentWriter:
         origine senza fonderli (CONSUMO_LOTTO, vedi
         docs/architecture/CONSUMO_LOTTO_AUTHORITY_FREEZE.md).
 
+        Unita' di tracciabilita' (migrazione 20261003_0037): un CARICO con
+        RACCOLTA e' misurato nell'unita' e nella quantita' della RACCOLTA (SET),
+        anche se il MOVIMENTO e' in GRAM (carichi storici di Afila/Cilantro);
+        un CARICO senza RACCOLTA nella propria unita'.
+
         Non bloccante: se la provenienza tracciabile disponibile non basta a
         spiegare l'intera quantita' (tipicamente stock residuo da prima che
         questo meccanismo esistesse, gia' gestito una tantum dal backfill
@@ -355,13 +360,16 @@ class PostgreSQLDeliveryFulfilmentWriter:
         viene mai inventata.
         """
         cursor.execute(
-            """SELECT m.id, m.quantita - COALESCE(consumato.totale, 0) AS residuo
+            """SELECT m.id,
+                      COALESCE(r.quantita, m.quantita) - COALESCE(consumato.totale, 0) AS residuo
                FROM tpo.movimenti_magazzino m
+               LEFT JOIN tpo.raccolte r ON r.id = m.raccolta_id
                LEFT JOIN (
                    SELECT movimento_carico_id, SUM(quantita) AS totale
                    FROM tpo.consumi_lotto GROUP BY movimento_carico_id
                ) consumato ON consumato.movimento_carico_id = m.id
-               WHERE m.varieta_id = %s AND m.unita_misura = %s AND m.tipo = 'CARICO'
+               WHERE m.varieta_id = %s AND m.tipo = 'CARICO'
+                 AND COALESCE(r.unita_misura, m.unita_misura)::text = %s
                ORDER BY m.data_movimento ASC, m.id ASC
                FOR UPDATE OF m""",
             (varieta_pk, unit),

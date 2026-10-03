@@ -20,7 +20,7 @@ def test_stock_unita_composita_migration_is_linear_head():
     config = Config(str(ROOT / "migrations/alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["20261002_0036"]
+    assert script.get_heads() == ["20261003_0037"]
     revision = script.get_revision("20260919_0035")
     assert revision.down_revision == "20260916_0034"
 
@@ -168,7 +168,7 @@ def test_real_postgresql_downgrade_blocked_when_a_varieta_has_two_live_rows(isol
             connection.rollback()
             assert connection.exec_driver_sql(
                 "SELECT version_num FROM alembic_version"
-            ).scalar_one() == "20261002_0036"
+            ).scalar_one() == "20261003_0037"
     finally:
         engine.dispose()
         with cluster.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:

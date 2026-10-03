@@ -168,3 +168,33 @@ da quella giacenza senza origine -- un codice sbagliato su una bolla.
   senza origine pre-esistente; limite noto, irrilevante sul database attuale.
 - Test aggiunto: `test_real_postgresql_consumo_lotto_untraced_opening_stock_is_consumed_first`.
 
+## 10. Addendum 3/10/2026 (sera) — D6: unità di tracciabilità = unità della RACCOLTA
+
+Verificato sui dati reali: i CARICO storici di Afila (311 g, 622 g) e Cilantro
+(204 g, 204 g) sono in GRAM, ma ciascuno è legato a una RACCOLTA in SET
+(1, 2, 1, 1 SET; `ck_raccolte_uom_set`), e le CONSEGNE scaricano in SET. Con la
+0036 questi lotti non erano selezionabili (unità diversa), quindi le bolle di
+Afila/Cilantro sarebbero uscite "senza origine" pur essendo l'origine
+registrata (tutta SEM-000002 `AFI-1309-A` per Afila, tutta SEM-000001
+`CIL-0709-A` per Cilantro; i numeri tornano: 3 raccolti - 1 consegnato = 2 in
+stock; 2 - 1 = 1).
+
+- **D6** (approvata da Matteo, 3/10/2026): l'unità di tracciabilità (TU) di un
+  CARICO è l'unità della sua RACCOLTA, se ne ha una (altrimenti quella del
+  CARICO); la capacità del lotto è la quantità della RACCOLTA. Nessun fattore di
+  conversione è inventato: grammi e SET della stessa RACCOLTA sono già
+  entrambi registrati.
+- Migrazione `20261003_0037`: nuovo controllo di bound in TU; backfill
+  ricalcolato in TU (rimuove prima eventuali righe BACKFILL della 0036
+  calcolate in unità sbagliata; sui dati reali la tabella era vuota). Sui dati
+  reali il backfill pre-consuma 1 SET di Afila dal lotto più vecchio
+  (RAC-000003) e 1 SET di Cilantro (RAC-000004): restano 2 SET e 1 SET
+  tracciabili = lo stock.
+- Writer `_consume_lots`: seleziona i CARICO per TU, capacità =
+  quantità della RACCOLTA.
+- Limite noto: se dopo la 0036 fossero state registrate CONSEGNE che spiegano
+  solo in parte i propri scarichi, il backfill 0037 potrebbe pre-consumare
+  quella differenza. Non esiste nei dati reali (nessuna CONSEGNA dopo la 0036).
+- Test (PostgreSQL reale): `test_consumo_lotto_migration.py` (3 nuovi),
+  `test_bolla_lettura_reader.py` (caso Afila in GRAM -> codice in bolla).
+

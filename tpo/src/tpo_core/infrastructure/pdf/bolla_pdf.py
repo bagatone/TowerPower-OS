@@ -62,20 +62,20 @@ def render_bolla_pdf(
     for line in header_lines[1:]:
         story.append(p(line, small))
     story.append(Spacer(1, 6 * mm))
-    story.append(p("BOLLA DI CONSEGNA", title))
+    story.append(p("ALBARÁN DE ENTREGA", title))
     story.append(Spacer(1, 3 * mm))
 
     effettiva = bolla.data_effettiva
     data_consegna = (_local(effettiva).strftime("%d/%m/%Y %H:%M") if effettiva
                      else bolla.data_prevista.strftime("%d/%m/%Y"))
     meta = [
-        [p("Numero", small), p(bolla.consegna_id.value, strong),
-         p("Data consegna", small), p(data_consegna, strong)],
+        [p("Número", small), p(bolla.consegna_id.value, strong),
+         p("Fecha de entrega", small), p(data_consegna, strong)],
         [p("Cliente", small), p(f"{bolla.cliente_denominazione} ({bolla.cliente_id})", strong),
-         p("Destinazione", small), p(bolla.destinazione_fisica or "-", base)],
+         p("Destino", small), p(bolla.destinazione_fisica or "-", base)],
     ]
     if bolla.operatore:
-        meta.append([p("Operatore", small), p(bolla.operatore, base), "", ""])
+        meta.append([p("Operador", small), p(bolla.operatore, base), "", ""])
     meta_table = Table(meta, colWidths=[22 * mm, 68 * mm, 28 * mm, 62 * mm])
     meta_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -85,8 +85,8 @@ def render_bolla_pdf(
     story.append(meta_table)
     story.append(Spacer(1, 5 * mm))
 
-    rows: list[list] = [[p("Pos.", small), p("Varietà", small), p("Quantità", small),
-                         p("Codice di tracciabilità / provenienza", small)]]
+    rows: list[list] = [[p("Pos.", small), p("Variedad", small), p("Cantidad", small),
+                         p("Código de trazabilidad / procedencia", small)]]
     style_cmds: list[tuple] = [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#999999")),
@@ -96,16 +96,16 @@ def render_bolla_pdf(
     for riga in bolla.righe:
         unit = _UNITA.get(riga.unita_misura, riga.unita_misura)
         qty = f"{format_quantity(riga.quantita)} {unit}"
-        label = riga.varieta_denominazione + (" (rettifica)" if riga.rettifica else "")
+        label = riga.varieta_denominazione + (" (rectificación)" if riga.rettifica else "")
         detail: list = []
         for origine in riga.origini:
-            line = (f"{origine.codice_tracciabilita} - raccolta {origine.raccolta_id} del "
+            line = (f"{origine.codice_tracciabilita} - cosecha {origine.raccolta_id} del "
                     f"{_local(origine.data_raccolta).strftime('%d/%m/%Y')} - "
                     f"{format_quantity(origine.quantita)} {unit}")
             detail.append(p(line, base))
         if riga.quantita_senza_origine > 0:
             detail.append(p(
-                f"Origine non tracciata - {format_quantity(riga.quantita_senza_origine)} {unit}",
+                f"Origen no trazado - {format_quantity(riga.quantita_senza_origine)} {unit}",
                 warn,
             ))
         if not detail:
@@ -120,13 +120,13 @@ def render_bolla_pdf(
 
     if bolla.righe_senza_origine:
         story.append(p(
-            "Le quantità indicate come 'origine non tracciata' non sono associate a un "
-            "codice di tracciabilità perché il registro dei lotti non le spiega "
-            "(giacenza o consegna precedente al registro dei lotti).", warn))
+            "Las cantidades indicadas como 'origen no trazado' no están asociadas a un "
+            "código de trazabilidad porque el registro de lotes no las explica "
+            "(existencias o entrega anteriores al registro de lotes).", warn))
         story.append(Spacer(1, 4 * mm))
     story.append(Spacer(1, 12 * mm))
     story.append(Table(
-        [[p("Firma del ricevente", small), "", p("Firma del consegnatario", small)],
+        [[p("Firma del receptor", small), "", p("Firma de quien entrega", small)],
          ["", "", ""]],
         colWidths=[80 * mm, 10 * mm, 80 * mm], rowHeights=[6 * mm, 14 * mm],
         style=TableStyle([("LINEBELOW", (0, 1), (0, 1), 0.5, colors.black),
@@ -139,17 +139,17 @@ def render_bolla_pdf(
         canvas.setFillColor(colors.HexColor("#777777"))
         canvas.drawString(
             15 * mm, 10 * mm,
-            f"{bolla.consegna_id.value} - generata il "
-            f"{_local(generata_il).strftime('%d/%m/%Y %H:%M')} da Tower Power OS",
+            f"{bolla.consegna_id.value} - generado el "
+            f"{_local(generata_il).strftime('%d/%m/%Y %H:%M')} por Tower Power OS",
         )
-        canvas.drawRightString(A4[0] - 15 * mm, 10 * mm, f"Pagina {doc.page}")
+        canvas.drawRightString(A4[0] - 15 * mm, 10 * mm, f"Página {doc.page}")
         canvas.restoreState()
 
     buffer = BytesIO()
     document = SimpleDocTemplate(
         buffer, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm,
         topMargin=15 * mm, bottomMargin=18 * mm,
-        title=f"Bolla di consegna {bolla.consegna_id.value}", author="Tower Power OS",
+        title=f"Albarán de entrega {bolla.consegna_id.value}", author="Tower Power OS",
         pageCompression=1 if compress else 0,
     )
     document.build(story, onFirstPage=footer, onLaterPages=footer)

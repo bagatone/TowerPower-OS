@@ -180,3 +180,31 @@ a "una sola VARIETÀ o un solo ARTICOLO"; `STOCK.md` resta invariato (governa
 solo `tpo.stock`/VARIETA); `STOCK_ARTICOLI` come concetto viene descritto
 nella stessa appendice, mirror dei principi di STOCK.md applicati ad
 ARTICOLO.
+
+## 8. Addendum 2026-10-04 — Consumo materiali per SET di semina
+
+Decisione del Owner (Matteo, 4/10/2026): ogni SET seminato va contabilizzato
+nel consumo dei materiali di magazzino. Regola dalla configurazione storica
+(`src/init_resource_engine.py`): 1 SET = 4 vaschette; 1 substrato per vaschetta
+=> **4 vaschette + 4 substrati per SET**.
+
+Questo NON introduce la "Ricetta di produzione" (resta fuori scope, §6): non
+c'è alcun legame persistente semina→materiali né nuove tabelle. Il comando
+governato `tpo materiali consumo-semina --semina SEM-… --set N
+[--pezzi-per-set 4] [--articolo-vaschette ART-…] [--articolo-substrato ART-…]
+[--effective-at …]` (`src/tpo_core/application/consumo_materiali/`) pubblica
+due SCARICO ARTICOLO (UNIT) tramite il boundary MOVIMENTO_ARTICOLO V1.
+
+- I SET non sono memorizzati sulla SEMINA (che registra i grammi di seme):
+  sono sempre dichiarati dal chiamante.
+- Gli articoli si risolvono per denominazione esatta (`Vaschette`,
+  `Substrato`, case-insensitive) oppure per id esplicito; zero o piu' di uno
+  => errore, nessuna scrittura.
+- `effective_at` di default = `data_avvio` della semina.
+- Idempotenza: le key sono derivate da (semina, ruolo)
+  (`consumo-semina-SEM-…-vaschette|substrato`): una semina non puo' essere
+  contabilizzata due volte; lo stesso comando rilanciato riproduce l'esito
+  (COMPATIBLE_REPLAY) e completa un eventuale secondo movimento mancante; SET
+  diversi sulla stessa semina => `MOVIMENTO_ARTICOLO_IDEMPOTENCY_CONFLICT`
+  (la correzione e' un nuovo fatto: `movimento rettifica-articolo`).
+- Giacenza insufficiente => rifiuto, nessuna scrittura.

@@ -12,6 +12,7 @@ from .operational import run_operational_scheduling_command
 from .production_planning import run_production_planning_command
 from .articolo import run_articolo_command
 from .assegnazione_fisica import run_assegnazione_fisica_command
+from .consumo_materiali import run_consumo_materiali_command
 from .movimento_articolo import run_movimento_articolo_command
 from .movimento_carico import run_movimento_command
 from .ordine_manuale import run_ordine_command
@@ -356,6 +357,24 @@ def _parser() -> argparse.ArgumentParser:
     riattiva_programma_fornitura.add_argument("--correlation-id", required=True)
     riattiva_programma_fornitura.add_argument("--idempotency-key", required=True)
     riattiva_programma_fornitura.add_argument("--confirm", action="store_true", required=True)
+    materiali = commands.add_parser(
+        "materiali", help="Consumo governato di materiali (vaschette, substrati) per le semine."
+    )
+    materiali_commands = materiali.add_subparsers(dest="materiali_command", required=True)
+    consumo_semina = materiali_commands.add_parser(
+        "consumo-semina",
+        help="Scarica 4 vaschette + 4 substrati per ogni SET di una semina (idempotente per semina).",
+    )
+    consumo_semina.add_argument("--semina", required=True)
+    consumo_semina.add_argument("--set", dest="set_seminati", required=True, type=int)
+    consumo_semina.add_argument("--pezzi-per-set", type=int, default=4)
+    consumo_semina.add_argument("--articolo-vaschette")
+    consumo_semina.add_argument("--articolo-substrato")
+    consumo_semina.add_argument("--effective-at")
+    consumo_semina.add_argument("--actor", required=True)
+    consumo_semina.add_argument("--reason", required=True)
+    consumo_semina.add_argument("--correlation-id", required=True)
+    consumo_semina.add_argument("--confirm", action="store_true", required=True)
     movimento = commands.add_parser(
         "movimento", help="Pubblicazione governata di MOVIMENTO_MAGAZZINO (CARICO da RACCOLTA)."
     )
@@ -538,6 +557,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_raccolta_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "programma-fornitura":
         return run_programma_fornitura_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "materiali":
+        return run_consumo_materiali_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "movimento":
         if args.movimento_command == "carica-raccolta":
             return run_movimento_command(args, stdout=sys.stdout, stderr=sys.stderr)

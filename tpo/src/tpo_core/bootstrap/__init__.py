@@ -6,6 +6,7 @@ from .ordine_manuale import build_ordine_manuale_service
 from .rettifica_giacenza import build_rettifica_giacenza_service
 from .assegnazione_fisica import build_assegnazione_fisica_service
 from .clienti_lettura import build_clienti_lettura_service
+from .consumo_materiali import build_consumo_materiali_service
 from .container import ApplicationContainer
 from .disponibilita_commerciale import build_disponibilita_commerciale_service
 from .delivery_fulfilment import (
@@ -72,6 +73,7 @@ __all__ = [
     "build_incasso_service",
     "build_listino_varieta_writer",
     "build_magazzino_lettura_service",
+    "build_consumo_materiali_service",
     "build_movimento_articolo_service",
     "build_movimento_carico_service",
     "build_operational_data_onboarding_service",

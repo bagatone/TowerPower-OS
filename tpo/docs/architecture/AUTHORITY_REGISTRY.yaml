@@ -429,7 +429,7 @@ concepts:
     classification: configuration
     status: IMPLEMENTED
     current_authorities: [{path: docs/architecture/ARTICOLO_AUTHORITY_FREEZE.md, section: "1", kind: architecture_freeze}, {path: docs/TPO_DATA_DICTIONARY.md, section: "6.1", kind: conceptual_authority}]
-    core_implementations: [src/tpo_core/application/articolo/service.py, src/tpo_core/infrastructure/postgresql/articolo.py, src/tpo_core/application/movimento_articolo/service.py, src/tpo_core/infrastructure/postgresql/movimento_articolo.py, src/tpo_core/bootstrap/articolo.py, src/tpo_core/bootstrap/movimento_articolo.py, src/tpo_core/cli/articolo.py, src/tpo_core/cli/movimento_articolo.py]
+    core_implementations: [src/tpo_core/application/articolo/service.py, src/tpo_core/infrastructure/postgresql/articolo.py, src/tpo_core/application/movimento_articolo/service.py, src/tpo_core/infrastructure/postgresql/movimento_articolo.py, src/tpo_core/bootstrap/articolo.py, src/tpo_core/bootstrap/movimento_articolo.py, src/tpo_core/cli/articolo.py, src/tpo_core/cli/movimento_articolo.py, src/tpo_core/application/consumo_materiali/, src/tpo_core/infrastructure/postgresql/consumo_materiali.py, src/tpo_core/bootstrap/consumo_materiali.py, src/tpo_core/cli/consumo_materiali.py]
     persistence_authorities: [tpo.articoli, tpo.stock_articoli, tpo.articolo_commissioning_requests, tpo.movimento_articolo_requests]
     identities: [{type: ArticoloId, prefix: ART, sequence: ARTICOLO_ID}]
     legacy_predecessors: [tests/fixtures/legacy_google_sheets/legacy_sheets_schema.md]
@@ -441,7 +441,7 @@ concepts:
     correction_semantics: "RETTIFICA is a new fact, not overwrite, mirroring MOVIMENTO_MAGAZZINO's own semantics for Varieta; there is no reversal/cancellation of a CARICO/SCARICO once recorded."
     audit_authority: tpo.audit_eventi
     idempotency_authority: "tpo.articolo_commissioning_requests (commissioning), tpo.movimento_articolo_requests (movement)"
-    verification_tests: [tests/application/test_articolo.py, tests/application/test_movimento_articolo.py, tests/cli/test_articolo_cli.py, tests/cli/test_movimento_articolo_cli.py, tests/infrastructure/postgresql/test_articolo_migration.py, tests/integration/postgresql/test_articolo.py, tests/integration/postgresql/test_movimento_articolo.py]
+    verification_tests: [tests/application/test_articolo.py, tests/application/test_movimento_articolo.py, tests/cli/test_articolo_cli.py, tests/cli/test_movimento_articolo_cli.py, tests/infrastructure/postgresql/test_articolo_migration.py, tests/integration/postgresql/test_articolo.py, tests/integration/postgresql/test_movimento_articolo.py, tests/application/test_consumo_materiali.py, tests/cli/test_consumo_materiali_cli.py]
     reviewed_at_commit: 4eaff8f
 
   - concept_id: PRENOTAZIONE

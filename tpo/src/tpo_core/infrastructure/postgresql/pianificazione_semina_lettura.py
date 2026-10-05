@@ -52,6 +52,7 @@ _SELECT = (
     "    WHERE r.sostituita_at IS NULL ORDER BY r.created_at DESC LIMIT 1 "
     ") "
     "AND rps.stato IN ('PIANIFICATA','PRONTA','TARDIVA') "
+    "AND o.stato IN ('APERTO','PARZIALMENTE_EVASO') "
     "AND rps.quantita_residua_da_avviare > 0"
 )
 

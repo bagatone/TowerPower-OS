@@ -282,21 +282,35 @@ class PostgreSQLProductionPlanningInputAdapter:
 
     @staticmethod
     def _harvests(cursor: Any, balances) -> tuple[HarvestResourceSnapshot, ...]:
+        # Addendum 5/10/2026 (Owner: B): una RACCOLTA gia' CARICATA a magazzino
+        # (MOVIMENTO CARICO con raccolta_id, stessa unita') e' rappresentata dallo
+        # STOCK della VARIETA: contarla anche come RACCOLTA libera la conterebbe due
+        # volte e offrirebbe alla pianificazione merce gia' venduta. La quantita'
+        # eleggibile e' quindi quantita - caricato, ma mai sotto l'allocato gia'
+        # esistente (le allocazioni RACCOLTA attive restano valide, nessun nuovo
+        # RESOURCE_OVERALLOCATED artificiale). I carichi in altra unita' (storici GRAM)
+        # non si convertono (nessun fattore di conversione) e non riducono nulla.
         cursor.execute(
             """SELECT r.public_id,s.public_id,v.public_id,r.quantita,r.unita_misura,
-                      r.data_raccolta
+                      r.data_raccolta,
+                      COALESCE((SELECT SUM(m.quantita) FROM tpo.movimenti_magazzino m
+                                WHERE m.raccolta_id=r.id AND m.tipo='CARICO'
+                                  AND m.unita_misura=r.unita_misura),0)
                FROM tpo.raccolte r JOIN tpo.semine s ON s.id=r.semina_id
                JOIN tpo.varieta v ON v.id=s.varieta_id ORDER BY r.public_id"""
         )
         result = []
         for r in cursor.fetchall():
-            eligible, unit = Decimal(r[3]), UnitOfMeasure(r[4])
+            recorded, unit = Decimal(r[3]), UnitOfMeasure(r[4])
+            loaded = Decimal(r[6])
             allocated, allocated_uom = balances.get(("RACCOLTA", r[0]), (Decimal("0"), r[4]))
+            eligible = max(allocated, recorded-loaded) if loaded > 0 else recorded
             _balance(eligible, r[4], allocated, allocated_uom)
+            provenance = "tpo.raccolte" if loaded <= 0 else "tpo.raccolte-meno-carichi-magazzino"
             result.append(HarvestResourceSnapshot(
                 PublicId(r[0]), PublicId(r[1]), PublicId(r[2]),
                 ExactQuantity(eligible, unit), ExactQuantity(allocated, unit),
-                ExactQuantity(eligible-allocated, unit), r[5], "tpo.raccolte",
+                ExactQuantity(eligible-allocated, unit), r[5], provenance,
             ))
         return tuple(result)
 

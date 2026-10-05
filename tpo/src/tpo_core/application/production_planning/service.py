@@ -54,7 +54,12 @@ class ProductionPlanningService:
         try:
             loaded = self._inputs.load(command)
             snapshot = loaded.snapshot
-            if isinstance(command, InitialProductionPlanningCommand) and loaded.allocation_disposition_decisions:
+            # Replan e' sottoclasse di Initial: solo il vero initial rifiuta le disposition.
+            if (
+                isinstance(command, InitialProductionPlanningCommand)
+                and not isinstance(command, ReplanProductionPlanningCommand)
+                and loaded.allocation_disposition_decisions
+            ):
                 raise ProductionPlanningError(
                     "PLANNING_INPUT_INVALID", "INITIAL_DISPOSITIONS_NOT_EMPTY",
                     "Initial planning non ammette disposition di allocazioni esistenti.",

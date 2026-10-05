@@ -101,6 +101,7 @@ _SELECT_DA_SEMINARE = (
     "    WHERE r.sostituita_at IS NULL ORDER BY r.created_at DESC LIMIT 1 "
     ") "
     "AND rps.stato IN ('PIANIFICATA','PRONTA','TARDIVA') "
+    "AND o.stato IN ('APERTO','PARZIALMENTE_EVASO') "
     "AND rps.sowing_at::date <= %s "
     "AND rps.quantita_residua_da_avviare > 0 "
     "ORDER BY rps.sowing_at ASC"

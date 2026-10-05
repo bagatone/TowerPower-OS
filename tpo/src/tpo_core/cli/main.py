@@ -26,6 +26,7 @@ from .semente_impiego import run_semente_impiego_command
 from .semina import run_semina_command
 from .protocollo import run_protocollo_command
 from .bolla import run_bolla_command
+from .etichetta import run_etichetta_command
 from .delivery import run_delivery_command
 from .fattura import run_fattura_command
 from .incasso import run_incasso_command
@@ -262,6 +263,15 @@ def _parser() -> argparse.ArgumentParser:
     genera_bolla.add_argument("--output-dir")
     genera_bolla.add_argument("--emittente-file")
     genera_bolla.add_argument("--sovrascrivi", action="store_true")
+    etichetta = commands.add_parser(
+        "etichetta", help="Etichette di tracciabilita' (una per SET) in PDF (sola lettura)."
+    )
+    etichetta_commands = etichetta.add_subparsers(dest="etichetta_command", required=True)
+    genera_etichetta = etichetta_commands.add_parser("genera")
+    genera_etichetta.add_argument("--consegna", required=True)
+    genera_etichetta.add_argument("--etichette-per-set", type=int, default=1)
+    genera_etichetta.add_argument("--output-dir")
+    genera_etichetta.add_argument("--sovrascrivi", action="store_true")
     fattura = commands.add_parser("fattura", help="Emissione governata FATTURA.")
     fattura_commands = fattura.add_subparsers(dest="fattura_command", required=True)
     emetti_fattura = fattura_commands.add_parser("emetti")
@@ -579,6 +589,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_delivery_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "bolla":
         return run_bolla_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "etichetta":
+        return run_etichetta_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "fattura":
         return run_fattura_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "listino-varieta":

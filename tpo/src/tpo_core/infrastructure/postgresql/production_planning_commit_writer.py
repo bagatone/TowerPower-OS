@@ -24,6 +24,7 @@ from ...application.production_planning.models import (
 )
 from ...domain.time_reference import OFFICIAL_TIMEZONE, OFFICIAL_TIMEZONE_NAME
 from .connection import PostgreSQLConnectionFactory
+from .production_planning_input import harvest_eligible_quantity
 
 
 _CHILDREN = {
@@ -418,7 +419,10 @@ class PostgreSQLProductionPlanningCommitWriter:
         harvests: dict[str, tuple[Any, ...]] = {}
         if harvest_ids:
             cursor.execute(
-                """SELECT r.id,r.public_id,s.public_id,r.data_raccolta,r.quantita,r.unita_misura
+                """SELECT r.id,r.public_id,s.public_id,r.data_raccolta,r.quantita,r.unita_misura,
+                          COALESCE((SELECT SUM(m.quantita) FROM tpo.movimenti_magazzino m
+                                    WHERE m.raccolta_id=r.id AND m.tipo='CARICO'
+                                      AND m.unita_misura=r.unita_misura),0)
                    FROM tpo.raccolte r JOIN tpo.semine s ON s.id=r.semina_id
                    WHERE r.public_id=ANY(%s) ORDER BY r.id FOR SHARE OF r""", (harvest_ids,),
             )
@@ -427,7 +431,8 @@ class PostgreSQLProductionPlanningCommitWriter:
                 raise _input("HARVEST_MISSING", "RACCOLTA Planning assente.")
             for snapshot in write_set.input_snapshot.harvests:
                 row = harvests[snapshot.harvest_public_id.value]
-                if row[2] != snapshot.semina_public_id.value or row[3] != snapshot.harvested_at or Decimal(row[4]) != snapshot.eligible.value or row[5] != snapshot.eligible.unit.value:
+                expected = harvest_eligible_quantity(Decimal(row[4]), Decimal(row[6]), snapshot.allocated.value)
+                if row[2] != snapshot.semina_public_id.value or row[3] != snapshot.harvested_at or expected != snapshot.eligible.value or row[5] != snapshot.eligible.unit.value:
                     raise _conflict("HARVEST_CHANGED", "RACCOLTA incoerente con lo snapshot.")
 
         protocol_ids = sorted({item.protocol_version_public_id.value for item in write_set.input_snapshot.knowledge})

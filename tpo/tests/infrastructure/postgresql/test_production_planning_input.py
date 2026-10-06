@@ -126,3 +126,34 @@ def test_existing_harvest_allocations_stay_valid_even_if_loaded(planning_input_d
 def test_harvests_query_ignores_loads_in_other_unit():
     source = inspect.getsource(PostgreSQLProductionPlanningInputAdapter._harvests)
     assert "m.unita_misura=r.unita_misura" in source and "ORDER BY" in source
+
+
+class _StockCursor:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def execute(self, *_args, **_kwargs):
+        return None
+
+    def fetchall(self):
+        return self._rows
+
+
+def _stock(rows):
+    return PostgreSQLProductionPlanningInputAdapter._stock(_StockCursor(rows), {})
+
+
+def test_stock_all_rows_zero_is_represented_by_the_set_row():
+    # Regressione 5/10/2026: Afila con riga GRAM congelata a 0 e riga SET venduta fuori sistema (0)
+    # faceva fallire il planner con STOCK_RESOURCE_CONFLICT.
+    (snapshot,) = _stock([("VAR-000001", Decimal("0"), "GRAM", 3), ("VAR-000001", Decimal("0"), "SET", 7)])
+    assert snapshot.eligible.unit.value == "SET" and snapshot.eligible.value == 0
+
+
+def test_stock_prefers_the_single_live_row_and_still_fails_closed_when_ambiguous():
+    (snapshot,) = _stock([("VAR-000001", Decimal("0"), "GRAM", 3), ("VAR-000001", Decimal("2"), "SET", 7)])
+    assert snapshot.eligible.value == 2
+    with pytest.raises(ProductionPlanningError):          # due righe vive: ambiguo
+        _stock([("VAR-000001", Decimal("1"), "GRAM", 3), ("VAR-000001", Decimal("2"), "SET", 7)])
+    with pytest.raises(ProductionPlanningError):          # tutte a zero ma nessuna riga SET: ambiguo
+        _stock([("VAR-000001", Decimal("0"), "GRAM", 3), ("VAR-000001", Decimal("0"), "UNIT", 7)])

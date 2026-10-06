@@ -239,6 +239,11 @@ class PostgreSQLProductionPlanningInputAdapter:
                 r = rows[0]
             else:
                 live = [row for row in rows if Decimal(row[1]) > 0]
+                if len(live) == 0:
+                    # Magazzino a zero in ogni unita' (es. riga GRAM congelata + riga SET venduta
+                    # fuori sistema, 5/10/2026): nessuna ambiguita' di quantita', solo di unita'.
+                    # Si rappresenta con l'unita' operativa SET; senza riga SET si fallisce chiuso.
+                    live = [row for row in rows if row[2] == "SET"]
                 if len(live) != 1:
                     raise _input(
                         "STOCK_RESOURCE_CONFLICT",
@@ -304,7 +309,7 @@ class PostgreSQLProductionPlanningInputAdapter:
             recorded, unit = Decimal(r[3]), UnitOfMeasure(r[4])
             loaded = Decimal(r[6])
             allocated, allocated_uom = balances.get(("RACCOLTA", r[0]), (Decimal("0"), r[4]))
-            eligible = max(allocated, recorded-loaded) if loaded > 0 else recorded
+            eligible = harvest_eligible_quantity(recorded, loaded, allocated)
             _balance(eligible, r[4], allocated, allocated_uom)
             provenance = "tpo.raccolte" if loaded <= 0 else "tpo.raccolte-meno-carichi-magazzino"
             result.append(HarvestResourceSnapshot(
@@ -395,6 +400,13 @@ class PostgreSQLProductionPlanningInputAdapter:
         if calculated.value != persisted_key:
             raise _input("DISPOSITION_SET_KEY_MISMATCH", "Decision set key non coincide con il contenuto autorevole.")
         return result
+
+
+def harvest_eligible_quantity(recorded: Decimal, loaded: Decimal, allocated: Decimal) -> Decimal:
+    """Quantita' di una RACCOLTA offerta alla pianificazione (unica definizione, usata anche dal commit
+    writer per rivalidare lo snapshot): se parte e' gia' a magazzino conta solo il non caricato, mai sotto
+    l'allocato esistente; se nulla e' caricato, l'intera quantita' registrata."""
+    return max(allocated, recorded - loaded) if loaded > 0 else recorded
 
 
 def _balance(eligible: Decimal, eligible_uom: str, allocated: Decimal, allocated_uom: str) -> None:

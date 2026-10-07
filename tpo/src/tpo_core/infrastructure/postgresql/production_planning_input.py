@@ -8,6 +8,7 @@ from typing import Any
 import psycopg
 
 from ...application.production_planning.errors import ProductionPlanningError
+from ...application.production_planning.in_progress_authority import in_progress_eligible_quantity
 from ...application.production_planning.models import (
     ActiveAllocationSnapshot, AllocationDispositionDecision,
     AllocationReplacementSpecification, CurrentPlanningLineSnapshot,
@@ -264,7 +265,9 @@ class PostgreSQLProductionPlanningInputAdapter:
         cursor.execute(
             """SELECT s.public_id,v.public_id,pv.public_id,s.expected_useful_quantity,
                       s.expected_useful_uom,s.harvest_window_start,s.harvest_window_end,
-                      s.stato,s.version
+                      s.stato,s.version,
+                      COALESCE((SELECT SUM(rc.quantita) FROM tpo.raccolte rc
+                                WHERE rc.semina_id=s.id AND rc.unita_misura=s.expected_useful_uom),0)
                FROM tpo.semine s JOIN tpo.varieta v ON v.id=s.varieta_id
                JOIN tpo.protocollo_versioni pv ON pv.id=s.protocollo_versione_id
                WHERE s.stato<>'CHIUSA' AND s.expected_useful_quantity IS NOT NULL
@@ -274,8 +277,13 @@ class PostgreSQLProductionPlanningInputAdapter:
         )
         result = []
         for r in cursor.fetchall():
-            eligible, unit = Decimal(r[3]), UnitOfMeasure(r[4])
+            # Addendum 6/10/2026: la resa gia' RACCOLTA e' RACCOLTA/STOCK, non piu' produzione in corso
+            # (altrimenti verrebbe contata due volte): eleggibile = max(allocata, attesa - raccolta).
+            unit = UnitOfMeasure(r[4])
             allocated, allocated_uom = balances.get(("PRODUZIONE_IN_CORSO", r[0]), (Decimal("0"), r[4]))
+            eligible = in_progress_eligible_quantity(Decimal(r[3]), Decimal(r[9]), allocated)
+            if eligible == 0:
+                continue
             _balance(eligible, r[4], allocated, allocated_uom)
             result.append(InProgressResourceSnapshot(
                 PublicId(r[0]), PublicId(r[1]), PublicId(r[2]),

@@ -24,6 +24,7 @@ from ...application.production_planning.models import (
 )
 from ...domain.time_reference import OFFICIAL_TIMEZONE, OFFICIAL_TIMEZONE_NAME
 from .connection import PostgreSQLConnectionFactory
+from ...application.production_planning.in_progress_authority import in_progress_eligible_quantity
 from .production_planning_input import harvest_eligible_quantity
 
 
@@ -393,7 +394,9 @@ class PostgreSQLProductionPlanningCommitWriter:
             cursor.execute(
                 """SELECT s.id,s.public_id,s.stato,s.version,pv.public_id,
                           s.expected_useful_quantity,s.expected_useful_uom,
-                          s.harvest_window_start,s.harvest_window_end
+                          s.harvest_window_start,s.harvest_window_end,
+                          COALESCE((SELECT SUM(rc.quantita) FROM tpo.raccolte rc
+                                    WHERE rc.semina_id=s.id AND rc.unita_misura=s.expected_useful_uom),0)
                    FROM tpo.semine s JOIN tpo.protocollo_versioni pv ON pv.id=s.protocollo_versione_id
                    WHERE s.public_id=ANY(%s) ORDER BY s.id FOR UPDATE OF s""",
                 (semina_ids,),
@@ -408,7 +411,9 @@ class PostgreSQLProductionPlanningCommitWriter:
                     or row[3] != snapshot.version
                     or row[4] != snapshot.protocol_version_public_id.value
                     or row[5] is None
-                    or Decimal(row[5]) != snapshot.expected_useful.value
+                    or in_progress_eligible_quantity(
+                        Decimal(row[5]), Decimal(row[9]), snapshot.allocated.value
+                    ) != snapshot.expected_useful.value
                     or row[6] != snapshot.expected_useful.unit.value
                     or row[7] != snapshot.harvest_window_start
                     or row[8] != snapshot.harvest_window_end

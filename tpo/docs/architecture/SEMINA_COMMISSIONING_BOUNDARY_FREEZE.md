@@ -530,3 +530,13 @@ operational commissioning.
 ## 20. Next mission
 
 `IMPLEMENT SPRINT 5.10 — SEMINA COMMISSIONING BOUNDARY V1`
+
+## Addendum 6/10/2026 — autorita' di predictive-resource commissioning (Owner: Matteo)
+
+§10 resta valido: `semina commission` lascia NULLI i quattro campi predittivi. La "separata autorita' governata"
+che li popola atomicamente e' ora implementata in `infrastructure/postgresql/semina_predictive_authority.py`
+(script `scripts/commissioning/2026-10-06_compila_semine_in_corso.py`): SET interi dichiarati dal titolare,
+derivazione da protocollo (`production_planning/in_progress_authority.py`), CAS sulla versione della SEMINA (+1),
+audit SEMINA/UPDATE con before/after, nessuna correzione di valori gia' compilati (decisione separata), nessuna
+modifica a stato, seme, lotto, raccolte, stock, allocazioni o piani. Da ratificare con un Architecture Review.
+Per le semine nuove va eseguita subito dopo `semina commission`.

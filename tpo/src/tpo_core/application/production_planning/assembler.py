@@ -9,6 +9,7 @@ from enum import Enum
 import hashlib
 
 from .errors import ProductionPlanningError
+from .in_progress_authority import in_progress_compatible_with_delivery
 from .models import (
     ActiveAllocationSnapshot,
     AllocationDraft,
@@ -568,8 +569,13 @@ def _in_progress_resources(assembly, candidate):
         if resource.variety_public_id != candidate.demand.variety_public_id:
             continue
         _same_uom(candidate, resource.allocable_residual)
-        if resource.harvest_window_start.date() > candidate.demand.delivery_date or resource.state.value == "CHIUSA":
-            raise _infeasible("RESOURCE_NOT_READY", "SEMINA non eleggibile entro la consegna.")
+        # Addendum 6/10/2026: la semina non compatibile con la consegna (o chiusa) NON e' un errore del run:
+        # e' semplicemente non eleggibile per questa domanda (contratto congelato, §eleggibilita').
+        if resource.state.value == "CHIUSA" or not in_progress_compatible_with_delivery(
+            resource.harvest_window_start, candidate.demand.delivery_date,
+            candidate.knowledge.harvest_min_lead_days,
+        ):
+            continue
         values.append((resource.semina_public_id, resource.harvest_window_start, resource.allocable_residual.value, resource.allocated.value))
     return _ordered_resources(values)
 

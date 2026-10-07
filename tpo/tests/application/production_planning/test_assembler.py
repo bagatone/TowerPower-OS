@@ -276,7 +276,7 @@ def test_harvest_e_semina_ordering_usano_ready_time_prima_del_public_id() -> Non
         "RAC-000002", "RAC-000001"
     ]
     semina_result = assemble(
-        progress=(semina("SEM-000001", "0.5", day=15), semina("SEM-000002", "0.5", day=14)),
+        progress=(semina("SEM-000001", "0.5", day=14), semina("SEM-000002", "0.5", day=13)),
         allocation_count=2,
     )
     assert [item.source_public_id.value for item in semina_result.allocations] == [
@@ -552,3 +552,15 @@ def test_protocol_retirement_non_invalida_da_solo_allocazioni_osservate() -> Non
     snapshot = replace(base.snapshot, allocations=(observed,))
     value = replace(base, snapshot=snapshot, candidates=tuple(ProductionPlanningEngine().calculate(snapshot)))
     assert ProductionPlanningCommitAssembler().assemble(value).allocation_transitions == ()
+
+
+def test_semina_con_finestra_oltre_la_consegna_e_saltata_non_ferma_il_run() -> None:
+    """Addendum 6/10/2026: finestra non compatibile = semina non eleggibile, mai RESOURCE_NOT_READY."""
+    result = assemble(
+        progress=(semina("SEM-000001", "1", day=14), semina("SEM-000002", "1", day=15),
+                  semina("SEM-000003", "1", day=20)),
+        allocation_count=1,
+    )
+    assert [item.source_public_id.value for item in result.allocations if item.allocation_type == "PRODUZIONE_IN_CORSO"] == [
+        "SEM-000001"
+    ]

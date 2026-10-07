@@ -1116,3 +1116,19 @@ La futura implementazione deve coprire obbligatoriamente:
 18. provider neutrality;
 19. assenza di import PostgreSQL;
 20. compatibilita replay/replanning.
+
+## Addendum 6/10/2026 — produzione in corso (Owner: Matteo)
+
+Decisioni di Matteo che completano §5 e §"eleggibilita'" per la produzione fisica gia' avviata:
+
+1. **Filtro, non errore.** Una SEMINA con finestra di raccolta non compatibile con la consegna di una domanda
+   (inizio finestra > `consegna - harvest_min_lead`) o `CHIUSA` e' NON ELEGGIBILE per quella domanda: viene
+   saltata. Il run non fallisce piu' con `RESOURCE_NOT_READY` per questo motivo.
+2. **Nessun doppio conteggio.** La resa gia' RACCOLTA (raccolte registrate nella stessa UOM) e' RACCOLTA/STOCK, non
+   piu' produzione in corso: quantita' eleggibile = `max(allocata, attesa - raccolta)`, mai negativa; una semina
+   a quantita' eleggibile zero non entra nello snapshot. Loader e commit writer usano la stessa funzione
+   (`application/production_planning/in_progress_authority.py`).
+3. **Un SET resta un SET.** Il numero di SET di una semina e' un intero DICHIARATO dal titolare; non si deriva mai
+   dai grammi di seme (un SET sperimentale con meno seme e' comunque 1 SET).
+4. **Finestra.** inizio = avvio fisico + giorni di germinazione + giorni di luce/crescita + buffer temporale del
+   protocollo; fine = inizio + 5 giorni. Dato predittivo, non osservazione: non prova mai readiness fisica.

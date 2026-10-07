@@ -104,8 +104,9 @@ def _closable(item: OrderCandidate, before: date) -> str | None:
     return None
 
 
-def allocations_to_release(cursor: Any, order_pks: tuple[int, ...], *, lock: bool = False
-                           ) -> tuple[AllocationToRelease, ...]:
+def allocations_to_release(cursor: Any, order_pks: tuple[int, ...], *, lock: bool = False,
+                           line_pks: tuple[int, ...] | None = None) -> tuple[AllocationToRelease, ...]:
+    """Allocazioni ATTIVE sulle righe degli ordini; con ``line_pks`` solo quelle delle righe indicate."""
     cursor.execute(
         f"""SELECT a.public_id,a.id,a.version,a.allocation_type,
                    a.quantity - COALESCE((SELECT SUM(t.quantity)
@@ -124,9 +125,10 @@ def allocations_to_release(cursor: Any, order_pks: tuple[int, ...], *, lock: boo
             JOIN tpo.ordini o ON o.id=ro.ordine_id
             LEFT JOIN tpo.allocazioni_raccolta ar ON ar.allocation_id=a.id
             LEFT JOIN tpo.raccolte rac ON rac.id=ar.raccolta_id
-            WHERE a.state='ATTIVA' AND o.id = ANY(%s)
+            WHERE a.state='ATTIVA' AND o.id = ANY(%s) AND (%s::bigint[] IS NULL OR ro.id = ANY(%s))
             ORDER BY a.public_id {'FOR UPDATE OF a' if lock else ''}""",
-        (list(order_pks),),
+        (list(order_pks), None if line_pks is None else list(line_pks),
+         None if line_pks is None else list(line_pks)),
     )
     return tuple(AllocationToRelease(r[0], r[1], int(r[2]), r[3], Decimal(r[4]), r[5], r[6], r[7], r[8])
                  for r in cursor.fetchall())

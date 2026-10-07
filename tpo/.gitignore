@@ -24,3 +24,12 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Intestazione bolla con dati fiscali dell'emittente (copia da config/bolla_emittente.example.yaml)
+config/bolla_emittente.yaml
+
+# Dati di runtime locali
+runtime/
+
+# Pacchetti di sincronizzazione temporanei
+work/*.tgz

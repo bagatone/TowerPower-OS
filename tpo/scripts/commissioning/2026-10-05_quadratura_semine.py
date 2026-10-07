@@ -82,6 +82,44 @@ SELECT s.public_id, v.denominazione, s.stato::text, s.data_avvio::date,
                  WHERE aip.semina_id=s.id AND a.state='ATTIVA' AND rps.piano_revisione_id=({LATEST_REV})),0)
 FROM tpo.semine s JOIN tpo.varieta v ON v.id=s.varieta_id WHERE s.stato<>'CHIUSA'
 ORDER BY v.denominazione, s.data_avvio""", out=out)
+    table(cur, "SEMINE IN CORSO IN SET, al netto di quanto gia' raccolto (STIMA: grammi di seme / grammi per SET del piano)",
+          "semina | varieta | stato | avvio | grammi seme | SET stimati | SET gia' raccolti | SET residui stimati",
+          f"""
+WITH gps AS (
+  SELECT rps.varieta_id, SUM(rps.grammi_seme_richiesti) / NULLIF(SUM(rps.quantita_residua_da_avviare),0) g
+  FROM tpo.righe_piano_semina rps WHERE rps.piano_revisione_id=({LATEST_REV})
+    AND rps.quantita_residua_da_avviare>0 GROUP BY rps.varieta_id)
+SELECT s.public_id, v.denominazione, s.stato::text, s.data_avvio::date, s.quantita_seme,
+       ROUND(s.quantita_seme/NULLIF(gps.g,0),2),
+       COALESCE((SELECT SUM(r.quantita) FROM tpo.raccolte r WHERE r.semina_id=s.id AND r.unita_misura='SET'),0),
+       GREATEST(0, ROUND(s.quantita_seme/NULLIF(gps.g,0),2)
+                   - COALESCE((SELECT SUM(r.quantita) FROM tpo.raccolte r WHERE r.semina_id=s.id AND r.unita_misura='SET'),0))
+FROM tpo.semine s JOIN tpo.varieta v ON v.id=s.varieta_id LEFT JOIN gps ON gps.varieta_id=v.id
+WHERE s.stato<>'CHIUSA' AND s.unita_misura='GRAM' ORDER BY v.denominazione, s.data_avvio""", out=out)
+    table(cur, "RIEPILOGO PER VARIETA' (SET, STIMA): domanda aperta vs stock + produzione in corso residua",
+          "varieta | domanda aperta | stock | produzione in corso residua (stima) | MANCANO (stima) | ECCEDENZA (stima)",
+          f"""
+WITH gps AS (
+  SELECT rps.varieta_id, SUM(rps.grammi_seme_richiesti) / NULLIF(SUM(rps.quantita_residua_da_avviare),0) g
+  FROM tpo.righe_piano_semina rps WHERE rps.piano_revisione_id=({LATEST_REV})
+    AND rps.quantita_residua_da_avviare>0 GROUP BY rps.varieta_id),
+inc AS (
+  SELECT s.varieta_id, SUM(GREATEST(0, s.quantita_seme/NULLIF(gps.g,0)
+          - COALESCE((SELECT SUM(r.quantita) FROM tpo.raccolte r WHERE r.semina_id=s.id AND r.unita_misura='SET'),0))) q
+  FROM tpo.semine s JOIN gps ON gps.varieta_id=s.varieta_id
+  WHERE s.stato<>'CHIUSA' AND s.unita_misura='GRAM' GROUP BY s.varieta_id),
+dom AS (
+  SELECT ro.varieta_id, SUM(ro.quantita - COALESCE((SELECT SUM(rc.quantita) FROM tpo.righe_consegna rc
+         JOIN tpo.consegne c ON c.id=rc.consegna_id WHERE rc.riga_ordine_id=ro.id AND c.stato='CONSEGNATA'),0)) q
+  FROM tpo.righe_ordine ro JOIN tpo.ordini o ON o.id=ro.ordine_id
+  WHERE o.stato IN ('APERTO','PARZIALMENTE_EVASO') AND ro.unita_misura='SET' GROUP BY ro.varieta_id),
+stk AS (SELECT varieta_id, SUM(disponibile) q FROM tpo.stock WHERE unita_misura='SET' GROUP BY varieta_id)
+SELECT v.denominazione, COALESCE(dom.q,0), COALESCE(stk.q,0), ROUND(COALESCE(inc.q,0),2),
+       GREATEST(0, ROUND(COALESCE(dom.q,0)-COALESCE(stk.q,0)-COALESCE(inc.q,0),2)),
+       GREATEST(0, ROUND(COALESCE(stk.q,0)+COALESCE(inc.q,0)-COALESCE(dom.q,0),2))
+FROM tpo.varieta v LEFT JOIN dom ON dom.varieta_id=v.id LEFT JOIN inc ON inc.varieta_id=v.id
+LEFT JOIN stk ON stk.varieta_id=v.id
+WHERE COALESCE(dom.q,0)+COALESCE(inc.q,0) > 0 ORDER BY v.denominazione""", out=out)
     table(cur, "DA SEMINARE secondo il piano vivo (per data di semina)",
           "data semina | varieta | SET da avviare | per ordine | consegna | stato riga",
           f"""
@@ -92,7 +130,10 @@ JOIN tpo.righe_ordine ro ON ro.id=rps.riga_ordine_id JOIN tpo.ordini o ON o.id=r
 WHERE rps.piano_revisione_id=({LATEST_REV}) AND rps.stato IN ('PIANIFICATA','PRONTA','TARDIVA')
   AND rps.quantita_residua_da_avviare>0 AND o.stato IN ('APERTO','PARZIALMENTE_EVASO')
 ORDER BY rps.sowing_at, v.denominazione, o.public_id""", out=out)
-    out("\nLettura: se 'DA SEMINARE' > 0 per una varieta', mancano semine per coprire gli ordini aperti; "
+    out("\nNota: il planner NON conta le semine in corso come offerta (nessuna ha 'resa attesa' e finestra di raccolta: "
+        "il comando di avvio semina le lascia vuote), quindi 'DA SEMINARE' = tutta la domanda non coperta da stock. "
+        "Le sezioni 'IN SET ... (STIMA)' mostrano quanto della domanda e' in realta' gia' in produzione.")
+    out("Lettura: se 'DA SEMINARE' > 0 per una varieta', mancano semine per coprire gli ordini aperti; "
         "se 'semine in corso' supera 'piano: da semine in corso', una parte della resa non e' assegnata a nessun ordine.")
     conn.rollback()
     return 0

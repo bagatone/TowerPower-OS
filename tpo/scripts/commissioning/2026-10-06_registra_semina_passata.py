@@ -90,7 +90,8 @@ def expected_window(cur, pv, n_set, started, window_days):
 
 
 def run(conn, predictive_conn_factory, esegui_scrittura: bool, nome: str, n_set: int, giorno: date, ora: str,
-        window_days: int = DEFAULT_WINDOW_DAYS) -> tuple[str, str]:
+        window_days: int = DEFAULT_WINDOW_DAYS, dichiarata_il: date = date(2026, 10, 6),
+        nota: str | None = None) -> tuple[str, str]:
     base.TODAY = giorno  # scadenza lotti valutata alla data di semina
     h, m = (int(x) for x in ora.split(":"))
     started = datetime(giorno.year, giorno.month, giorno.day, h, m, tzinfo=TZ)
@@ -108,9 +109,10 @@ def run(conn, predictive_conn_factory, esegui_scrittura: bool, nome: str, n_set:
     else:
         print(f"  protocollo {pv}: {per_set} g/SET x {n_set} SET = {grams} g")
         lse, lver = base.resolve_seed_lot(cur, nome, grams)
+        descrizione = nota or "seminata circa 7 giorni prima; ora in germinazione; cliente/ordine da assegnare in seguito"
         reason = (f"Semina reale {nome} {n_set} SET ({grams.normalize():f} g), mai registrata, dichiarata da Matteo il "
-                  f"6/10/2026: seminata circa 7 giorni prima, data stimata {giorno:%d/%m/%Y} e ora di semina non "
-                  f"rilevata ({ora} convenzionale); ora in germinazione; cliente/ordine da assegnare in seguito.")
+                  f"{dichiarata_il:%d/%m/%Y}: {descrizione}; data di semina stimata {giorno:%d/%m/%Y} e ora di semina "
+                  f"non rilevata ({ora} convenzionale).")
         cmd = [RUN, "semina", "commission", "--seed-lot", lse, "--expected-seed-lot-version", str(lver),
                "--protocol-version", pv, "--actual-seed-grams", f"{grams.normalize():f}",
                "--physical-started-at", started.isoformat(), "--origin", "RIPRISTINO_STOCK",
@@ -142,7 +144,7 @@ def run(conn, predictive_conn_factory, esegui_scrittura: bool, nome: str, n_set:
 
     if stato == "AVVIATA":
         reason = (f"Transizione GERMINAZIONE {semina} del {started:%d/%m/%Y %H:%M}: passaggio amministrativo allo "
-                  "stesso istante della semina (data stimata), registrata in ritardo il 6/10/2026 su dichiarazione di Matteo")
+                  f"stesso istante della semina (data stimata), registrata in ritardo il {dichiarata_il:%d/%m/%Y} su dichiarazione di Matteo")
         esegui([RUN, "semina", "transition", "--semina", semina, "--expected-semina-version", str(version),
                 "--target-state", "GERMINAZIONE", "--effective-at", started.isoformat(), "--provenance", PROV_TRANS,
                 "--actor", "matteo", "--reason", reason, "--correlation-id", f"{TAG}-{semina}-GERMINAZIONE",
@@ -154,7 +156,7 @@ def run(conn, predictive_conn_factory, esegui_scrittura: bool, nome: str, n_set:
             done, _ = authority.commission_predictive(
                 pcur, declared_sets={semina: n_set}, actor="matteo",
                 reason=(f"Resa attesa e finestra di raccolta ({window_days} giorni) di {semina} ({nome} {n_set} SET), "
-                        "derivate dal protocollo e dalla data di semina stimata da Matteo il 6/10/2026."),
+                        f"derivate dal protocollo e dalla data di semina stimata da Matteo il {dichiarata_il:%d/%m/%Y}."),
                 correlation_id=f"{TAG}-{semina}-predittivo", provenance=PROV_PREDICTIVE, window_days=window_days)
             pconn.commit()
         except Exception:
@@ -174,6 +176,8 @@ def main() -> int:
     ap.add_argument("--data-semina", default="2026-09-29")
     ap.add_argument("--ora-semina", default="09:00")
     ap.add_argument("--giorni-finestra", type=int, default=DEFAULT_WINDOW_DAYS)
+    ap.add_argument("--dichiarata-il", default="2026-10-06", help="giorno in cui Matteo ha dichiarato la semina")
+    ap.add_argument("--nota", default=None, help="descrizione libera scritta nel motivo (es. prova gia' pronta)")
     a = ap.parse_args()
     if a.n_set < 1:
         base.stop("--set deve essere un intero >= 1.")
@@ -182,7 +186,8 @@ def main() -> int:
     conn = base.db()
     conn.autocommit = True
     try:
-        semina, codice = run(conn, base.db, a.esegui, a.varieta, a.n_set, giorno, a.ora_semina, a.giorni_finestra)
+        semina, codice = run(conn, base.db, a.esegui, a.varieta, a.n_set, giorno, a.ora_semina, a.giorni_finestra,
+                              date.fromisoformat(a.dichiarata_il), a.nota)
     finally:
         conn.close()
     print(f"\n== RIEPILOGO\n  {a.varieta} {a.n_set} SET  {semina}  {codice}")

@@ -16,6 +16,7 @@ import argparse
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +38,8 @@ def main() -> int:
     ap.add_argument("--venduti", default="0.5", help="SET venduti (dichiarati)")
     ap.add_argument("--scartati", default="0.5", help="SET scartati (dichiarati)")
     ap.add_argument("--chiusa-il", default="adesso", help='ISO 8601 oppure "adesso"')
+    ap.add_argument("--dichiarata-il", default=None, help="giorno della dichiarazione di Matteo (default: oggi)")
+    ap.add_argument("--nota", default=None, help="descrizione libera aggiunta al motivo (es. collassata in luce)")
     a = ap.parse_args()
     t = (datetime.now(TZ).replace(second=0, microsecond=0) if a.chiusa_il == "adesso"
          else datetime.fromisoformat(a.chiusa_il))
@@ -70,9 +73,12 @@ def main() -> int:
         if ultimo and t < ultimo:
             print(f"STOP: chiusura {t} precede l'ultimo evento {ultimo}.")
             return 1
-        reason = (f"Chiusura {a.semina} ({varieta} {avvio:%d/%m/%Y}) dichiarata da Matteo il 5/10/2026: "
-                  f"{a.venduti} SET venduto (vendita non registrata) e {a.scartati} SET scartato "
-                  "(collassato, non vendibile). Nessuna RACCOLTA ne' movimento di magazzino registrato per questa semina.")
+        dichiarata = (datetime.fromisoformat(a.dichiarata_il).date() if a.dichiarata_il else datetime.now(TZ).date())
+        venduti = (f"{a.venduti} SET venduto (vendita non registrata) e " if Decimal(a.venduti) > 0 else "")
+        reason = (f"Chiusura {a.semina} ({varieta} {avvio:%d/%m/%Y}) dichiarata da Matteo il {dichiarata:%d/%m/%Y}: "
+                  f"{venduti}{a.scartati} SET scartato (collassato, non vendibile)"
+                  + (f"; {a.nota}" if a.nota else "")
+                  + ". Nessuna RACCOLTA ne' movimento di magazzino registrato per questa semina.")
         cmd = [RUN, "semina", "transition", "--semina", a.semina, "--expected-semina-version", str(version),
                "--target-state", "CHIUSA", "--effective-at", t.isoformat(), "--final-outcome", a.esito,
                "--provenance", '{"target_state":"OWNER_AUTHORIZED","effective_at":"OWNER_AUTHORIZED","final_outcome":"OWNER_AUTHORIZED"}',

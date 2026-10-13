@@ -25,6 +25,7 @@ from .fatturazione_configuration import (
 from .factory import _build_operational_application, build_application
 from .identity import build_identity_registration_commissioner
 from .incasso import build_incasso_service
+from .pagamento_consegna import build_pagamento_consegna_service
 from .magazzino_lettura import build_magazzino_lettura_service
 from .movimento_articolo import build_movimento_articolo_service
 from .movimento_carico import build_movimento_carico_service
@@ -71,6 +72,7 @@ __all__ = [
     "build_fornitura_ordini_consegne_lettura_service",
     "build_identity_registration_commissioner",
     "build_incasso_service",
+    "build_pagamento_consegna_service",
     "build_listino_varieta_writer",
     "build_magazzino_lettura_service",
     "build_consumo_materiali_service",

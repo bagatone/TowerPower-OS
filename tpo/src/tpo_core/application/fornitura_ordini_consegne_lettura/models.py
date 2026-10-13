@@ -239,6 +239,20 @@ class RigaConsegna:
             raise InvalidFornituraOrdiniConsegneLetturaQueryError("quantita non puo' essere zero.")
 
 
+STATI_PAGAMENTO_CONSEGNA_AMMESSI = frozenset({"PAGATA", "DA_PAGARE", "NON_CONSEGNATA"})
+
+
+@dataclass(frozen=True)
+class PagamentoConsegnaLettura:
+    """Pagamento valido (non annullato) di una CONSEGNA (PAGAMENTO_CONSEGNA)."""
+
+    pagamento_id: str
+    data_pagamento: date
+    metodo: str
+    importo: Decimal | None
+    storico: bool
+
+
 @dataclass(frozen=True)
 class Consegna:
     consegna_id: ConsegnaId
@@ -250,6 +264,8 @@ class Consegna:
     destinazione_fisica: str | None
     ordini_collegati: tuple[OrdineId, ...]
     righe: tuple[RigaConsegna, ...]
+    stato_pagamento: str = "NON_CONSEGNATA"
+    pagamento: PagamentoConsegnaLettura | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.consegna_id, ConsegnaId):
@@ -258,6 +274,12 @@ class Consegna:
             raise InvalidFornituraOrdiniConsegneLetturaQueryError("cliente_id non valido.")
         if self.stato not in STATI_CONSEGNA_AMMESSI:
             raise InvalidFornituraOrdiniConsegneLetturaQueryError("stato non valido.")
+        if self.stato_pagamento not in STATI_PAGAMENTO_CONSEGNA_AMMESSI:
+            raise InvalidFornituraOrdiniConsegneLetturaQueryError("stato_pagamento non valido.")
+        if (self.stato_pagamento == "PAGATA") != (self.pagamento is not None):
+            raise InvalidFornituraOrdiniConsegneLetturaQueryError(
+                "stato_pagamento incoerente con pagamento."
+            )
         if not isinstance(self.ordini_collegati, tuple) or any(
             not isinstance(o, OrdineId) for o in self.ordini_collegati
         ):

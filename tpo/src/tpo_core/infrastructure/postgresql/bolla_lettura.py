@@ -15,7 +15,7 @@ import psycopg
 
 from ...application.bolla_lettura.errors import ConsegnaNonTrovataError
 from ...application.bolla_lettura.models import (
-    Bolla, OrigineLotto, RichiediBolla, RigaBolla,
+    Bolla, OrigineLotto, PagamentoBolla, RichiediBolla, RigaBolla,
 )
 from ...domain.identifiers import ConsegnaId
 from .connection import PostgreSQLConnectionFactory
@@ -34,6 +34,13 @@ _SELECT_RIGHE = (
     "JOIN tpo.varieta v ON v.id = rc.varieta_id "
     "JOIN tpo.ordini o ON o.id = rc.ordine_id "
     "WHERE rc.consegna_id = %s ORDER BY rc.posizione"
+)
+_SELECT_PAGAMENTO = (
+    "SELECT p.public_id, p.data_pagamento, p.metodo, p.importo, p.storico "
+    "FROM tpo.pagamenti_consegna p "
+    "WHERE p.consegna_id = %s AND p.tipo = 'PAGAMENTO' "
+    "AND NOT EXISTS (SELECT 1 FROM tpo.pagamenti_consegna a "
+    "WHERE a.annulla_pagamento_id = p.id)"
 )
 _SELECT_ORIGINI = (
     "SELECT rc.id, s.codice_tracciabilita, r.public_id, r.data_raccolta, cl.quantita "
@@ -70,6 +77,8 @@ class PostgreSQLBollaLetturaReader:
                 righe_rows = cursor.fetchall()
                 cursor.execute(_SELECT_ORIGINI, (consegna_pk,))
                 origini_rows = cursor.fetchall()
+                cursor.execute(_SELECT_PAGAMENTO, (consegna_pk,))
+                pagamento_row = cursor.fetchone()
             origini_per_riga: dict[int, list[OrigineLotto]] = {}
             for riga_pk, codice, raccolta_id, data_raccolta, quantita in origini_rows:
                 origini_per_riga.setdefault(riga_pk, []).append(
@@ -90,6 +99,11 @@ class PostgreSQLBollaLetturaReader:
                 ConsegnaId(query.consegna_id.value), stato, cliente_public_id,
                 cliente_denominazione, data_prevista, data_effettiva, operatore,
                 destinazione, tuple(righe),
+                None if pagamento_row is None else PagamentoBolla(
+                    pagamento_row[0], pagamento_row[1], pagamento_row[2],
+                    None if pagamento_row[3] is None else Decimal(pagamento_row[3]),
+                    bool(pagamento_row[4]),
+                ),
             )
         except psycopg.Error as exc:
             raise PostgreSQLError("Lettura BOLLA PostgreSQL fallita.") from exc

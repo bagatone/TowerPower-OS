@@ -89,6 +89,12 @@ class IncassoId(PermanentId):
 
 
 @dataclass(frozen=True)
+class PagamentoConsegnaId(PermanentId):
+    prefix: ClassVar[str] = "PGC"
+    sequence_name: ClassVar[str] = "PAGAMENTO_CONSEGNA_ID"
+
+
+@dataclass(frozen=True)
 class UscitaId(PermanentId):
     prefix: ClassVar[str] = "USC"
     sequence_name: ClassVar[str] = "USCITA_ID"

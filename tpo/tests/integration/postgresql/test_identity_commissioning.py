@@ -80,6 +80,8 @@ def test_incremental_commissioning_replay_preserves_existing_and_counters(databa
         # Production Planning: righe pre-esistenti, come INCASSO_ID/USCITA_ID sopra.
         "ARTICOLO_ID",
         "ASSEGNAZIONE_FISICA_ID",
+        # Seminata dalla migration 20261010_0038 (PAGAMENTO_CONSEGNA_AUTHORITY_FREEZE.md).
+        "PAGAMENTO_CONSEGNA_ID",
     }
     assert after["RUN_ID"] == before["RUN_ID"]
     assert after["ORDINE_ID"] == before["ORDINE_ID"]

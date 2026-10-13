@@ -633,6 +633,27 @@ concepts:
     verification_tests: [tests/application/test_incasso.py, tests/cli/test_incasso_cli.py, tests/infrastructure/postgresql/test_finanze_aziendali_migration.py, tests/integration/postgresql/test_incasso.py]
     reviewed_at_commit: 04bef3b
 
+  - concept_id: PAGAMENTO_CONSEGNA
+    canonical_name: Pagamento Consegna
+    domain: ADMINISTRATION
+    classification: fact
+    status: PRESERVED
+    current_authorities: [{path: docs/architecture/PAGAMENTO_CONSEGNA_AUTHORITY_FREEZE.md, section: "2", kind: architecture_freeze}]
+    core_implementations: [src/tpo_core/application/pagamento_consegna/service.py, src/tpo_core/infrastructure/postgresql/pagamento_consegna.py, src/tpo_core/cli/pagamento_consegna.py]
+    persistence_authorities: [tpo.pagamenti_consegna]
+    identities: [{type: PagamentoConsegnaId, prefix: PGC, sequence: PAGAMENTO_CONSEGNA_ID}]
+    legacy_predecessors: []
+    preserved_rules: ["PAGAMENTO_CONSEGNA dice se una CONSEGNA CONSEGNATA e' stata pagata, senza aspettare la FATTURA; e' un Fact separato perche' la CONSEGNA effettiva e' immutabile (tr_consegne_effective_immutable).", "Lo stato PAGATA / DA PAGARE e' derivato (un PAGAMENTO non annullato), mai memorizzato; un solo pagamento valido per consegna; nessun pagamento parziale in V1.", "Importo facoltativo (Owner Decision D1); nessun collegamento automatico con FATTURA/INCASSO (Owner Decision D2): quando le fatture verranno emesse dalle consegne, la regola anti doppio conteggio si decide in un Freeze separato.", "Facts append-only: un pagamento sbagliato si annulla con un nuovo Fact ANNULLAMENTO, mai con UPDATE/DELETE. I pagamenti dichiarati all'avvio del controllo (consegne gia' fatte) portano il flag storico: data = data della dichiarazione, metodo segnaposto, nessuna data/metodo reali inventati."]
+    explicitly_superseded_rules: []
+    forbidden_duplicates: []
+    conflicts: []
+    open_owner_decisions: ["Rapporto con la FATTURA futura (pagamento di consegna gia' coperto vs INCASSO) da frozen in un Freeze separato quando le fatture verranno emesse dalle consegne."]
+    correction_semantics: "Append-only cancellation via a second Fact (tipo ANNULLAMENTO, annulla_pagamento_id); a cancelled payment can be re-registered; no chained cancellation."
+    audit_authority: tpo.audit_eventi
+    idempotency_authority: tpo.pagamenti_consegna (idempotency_key UNIQUE + payload_hash)
+    verification_tests: [tests/cli/test_pagamento_consegna_cli.py, tests/integration/postgresql/test_pagamento_consegna.py, tests/application/test_bolla_lettura.py]
+    reviewed_at_commit: 1e2267e
+
   - concept_id: USCITA
     canonical_name: Uscita
     domain: ADMINISTRATION

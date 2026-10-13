@@ -73,3 +73,32 @@ def test_render_pdf_contains_codes_and_untraced_notice() -> None:
     assert b"RAC-000001" in pdf
     assert b"ALBAR" in pdf
     assert b"Origen no trazado" in pdf
+
+
+def _con_pagamento(**kwargs):
+    from dataclasses import replace
+    from src.tpo_core.application.bolla_lettura import PagamentoBolla
+    return replace(_bolla(), pagamento=PagamentoBolla(**kwargs))
+
+
+def test_pdf_payment_status_line_unpaid_paid_and_historical() -> None:
+    pytest.importorskip("reportlab")
+    from src.tpo_core.infrastructure.pdf.bolla_pdf import estado_pagamento, render_bolla_pdf
+
+    assert estado_pagamento(_bolla()) == "PENDIENTE DE PAGO"
+    pagata = _con_pagamento(pagamento_id="PGC-000001", data_pagamento=date(2026, 10, 9),
+                            metodo="BIZUM", importo=Decimal("12.50"), storico=False)
+    assert estado_pagamento(pagata.pagamento and pagata) == "PAGADO el 09/10/2026 - Bizum - 12,5 EUR"
+    senza_importo = _con_pagamento(pagamento_id="PGC-000001", data_pagamento=date(2026, 10, 9),
+                                   metodo="CONTANTI", importo=None, storico=False)
+    assert estado_pagamento(senza_importo) == "PAGADO el 09/10/2026 - efectivo"
+    storica = _con_pagamento(pagamento_id="PGC-000001", data_pagamento=date(2026, 10, 11),
+                             metodo="ALTRO", importo=None, storico=True)
+    text = estado_pagamento(storica)
+    assert "registrado el 11/10/2026" in text and "anterior al control de pagos" in text
+    assert "otro" not in text            # il metodo segnaposto non compare mai sulla bolla
+
+    for bolla, atteso in ((_bolla(), b"PENDIENTE DE PAGO"), (pagata, b"PAGADO el 09/10/2026")):
+        pdf = render_bolla_pdf(bolla, emittente=["Tower Power (prova)"], generata_il=NOW,
+                               compress=False)
+        assert atteso in pdf

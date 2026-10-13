@@ -54,6 +54,17 @@ class RigaBolla:
 
 
 @dataclass(frozen=True)
+class PagamentoBolla:
+    """Pagamento valido (non annullato) della CONSEGNA, se registrato (PAGAMENTO_CONSEGNA)."""
+
+    pagamento_id: str
+    data_pagamento: date
+    metodo: str
+    importo: Decimal | None
+    storico: bool
+
+
+@dataclass(frozen=True)
 class Bolla:
     consegna_id: ConsegnaId
     stato: str
@@ -64,6 +75,7 @@ class Bolla:
     operatore: str | None
     destinazione_fisica: str | None
     righe: tuple[RigaBolla, ...]
+    pagamento: PagamentoBolla | None = None
 
     @property
     def righe_senza_origine(self) -> int:

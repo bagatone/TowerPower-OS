@@ -14,6 +14,7 @@ from collections import defaultdict
 import psycopg
 
 from ...application.fornitura_ordini_consegne_lettura.models import (
+    PagamentoConsegnaLettura,
     AssegnazioneFisica, Consegna, ElencoAssegnazioniFisiche, ElencoConsegne, ElencoOrdini,
     ElencoProgrammiFornitura, Ordine, ProgrammaFornitura, RichiediElencoAssegnazioniFisiche,
     RichiediElencoConsegne, RichiediElencoOrdini, RichiediElencoProgrammiFornitura,
@@ -58,6 +59,12 @@ _SELECT_CONSEGNE = (
     "SELECT c.public_id, cl.public_id, cl.denominazione, c.stato, c.data_prevista, "
     "c.data_effettiva, c.destinazione_fisica "
     "FROM tpo.consegne c JOIN tpo.clienti cl ON cl.id = c.cliente_id"
+)
+_SELECT_PAGAMENTI_CONSEGNA = (
+    "SELECT c.public_id, p.public_id, p.data_pagamento, p.metodo, p.importo, p.storico "
+    "FROM tpo.pagamenti_consegna p JOIN tpo.consegne c ON c.id = p.consegna_id "
+    "WHERE p.tipo = 'PAGAMENTO' AND NOT EXISTS ("
+    "SELECT 1 FROM tpo.pagamenti_consegna a WHERE a.annulla_pagamento_id = p.id)"
 )
 _SELECT_ORDINI_CONSEGNA = (
     "SELECT c.public_id, o.public_id FROM tpo.consegne_ordini co "
@@ -167,6 +174,8 @@ class PostgreSQLFornituraOrdiniConsegneLetturaReader:
                 ordini_rows = cursor.fetchall()
                 cursor.execute(f"{_SELECT_RIGHE_CONSEGNA} ORDER BY rc.posizione")
                 righe_rows = cursor.fetchall()
+                cursor.execute(_SELECT_PAGAMENTI_CONSEGNA)
+                pagamenti_rows = cursor.fetchall()
             ordini_per_consegna: dict[str, list[OrdineId]] = defaultdict(list)
             for consegna_public_id, ordine_public_id in ordini_rows:
                 ordini_per_consegna[consegna_public_id].append(OrdineId(ordine_public_id))
@@ -177,12 +186,23 @@ class PostgreSQLFornituraOrdiniConsegneLetturaReader:
                     posizione, VarietaId(varieta_public_id), varieta_denominazione, quantita,
                     unita_misura, rettifica_id is not None,
                 ))
+            pagamento_per_consegna = {
+                c_public_id: PagamentoConsegnaLettura(
+                    p_public_id, p_data, p_metodo, None if p_importo is None else p_importo,
+                    bool(p_storico),
+                )
+                for (c_public_id, p_public_id, p_data, p_metodo, p_importo, p_storico)
+                in pagamenti_rows
+            }
             consegne = tuple(
                 Consegna(
                     ConsegnaId(c_public_id), ClienteId(cl_public_id), cl_denominazione, stato,
                     data_prevista, data_effettiva, destinazione_fisica,
                     tuple(ordini_per_consegna.get(c_public_id, [])),
                     tuple(righe_per_consegna.get(c_public_id, [])),
+                    ("PAGATA" if c_public_id in pagamento_per_consegna
+                     else "DA_PAGARE" if stato == "CONSEGNATA" else "NON_CONSEGNATA"),
+                    pagamento_per_consegna.get(c_public_id),
                 )
                 for (c_public_id, cl_public_id, cl_denominazione, stato, data_prevista,
                      data_effettiva, destinazione_fisica) in consegne_rows

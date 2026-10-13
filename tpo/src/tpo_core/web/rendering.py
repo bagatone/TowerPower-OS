@@ -231,12 +231,12 @@ _NAV: tuple[tuple[str, str], ...] = tuple(
 # Euristiche lessicali generiche di presentazione: leggono solo la stringa
 # già serializzata, non introducono alcuna conoscenza di dominio nuova.
 _PILL_GOOD = {
-    "ATTIVO", "ATTIVA", "EVASO", "EVASA", "CONSEGNATA", "CONSEGNATO",
+    "ATTIVO", "ATTIVA", "EVASO", "EVASA", "CONSEGNATA", "CONSEGNATO", "PAGATA",
     "SUCCESS", "COMPLETATO", "COMPLETATA", "PRONTA_ALLA_RACCOLTA",
     "APPROVATA", "APPROVATO",
 }
 _PILL_WARNING = {
-    "PRONTA",
+    "PRONTA", "DA_PAGARE",
 }
 _PILL_CRITICAL = {
     "ANNULLATO", "ANNULLATA", "FAILURE", "RIFIUTATO", "RIFIUTATA",

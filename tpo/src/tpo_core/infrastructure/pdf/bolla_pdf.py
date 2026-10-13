@@ -26,6 +26,8 @@ from ...application.bolla_lettura.models import Bolla
 
 LOCAL_TZ = ZoneInfo("Atlantic/Canary")
 _UNITA = {"SET": "set", "GRAM": "g"}
+_METODO = {"BONIFICO": "transferencia", "CONTANTI": "efectivo", "CARTA": "tarjeta",
+           "BIZUM": "Bizum", "ALTRO": "otro"}
 
 
 def format_quantity(value: Decimal) -> str:
@@ -37,6 +39,21 @@ def format_quantity(value: Decimal) -> str:
 
 def _local(value: datetime) -> datetime:
     return value.astimezone(LOCAL_TZ) if value.tzinfo is not None else value
+
+
+def estado_pagamento(bolla: Bolla) -> str:
+    """Riga di stato pagamento della bolla: mai un dato non registrato."""
+    pagamento = bolla.pagamento
+    if pagamento is None:
+        return "PENDIENTE DE PAGO"
+    if pagamento.storico:
+        return (f"PAGADO - registrado el {pagamento.data_pagamento.strftime('%d/%m/%Y')} "
+                "(entrega anterior al control de pagos)")
+    text = (f"PAGADO el {pagamento.data_pagamento.strftime('%d/%m/%Y')} - "
+            f"{_METODO.get(pagamento.metodo, pagamento.metodo.lower())}")
+    if pagamento.importo is not None:
+        text += f" - {format_quantity(pagamento.importo)} EUR"
+    return text
 
 
 def render_bolla_pdf(
@@ -52,6 +69,10 @@ def render_bolla_pdf(
                            fontSize=16, leading=20)
     strong = ParagraphStyle("strong", parent=base, fontName="Helvetica-Bold")
     warn = ParagraphStyle("warn", parent=small, textColor=colors.HexColor("#8a4b00"))
+    paid_style = ParagraphStyle("paid", parent=strong, fontSize=10,
+                                textColor=colors.HexColor("#1b5e20"))
+    unpaid_style = ParagraphStyle("unpaid", parent=strong, fontSize=10,
+                                  textColor=colors.HexColor("#8a4b00"))
 
     def p(text: str, style=base) -> Paragraph:
         return Paragraph(escape(text), style)
@@ -63,6 +84,8 @@ def render_bolla_pdf(
         story.append(p(line, small))
     story.append(Spacer(1, 6 * mm))
     story.append(p("ALBARÁN DE ENTREGA", title))
+    story.append(Spacer(1, 2 * mm))
+    story.append(p(estado_pagamento(bolla), paid_style if bolla.pagamento else unpaid_style))
     story.append(Spacer(1, 3 * mm))
 
     effettiva = bolla.data_effettiva

@@ -1132,3 +1132,24 @@ Decisioni di Matteo che completano §5 e §"eleggibilita'" per la produzione fis
    dai grammi di seme (un SET sperimentale con meno seme e' comunque 1 SET).
 4. **Finestra.** inizio = avvio fisico + giorni di germinazione + giorni di luce/crescita + buffer temporale del
    protocollo; fine = inizio + 5 giorni. Dato predittivo, non osservazione: non prova mai readiness fisica.
+
+## Addendum 7/10/2026 — revisione protocollo (Owner: Matteo)
+
+Decisione di Matteo ("procediamo con la formulazione del nuovo comando"): chiude il gap noto dal 19/9/2026
+(`tpo protocollo commission` accetta solo `version == 1`; l'unico precedente era la transazione scritta a mano per
+Hinojo). La revisione di un protocollo diventa una autorita' riusabile e governata
+(`infrastructure/postgresql/protocol_revision.py`, comando `scripts/commissioning/2026-10-07_revisiona_protocollo.py`).
+
+1. **Versioni immutabili.** L'UNICA modifica ammessa su una versione esistente e' la chiusura della validita'
+   (`valida_al = valida_dal` della nuova). Nessun altro campo di una versione approvata cambia mai.
+2. **Nuova versione N+1.** Una sola transazione: chiude la versione APPROVATA corrente di UNA varieta' MICROGREEN e
+   inserisce la N+1 (APPROVATA, `versione_precedente_id`, campi copiati dalla corrente tranne quelli dichiarati).
+   Motivo obbligatorio; l'evidenza resta quella della corrente se non sostituita.
+3. **Non retroattiva.** `valida_dal` non puo' essere anteriore a oggi ne' alla validita' della corrente. Rifiutati:
+   nessuna differenza (il doppio lancio non crea versioni), durate negative, anticipo min > max, grammi/resa/
+   granularita' <= 0, varieta' senza esattamente UNA versione corrente.
+4. **Produzione fisica invariata.** Le SEMINE gia' avviate tengono `protocollo_versione_id` della versione con cui
+   sono partite e le finestre di raccolta gia' compilate NON cambiano (il comando predittivo non sovrascrive).
+   Semina e planner usano la versione valida alla data di riferimento.
+5. **Audit.** Due eventi con la stessa `correlation_id`: UPDATE sulla vecchia (chiusura) e INSERT sulla nuova con
+   `changes {campo: {from, to}}`. Anteprima di default; `--esegui` scrive (conferma del titolare).

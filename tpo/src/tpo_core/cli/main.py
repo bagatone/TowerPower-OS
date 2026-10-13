@@ -30,6 +30,7 @@ from .etichetta import run_etichetta_command
 from .delivery import run_delivery_command
 from .fattura import run_fattura_command
 from .incasso import run_incasso_command
+from .pagamento_consegna import run_pagamento_consegna_command
 from .listino_varieta import run_listino_varieta_command
 from .cliente import run_cliente_command
 from .uscita import run_uscita_command
@@ -261,6 +262,10 @@ def _parser() -> argparse.ArgumentParser:
     genera_bolla = bolla_commands.add_parser("genera")
     genera_bolla.add_argument("--consegna", required=True)
     genera_bolla.add_argument("--output-dir")
+    genera_bolla.add_argument(
+        "--per-cliente", action="store_true",
+        help="salva il PDF in una sottocartella col nome del cliente dentro --output-dir",
+    )
     genera_bolla.add_argument("--emittente-file")
     genera_bolla.add_argument("--sovrascrivi", action="store_true")
     etichetta = commands.add_parser(
@@ -486,6 +491,29 @@ def _parser() -> argparse.ArgumentParser:
     registra_incasso.add_argument("--reason", required=True)
     registra_incasso.add_argument("--correlation-id", required=True)
     registra_incasso.add_argument("--idempotency-key", required=True)
+    pagamento_consegna = commands.add_parser(
+        "pagamento-consegna", help="Pagamento di una CONSEGNA (pagato / da pagare).",
+    )
+    pagamento_consegna_commands = pagamento_consegna.add_subparsers(
+        dest="pagamento_consegna_command", required=True,
+    )
+    registra_pagamento = pagamento_consegna_commands.add_parser("registra")
+    registra_pagamento.add_argument("--consegna", required=True)
+    registra_pagamento.add_argument("--data", required=True)
+    registra_pagamento.add_argument(
+        "--metodo", required=True, choices=["BONIFICO", "CONTANTI", "CARTA", "BIZUM", "ALTRO"],
+    )
+    registra_pagamento.add_argument("--importo")
+    registra_pagamento.add_argument("--note")
+    registra_pagamento.add_argument("--storico", action="store_true")
+    annulla_pagamento = pagamento_consegna_commands.add_parser("annulla")
+    annulla_pagamento.add_argument("--originale", required=True)
+    annulla_pagamento.add_argument("--note")
+    for _parser in (registra_pagamento, annulla_pagamento):
+        _parser.add_argument("--actor", required=True)
+        _parser.add_argument("--reason", required=True)
+        _parser.add_argument("--correlation-id", required=True)
+        _parser.add_argument("--idempotency-key", required=True)
     correggi_incasso = incasso_commands.add_parser("correggi")
     correggi_incasso.add_argument("--originale", required=True)
     correggi_incasso.add_argument("--fattura", required=True)
@@ -583,6 +611,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_assegnazione_fisica_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "incasso":
         return run_incasso_command(args, stdout=sys.stdout, stderr=sys.stderr)
+    if args.command == "pagamento-consegna":
+        return run_pagamento_consegna_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "uscita":
         return run_uscita_command(args, stdout=sys.stdout, stderr=sys.stderr)
     if args.command == "delivery":

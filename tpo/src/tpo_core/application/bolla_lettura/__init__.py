@@ -4,7 +4,7 @@ from .errors import (
     BollaLetturaError, ConsegnaNonConsegnataError, ConsegnaNonTrovataError,
     InvalidBollaLetturaQueryError,
 )
-from .models import Bolla, OrigineLotto, RichiediBolla, RigaBolla
+from .models import Bolla, OrigineLotto, PagamentoBolla, RichiediBolla, RigaBolla
 from .ports import BollaLetturaReader
 from .service import BollaLetturaService
 
@@ -17,6 +17,7 @@ __all__ = [
     "ConsegnaNonTrovataError",
     "InvalidBollaLetturaQueryError",
     "OrigineLotto",
+    "PagamentoBolla",
     "RichiediBolla",
     "RigaBolla",
 ]

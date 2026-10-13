@@ -59,6 +59,18 @@ def test_genera_writes_pdf_in_output_dir(monkeypatch, tmp_path):
     assert "STATUS: GENERATED" in out and "RIGHE_CON_QUANTITA_SENZA_ORIGINE: 0" in out
 
 
+def test_genera_per_cliente_writes_in_customer_subfolder(monkeypatch, tmp_path):
+    _patch(monkeypatch, _Service(_bolla()))
+    code, out, err = _run("--consegna", "CON-000012", "--output-dir", str(tmp_path), "--per-cliente")
+    assert code == 0, err
+    assert [f.relative_to(tmp_path).as_posix() for f in tmp_path.rglob("*.pdf")] == [
+        "azul-y-sal-n/bolla_CON-000012_azul-y-sal-n_2099-01-01.pdf"]
+    assert "FILE: " in out and "/azul-y-sal-n/" in out
+    # senza il flag resta come prima: tutto nella cartella indicata
+    assert _run("--consegna", "CON-000012", "--output-dir", str(tmp_path))[0] == 0
+    assert (tmp_path / "bolla_CON-000012_azul-y-sal-n_2099-01-01.pdf").exists()
+
+
 def test_genera_refuses_to_overwrite_without_flag(monkeypatch, tmp_path):
     _patch(monkeypatch, _Service(_bolla()))
     assert _run("--consegna", "CON-000012", "--output-dir", str(tmp_path))[0] == 0

@@ -1,0 +1,17 @@
+class PagamentoConsegnaError(Exception):
+    code = "PAGAMENTO_CONSEGNA_FAILED"
+
+
+class InvalidPagamentoConsegnaCommandError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_INPUT_INVALID"
+class PagamentoConsegnaImportoInvalidoError(InvalidPagamentoConsegnaCommandError): code = "PAGAMENTO_CONSEGNA_IMPORTO_INVALIDO"
+class PagamentoConsegnaNonTrovataError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_CONSEGNA_NON_TROVATA"
+class PagamentoConsegnaNonConsegnataError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_CONSEGNA_NON_CONSEGNATA"
+class PagamentoConsegnaGiaPagataError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_GIA_PAGATA"
+class PagamentoConsegnaOriginaleNonTrovatoError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_ORIGINALE_NON_TROVATO"
+class PagamentoConsegnaGiaAnnullatoError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_GIA_ANNULLATO"
+class PagamentoConsegnaIdempotencyConflictError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_IDEMPOTENCY_CONFLICT"
+class PagamentoConsegnaIdentityUnavailableError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_IDENTITY_UNAVAILABLE"
+class PagamentoConsegnaPersistenceInvariantError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_PERSISTENCE_INVARIANT"
+class PagamentoConsegnaReconciliationRequiredError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_RECONCILIATION_REQUIRED"
+class PagamentoConsegnaCommitRolledBackError(PagamentoConsegnaError): code = "PAGAMENTO_CONSEGNA_COMMIT_ROLLED_BACK"
+class PagamentoConsegnaCommitOutcomeUncertainError(PagamentoConsegnaReconciliationRequiredError): code = "PAGAMENTO_CONSEGNA_COMMIT_OUTCOME_UNCERTAIN"

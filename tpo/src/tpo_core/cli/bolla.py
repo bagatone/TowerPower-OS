@@ -61,6 +61,8 @@ def run_bolla_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) -> int
             bolla, emittente=emittente, generata_il=datetime.now(LOCAL_TZ),
         )
         output_dir = Path(args.output_dir) if args.output_dir else DEFAULT_OUTPUT_DIR
+        if getattr(args, "per_cliente", False):
+            output_dir = output_dir / _slug(bolla.cliente_denominazione)
         output_dir.mkdir(parents=True, exist_ok=True)
         data = (bolla.data_effettiva.astimezone(LOCAL_TZ).date()
                 if bolla.data_effettiva else bolla.data_prevista)

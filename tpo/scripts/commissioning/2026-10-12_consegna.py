@@ -11,7 +11,7 @@ scrivi tu. Se non c'e' nessuna semina adatta si ferma e ti elenca le semine di q
 Cosa registra, in quest'ordine (tutto idempotente: se rilanci salta cio' che e' gia' fatto):
   1. (solo con --nuovo-cliente) il cliente, senza dati fiscali. Si ferma se esiste un nome simile (es. Salvaje/Selvaje)
      a meno di --anche-se-simile; senza --nuovo-cliente un cliente sconosciuto e' un errore, non una creazione;
-  2. (solo con --pronta SEM-...:SET) la dichiarazione "pronto alla raccolta" (anche da GERMINAZIONE: LUCE +1 minuto): LUCE -> CRESCITA (+1 minuto) ->
+  2. (solo con --pronta SEM-...:SET) la dichiarazione "pronto alla raccolta" (anche da AVVIATA o GERMINAZIONE: passaggi amministrativi +1 minuto ciascuno): LUCE -> CRESCITA (+1 minuto) ->
      PRONTA_ALLA_RACCOLTA; i SET dichiarati devono coincidere con i SET attesi a sistema, altrimenti si ferma;
   3. le raccolte con carico a magazzino dei SOLI SET che escono (salvo --da-giacenza Varieta': esce dalla giacenza,
      nessuna raccolta);
@@ -33,6 +33,7 @@ Stesso cliente, stesso giorno, stesse varieta'/quantita' = la stessa consegna (r
 consegna identica nello stesso giorno aggiungi --replica 2.
 
 Opzioni: --metodo BONIFICO|CONTANTI|CARTA|BIZUM|ALTRO  --pronta SEM-...:SET (ripetibile)  --da-giacenza Varieta'
+         --luce SEM-...:AAAA-MM-GG[:HH:MM] (con --pronta: quando e' passata a luce, se non registrato; ora default 09:00)
          --oltre-attesi (raccolte oltre i SET attesi: sono una stima, la quantita' fisica la dichiari tu)
          --nuovo-cliente [--anche-se-simile]   --programma-riga Var:SET (ripetibile) --programma-prima AAAA-MM-GG
          --programma-ogni N (default 14)   --pdf-dir CARTELLA
@@ -72,6 +73,7 @@ WORK = ROOT / "outputs" / "consegna"
 PAGAMENTI = "scripts/commissioning/2026-10-11_pagamenti_consegne.py"
 
 _BASE = None
+DICHIARABILI = ("AVVIATA", "GERMINAZIONE", "LUCE", "CRESCITA")   # stati da cui si puo' dichiarare "pronta alla raccolta"
 
 
 def carica_base():
@@ -110,7 +112,7 @@ def _slug(text: str) -> str:
 class Richiesta:
     """Tutto cio' che Matteo ha chiesto, validato; non tocca il database."""
 
-    def __init__(self, cliente, voci, *, giorno=None, ora=None, metodo=None, pronte=(), da_giacenza=(),
+    def __init__(self, cliente, voci, *, giorno=None, ora=None, metodo=None, pronte=(), luci=(), da_giacenza=(),
                  oltre_attesi=False, nuovo_cliente=False, anche_se_simile=False, ordine=None, manuale=False,
                  finestra_giorni=3, programma_righe=(), programma_prima=None, programma_ogni=14, replica=1,
                  pdf_dir=None, oggi=None, adesso=None):
@@ -160,6 +162,16 @@ class Richiesta:
             if not m:
                 raise b.Stop(f"--pronta '{item}' non valida: usa SEM-000000:SET (es. SEM-000021:7).")
             self.pronte.append((m.group(1), Decimal(m.group(2).replace(",", "."))))
+        self.luci = {}                                  # semina -> istante (ora delle Canarie) del passaggio a luce
+        for item in luci:
+            m = re.fullmatch(r"(SEM-\d{6}):(\d{4}-\d{2}-\d{2})(?::(\d{2}:\d{2}))?", item.strip().upper())
+            if not m:
+                raise b.Stop(f"--luce '{item}' non valida: usa SEM-000000:AAAA-MM-GG[:HH:MM] (ora default 09:00, convenzionale).")
+            h, mi = (int(x) for x in (m.group(3) or "09:00").split(":"))
+            giorno_luce = date.fromisoformat(m.group(2))
+            self.luci[m.group(1)] = datetime(giorno_luce.year, giorno_luce.month, giorno_luce.day, h, mi, tzinfo=LOCAL_TZ)
+            if m.group(1) not in {sem for sem, _ in self.pronte}:
+                raise b.Stop(f"--luce {m.group(1)}: la semina deve essere dichiarata anche con --pronta {m.group(1)}:SET.")
         self.da_giacenza = {_fold(v) for v in da_giacenza}
         nomi = {_fold(v) for v, _, _ in self.voci}
         for g in self.da_giacenza:
@@ -277,7 +289,7 @@ def semine_candidate(ctx, nome_varieta, pronte):
                     WHERE v.public_id=%s ORDER BY s.data_avvio, s.id""", (vid,))
     out = []
     for sem, stato, codice, attesi, uom, raccolti in rows:
-        if stato == "PRONTA_ALLA_RACCOLTA" or (sem in dichiarate and stato in ("GERMINAZIONE", "LUCE", "CRESCITA")):
+        if stato == "PRONTA_ALLA_RACCOLTA" or (sem in dichiarate and stato in DICHIARABILI):
             if attesi is None or uom != "SET":
                 continue
             out.append((sem, stato, codice, Decimal(attesi), Decimal(raccolti), Decimal(attesi) - Decimal(raccolti)))
@@ -322,7 +334,7 @@ def scegli_semine(b, ctx, req: Richiesta, salvate: dict):
 
 
 # --------------------------------------------------------------------------------------------- pronta
-def piano_pronta(b, ctx, orari: Orari, semina, dichiarati):
+def piano_pronta(b, ctx, orari: Orari, semina, dichiarati, luce=None):
     """Controlla e costruisce le transizioni; non scrive. Ritorna (version, [(stato, istante, nota)]) o None."""
     stato, version, attesi, uom, varieta, codice, raccolti = b.semina_row(ctx, semina, _nome_semina(ctx, semina))
     print(f"\n== {varieta.upper()} {semina} ({codice}): dichiarata 'pronta alla raccolta' ({_n(dichiarati)} SET), "
@@ -334,13 +346,33 @@ def piano_pronta(b, ctx, orari: Orari, semina, dichiarati):
     if attesi is None or uom != "SET" or Decimal(attesi) != Decimal(dichiarati):
         raise b.Stop(f"{semina}: i SET attesi a sistema ({_n(attesi) if attesi is not None else '?'}) non coincidono "
                      f"con i {_n(dichiarati)} SET dichiarati. Non scelgo io: dimmi quale semina e' pronta.")
-    if stato not in ("GERMINAZIONE", "LUCE", "CRESCITA"):
-        raise b.Stop(f"{semina} e' {stato}: la dichiarazione parte da GERMINAZIONE, LUCE o CRESCITA.")
+    if stato not in DICHIARABILI:
+        raise b.Stop(f"{semina} e' {stato}: la dichiarazione parte da AVVIATA, GERMINAZIONE, LUCE o CRESCITA.")
+    if luce is not None and stato not in ("AVVIATA", "GERMINAZIONE"):
+        raise b.Stop(f"{semina} e' gia' {stato}: --luce serve solo per una semina ancora AVVIATA o in GERMINAZIONE.")
     ultimo = b.ultimo_evento(ctx, semina)
+    avvio = None
+    if ultimo is None and stato == "AVVIATA":
+        # semina appena registrata: nessun evento di ciclo di vita, il primo passaggio e' alla data di avvio
+        # (come 2026-10-05_passa_a_luce.py: GERMINAZIONE amministrativa alla data di avvio)
+        avvio = ctx.one("SELECT data_avvio FROM tpo.semine WHERE public_id=%s", (semina,))[0]
+        ultimo = avvio - timedelta(minutes=1)
     if ultimo is None:
         raise b.Stop(f"{semina}: nessun evento di ciclo di vita, non posso datare le transizioni.")
     steps = []
     ultimo_evento = ultimo
+    if stato == "AVVIATA":
+        steps.append(("GERMINAZIONE", avvio if avvio is not None else ultimo + timedelta(minutes=1),
+                      "passaggio amministrativo alla data di avvio (germinazione fisica gia' in corso, passaggi di "
+                      "stadio non osservati: raccolta anticipata, dichiarata da Matteo)"))
+        ultimo = steps[-1][1]
+        stato = "GERMINAZIONE"
+    if stato == "GERMINAZIONE" and luce is not None:
+        steps.append(("LUCE", luce,
+                      f"passata a luce il {luce:%d/%m/%Y} secondo Matteo (dichiarato il {orari.pronta:%d/%m/%Y}); "
+                      "ora convenzionale, non osservata"))
+        ultimo = steps[-1][1]
+        stato = "LUCE"
     if stato == "GERMINAZIONE":
         steps.append(("LUCE", ultimo + timedelta(minutes=1),
                       "passaggio amministrativo 1 minuto dopo la germinazione (data non osservata: semina registrata "
@@ -396,7 +428,7 @@ def verifica_raccolta(b, ctx, req: Richiesta, orari: Orari, varieta, qty, semina
     """Controlli di una raccolta; non scrive. Ritorna (done, codice, attesi, raccolti, giacenza)."""
     stato, _, attesi, uom, _, codice, raccolti = b.semina_row(ctx, semina, varieta)
     done = b.audit_fatto(ctx, "RACCOLTA", f"{b.TAG}-raccolta-{semina}")
-    sara_pronta = semina in dichiarate and stato in ("GERMINAZIONE", "LUCE", "CRESCITA")
+    sara_pronta = semina in dichiarate and stato in DICHIARABILI
     if not done and stato != "PRONTA_ALLA_RACCOLTA" and not sara_pronta:
         raise b.Stop(f"{semina} ({varieta}) e' {stato}, non PRONTA_ALLA_RACCOLTA: se e' pronta dichiaralo con "
                      f"--pronta {semina}:SET.")
@@ -661,7 +693,7 @@ def run(ctx, req: Richiesta) -> int:
     controlla_giacenze(b, ctx, req)
     piani = {}
     for semina, dich in req.pronte:
-        piani[semina] = piano_pronta(b, ctx, orari, semina, dich)
+        piani[semina] = piano_pronta(b, ctx, orari, semina, dich, req.luci.get(semina))
     for varieta, qty, _ in req.voci:
         if _fold(varieta) not in req.da_giacenza:
             verifica_raccolta(b, ctx, req, orari, varieta, qty, scelte[varieta], dichiarate)
@@ -696,6 +728,8 @@ def main() -> int:
     ap.add_argument("--ora", help="HH:MM della prima operazione (pronta o raccolte)")
     ap.add_argument("--metodo", choices=METODI)
     ap.add_argument("--pronta", action="append", default=[], metavar="SEM-000000:SET")
+    ap.add_argument("--luce", action="append", default=[], metavar="SEM-000000:AAAA-MM-GG[:HH:MM]",
+                    help="giorno (e ora, default 09:00) in cui la semina e' passata a luce, se non registrato")
     ap.add_argument("--da-giacenza", action="append", default=[], metavar="VARIETA")
     ap.add_argument("--oltre-attesi", action="store_true")
     ap.add_argument("--nuovo-cliente", action="store_true")
@@ -715,7 +749,7 @@ def main() -> int:
     try:
         req = Richiesta(
             a.cliente, a.voci, giorno=date.fromisoformat(a.giorno) if a.giorno else None, ora=a.ora,
-            metodo=a.metodo, pronte=a.pronta, da_giacenza=a.da_giacenza, oltre_attesi=a.oltre_attesi,
+            metodo=a.metodo, pronte=a.pronta, luci=a.luce, da_giacenza=a.da_giacenza, oltre_attesi=a.oltre_attesi,
             nuovo_cliente=a.nuovo_cliente, anche_se_simile=a.anche_se_simile, ordine=a.ordine, manuale=a.manuale,
             finestra_giorni=a.finestra_giorni, programma_righe=a.programma_riga,
             programma_prima=date.fromisoformat(a.programma_prima) if a.programma_prima else None,

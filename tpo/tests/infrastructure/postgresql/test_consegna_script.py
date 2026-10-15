@@ -427,3 +427,67 @@ def test_same_request_has_the_same_key_and_a_replica_gets_another():
     c = module.Richiesta("La Jaira", ["Afila:1", "Cilantro:0.5"], oggi=OGGI, replica=2)
     assert a.tag == b.tag and c.tag == a.tag + "-r2"
     assert module.Richiesta("La Jaira", ["Afila:1", "Cilantro:1"], oggi=OGGI).tag != a.tag
+
+
+def test_a_semina_just_started_can_be_declared_ready_through_all_administrative_steps(
+        writer_postgresql_engine, tmp_path, monkeypatch, capsys):
+    engine = writer_postgresql_engine
+    module = _setup(engine, monkeypatch, con_ordine="lontano")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("SET LOCAL session_replication_role = replica")
+        connection.exec_driver_sql("UPDATE tpo.semine SET stato='AVVIATA' WHERE public_id='SEM-961001'")
+    recorder = Recorder(engine)
+    ctx = _ctx(module, engine, True, tmp_path, recorder)
+    module.run(ctx, _req(module, [f"{V1}:1"], pronte=["SEM-961001:7"]))
+    ctx.conn.close()
+    steps = [(c[c.index("--target-state") + 1], c[c.index("--effective-at") + 1]) for c in recorder.calls
+             if c[:2] == ["semina", "transition"]]
+    assert [n for n, _ in steps] == ["GERMINAZIONE", "LUCE", "CRESCITA", "PRONTA_ALLA_RACCOLTA"]
+    assert steps[0][1] < steps[1][1] < steps[2][1] < steps[3][1] and steps[3][1].startswith("2026-10-12T11:00:00")
+    assert any(c[0] == "raccolta" for c in recorder.calls)
+
+
+def test_a_just_started_semina_without_lifecycle_events_starts_from_its_avvio_date(
+        writer_postgresql_engine, tmp_path, monkeypatch, capsys):
+    engine = writer_postgresql_engine
+    module = _setup(engine, monkeypatch, con_ordine="lontano")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("SET LOCAL session_replication_role = replica")
+        connection.exec_driver_sql("UPDATE tpo.semine SET stato='AVVIATA' WHERE public_id='SEM-961001'")
+        connection.exec_driver_sql("UPDATE tpo.semine SET data_avvio='2026-10-04T08:00:00+00:00' "
+                                   "WHERE public_id='SEM-961001'")
+        avvio = connection.exec_driver_sql("SELECT data_avvio FROM tpo.semine WHERE public_id='SEM-961001'").scalar_one()
+    base = module.carica_base()
+    original = base.ultimo_evento
+    monkeypatch.setattr(base, "ultimo_evento", lambda ctx, semina: None if semina == "SEM-961001" else original(ctx, semina))
+    recorder = Recorder(engine)
+    ctx = _ctx(module, engine, True, tmp_path, recorder)
+    module.run(ctx, _req(module, [f"{V1}:1"], pronte=["SEM-961001:7"]))
+    ctx.conn.close()
+    steps = [(c[c.index("--target-state") + 1], c[c.index("--effective-at") + 1]) for c in recorder.calls
+             if c[:2] == ["semina", "transition"]]
+    assert [n for n, _ in steps] == ["GERMINAZIONE", "LUCE", "CRESCITA", "PRONTA_ALLA_RACCOLTA"]
+    assert steps[0][1] == avvio.isoformat()
+
+
+def test_luce_option_dates_the_light_step_and_needs_the_declaration(writer_postgresql_engine, tmp_path, monkeypatch):
+    engine = writer_postgresql_engine
+    module = _setup(engine, monkeypatch, con_ordine="lontano")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("SET LOCAL session_replication_role = replica")
+        connection.exec_driver_sql("UPDATE tpo.semine SET stato='AVVIATA', data_avvio='2026-10-04T08:00:00+00:00' "
+                                   "WHERE public_id='SEM-961001'")
+    base = module.carica_base()
+    original = base.ultimo_evento
+    monkeypatch.setattr(base, "ultimo_evento", lambda ctx, semina: None if semina == "SEM-961001" else original(ctx, semina))
+    with pytest.raises(base.Stop, match="anche con --pronta"):
+        module.Richiesta(CLIENTE, [f"{V1}:1"], oggi=OGGI, luci=["SEM-961001:2026-10-09"])
+    recorder = Recorder(engine)
+    ctx = _ctx(module, engine, True, tmp_path, recorder)
+    req = _req(module, [f"{V1}:1"], pronte=["SEM-961001:7"], luci=["SEM-961001:2026-10-09"])
+    module.run(ctx, req)
+    ctx.conn.close()
+    steps = [(c[c.index("--target-state") + 1], c[c.index("--effective-at") + 1]) for c in recorder.calls
+             if c[:2] == ["semina", "transition"]]
+    assert [n for n, _ in steps] == ["GERMINAZIONE", "LUCE", "CRESCITA", "PRONTA_ALLA_RACCOLTA"]
+    assert steps[1][1].startswith("2026-10-09T09:00:00") and steps[2][1].startswith("2026-10-09T09:01:00")

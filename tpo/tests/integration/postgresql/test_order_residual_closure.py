@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from datetime import date
 from pathlib import Path
 
 import psycopg
@@ -95,3 +96,29 @@ def test_script_preview_writes_nothing_then_execute(writer_postgresql_engine):
     assert module.run(conn, ["ORD-940101"], True, out=lines.append) == 0
     conn.close()
     assert _scalar(engine, "SELECT stato::text FROM tpo.ordini WHERE public_id='ORD-940101'") == "EVASO"
+
+
+def test_script_solo_chiudibili_lists_the_rest_and_closes_only_the_closable(writer_postgresql_engine):
+    engine = writer_postgresql_engine
+    _partial(engine)                                                   # ORD-940101: PARZIALMENTE_EVASO, chiudibile
+    _delivery_seed(engine, 940102, stock="2", order_quantity="2")      # ORD-940102: APERTO, nessuna consegna
+    spec = importlib.util.spec_from_file_location("chiudi_residuo_ordini_b", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    url, lines = engine.url, []
+    conn = psycopg.connect(host=url.host, port=url.port, dbname=url.database, user=url.username)
+    ids = ["ORD-940101", "ORD-940102"]
+    assert module.run(conn, ids, False, out=lines.append) == 2                      # senza l'opzione: tutto rifiutato
+    lines.clear()
+    assert module.run(conn, ids, False, out=lines.append, solo_chiudibili=True) == 0
+    testo = "\n".join(lines)
+    assert "NON CHIUDIBILI (1)" in testo and "ORD-940102" in testo and "stato APERTO" in testo and "ANTEPRIMA" in testo
+    assert module.run(conn, ids, True, out=lines.append, solo_chiudibili=True, oggi=date(2026, 10, 15)) == 0
+    assert module.run(conn, ["ORD-940102"], False, out=lines.append, solo_chiudibili=True) == 2     # nessuno chiudibile
+    assert module.run(conn, ["ORD-999999"], False, out=lines.append, solo_chiudibili=True) == 2      # inesistente
+    conn.close()
+    assert _scalar(engine, "SELECT stato::text FROM tpo.ordini WHERE public_id='ORD-940101'") == "EVASO"
+    assert _scalar(engine, "SELECT stato::text FROM tpo.ordini WHERE public_id='ORD-940102'") == "APERTO"
+    assert _scalar(engine, "SELECT count(*) FROM tpo.audit_eventi WHERE correlation_id='chiudi-residuo-ordini-2026-10-15' "
+                           "AND reason LIKE '%%dichiarato da Matteo il 15/10/2026%%'") >= 1

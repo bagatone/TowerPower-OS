@@ -102,6 +102,11 @@ def _problem(order: OrderResidual) -> str | None:
     return None
 
 
+def closure_problem(order: OrderResidual) -> str | None:
+    """Perche' l'ordine NON si puo' chiudere (None se si puo'). Per chi vuole partizionare senza eccezioni."""
+    return _problem(order)
+
+
 def _validated(cursor: Any, ids: tuple[str, ...]) -> tuple[OrderResidual, ...]:
     found = read(cursor, ids)
     missing = sorted(set(ids) - {item.public_id for item in found})

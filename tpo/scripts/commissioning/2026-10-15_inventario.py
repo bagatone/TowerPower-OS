@@ -6,6 +6,9 @@ Non scrive nulla. Mostra quello che il SISTEMA sa:
      totale residuo per referenza e in complesso;
   2. MATERIALI: ogni articolo di magazzino (ART-...: vaschette, substrato, ...) con giacenza, unita' e data dell'ultimo
      movimento; per vaschette e substrato quanti SET bastano (regola: 4 vaschette + 4 substrati per SET).
+  3. SEMINE IN CORSO (16/10/2026, richiesta di Matteo): il TOTALE DEI SET in coltivazione (germinazione + luce + crescita),
+     per stadio e per varieta', piu' le semine appena avviate e quelle pronte alla raccolta (a parte); semina per semina nel
+     CSV (tipo SEMINA_IN_CORSO) con la riga TOTALE_SET_IN_SEMINA. I SET sono i SET attesi registrati sulla semina.
 
 ATTENZIONE: sono i numeri del sistema, non un conteggio fisico. Il residuo di un lotto scende solo quando una semina
 viene registrata con quel lotto; la giacenza degli articoli solo con carichi, consumi per semina e rettifiche.
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib.util
 import sys
 import unicodedata
 import zipfile
@@ -55,6 +59,14 @@ def _fold(text: str) -> str:
 def _n(value) -> str:
     text = format(Decimal(value).normalize(), "f")
     return text
+
+
+def _semine_in_corso_module():
+    path = Path(__file__).resolve().parent / "2026-10-16_semine_in_corso.py"
+    spec = importlib.util.spec_from_file_location("semine_in_corso", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def pacchetto(conn, destinazione: str | None = None, oggi: date | None = None, out=print) -> int:
@@ -118,6 +130,33 @@ def run(conn, csv_path: str | None = None, out=print) -> int:
     if not articoli:
         out("   nessun articolo a sistema")
     out("\nRegola di consumo: 4 vaschette + 4 substrati per SET seminato.")
+
+    sic = _semine_in_corso_module()
+    semine = sic.leggi(cur)
+    out("\n-- SEMINE IN CORSO (SET attesi registrati sulle semine)")
+    in_semina = [x for x in semine if x["stato"] in sic.IN_SEMINA]
+    out(f"TOTALE SET IN SEMINA (germinazione + luce + crescita): {_n(sic.totale(in_semina))} SET in {len(in_semina)} semine")
+    for stadio in sic.IN_SEMINA:
+        lista = [x for x in in_semina if x["stato"] == stadio]
+        out(f"   {stadio}: {_n(sic.totale(lista))} SET in {len(lista)} semine")
+    per_varieta: dict[str, Decimal] = {}
+    for x in in_semina:
+        if x["set"] is not None:
+            per_varieta[x["varieta"]] = per_varieta.get(x["varieta"], Decimal(0)) + x["set"]
+    out("Per varieta' (in semina): " + (", ".join(f"{v} {_n(q)}" for v, q in sorted(per_varieta.items(), key=lambda kv: _fold(kv[0])))
+                                         or "-"))
+    senza = [x["id"] for x in in_semina if x["set"] is None]
+    if senza:
+        out("   attenzione, SET ? (resa attesa non compilata, non contati): " + ", ".join(senza))
+    for stadio, titolo in (("AVVIATA", "Appena avviate (non ancora in germinazione)"),
+                           ("PRONTA_ALLA_RACCOLTA", "Pronte alla raccolta (non incluse nel totale sopra)")):
+        lista = [x for x in semine if x["stato"] == stadio]
+        out(f"{titolo}: {_n(sic.totale(lista))} SET in {len(lista)} semine")
+    for x in semine:
+        righe_csv.append(["SEMINA_IN_CORSO", x["id"], x["varieta"], x["codice"], "", _n(x["set"]) if x["set"] is not None else "",
+                          "SET", x["stato"], "", x["avvio"].date().isoformat(), ""])
+    righe_csv.append(["TOTALE_SET_IN_SEMINA", "", "germinazione + luce + crescita", "", "", _n(sic.totale(in_semina)),
+                      "SET", "", "", "", ""])
 
     if csv_path:
         path = Path(csv_path).expanduser()

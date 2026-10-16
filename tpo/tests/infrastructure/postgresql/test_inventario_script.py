@@ -81,3 +81,23 @@ def test_package_creates_folder_with_report_csv_and_zip(writer_postgresql_engine
     with zipfile.ZipFile(tmp_path / "inventario_2026-10-15.zip") as z:
         assert sorted(z.namelist()) == ["inventario_2026-10-15/inventario.csv", "inventario_2026-10-15/inventario.txt"]
     assert any(l.startswith("ZIP_PER_MAIL:") for l in lines)
+
+
+def test_inventory_includes_the_total_sets_in_sowing(writer_postgresql_engine, tmp_path):
+    from tests.infrastructure.postgresql.test_chiusura_guidata_script import _semina
+    engine = writer_postgresql_engine
+    _semina(engine, 974001, "TST-1610-A", raccolto="0.5", atteso="2", stato="GERMINAZIONE")
+    _semina(engine, 974002, "TST-1610-B", raccolto="0.5", atteso="3", stato="CRESCITA")
+    _semina(engine, 974003, "TST-1610-C", raccolto="2", atteso="4", stato="PRONTA_ALLA_RACCOLTA")
+    module, lines = _module(), []
+    conn = _connect(engine)
+    csv_file = tmp_path / "inv.csv"
+    assert module.run(conn, str(csv_file), out=lines.append) == 0
+    conn.close()
+    text = "\n".join(lines)
+    assert "TOTALE SET IN SEMINA (germinazione + luce + crescita): 5 SET in 2 semine" in text
+    assert "Pronte alla raccolta (non incluse nel totale sopra): 4 SET in 1 semine" in text
+    rows = list(csv.reader(csv_file.open(encoding="utf-8")))
+    assert sum(1 for r in rows if r[0] == "SEMINA_IN_CORSO") == 3
+    totale = next(r for r in rows if r[0] == "TOTALE_SET_IN_SEMINA")
+    assert totale[5] == "5" and totale[6] == "SET"

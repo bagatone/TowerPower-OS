@@ -12,9 +12,13 @@ Uso:
   .venv/bin/python scripts/commissioning/2026-10-05_chiudi_residuo_ordini.py            # anteprima
   .venv/bin/python scripts/commissioning/2026-10-05_chiudi_residuo_ordini.py --esegui
   (default: ORD-000009 ORD-000014; altri ordini con --ordini ORD-... ORD-...)
+  --solo-chiudibili : invece di rifiutare TUTTO al primo ordine non chiudibile, elenca quelli non chiudibili col motivo
+                      (es. righe mai consegnate: il database vieta quantita' 0) e lavora solo sugli altri.
 """
 import argparse
 import sys
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,21 +26,58 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts" / "commissioning"))
 
 from src.tpo_core.infrastructure.postgresql.order_residual_closure import (  # noqa: E402
-    OrderResidualClosureError, close_residual, preview,
+    OrderResidualClosureError, close_residual, closure_problem, preview, read,
 )
 from src.tpo_core.infrastructure.postgresql.order_cancellation import unsafe_harvest_allocations  # noqa: E402
 
 ACTOR = "matteo"
 DEFAULT_ORDERS = ("ORD-000009", "ORD-000014")
-REASON = ("residuo non piu' dovuto, dichiarato da Matteo il 5/10/2026: ordine parzialmente evaso e scaduto, "
-          "il cliente non deve ricevere il residuo; quantita' ordinata portata a quella consegnata "
-          "(quantita' originale conservata nell'audit)")
-CORRELATION = "chiudi-residuo-ordini-2026-10-05"
+TZ = ZoneInfo("Atlantic/Canary")
+
+
+def _oggi() -> date:
+    return datetime.now(TZ).date()
+
+
+def _motivo(oggi: date) -> str:
+    """Il motivo registrato porta la data VERA dell'esecuzione (non quella della prima volta, 5/10/2026)."""
+    return (f"residuo non piu' dovuto, dichiarato da Matteo il {oggi.day}/{oggi.month}/{oggi.year}: ordine "
+            "parzialmente evaso e scaduto, il cliente non deve ricevere il residuo; quantita' ordinata portata a "
+            "quella consegnata (quantita' originale conservata nell'audit)")
+
+
+def _correlazione(oggi: date) -> str:
+    return f"chiudi-residuo-ordini-{oggi.isoformat()}"
+
+
 PROVENANCE = "commissioning:2026-10-05_chiudi_residuo_ordini"
 
 
-def run(conn, order_ids, esegui: bool, out=print) -> int:
+def run(conn, order_ids, esegui: bool, out=print, solo_chiudibili: bool = False, oggi: date | None = None) -> int:
     cur = conn.cursor()
+    oggi = oggi or _oggi()
+    REASON, CORRELATION = _motivo(oggi), _correlazione(oggi)
+    order_ids = list(order_ids)
+    if solo_chiudibili:
+        richiesti = tuple(sorted(set(order_ids)))
+        trovati = read(cur, richiesti)
+        mancanti = sorted(set(richiesti) - {o.public_id for o in trovati})
+        if mancanti:
+            conn.rollback()
+            out(f"RIFIUTATO, nulla scritto: ordini inesistenti: {', '.join(mancanti)}")
+            return 2
+        no = [(o, closure_problem(o)) for o in trovati if closure_problem(o)]
+        ok = [o for o in trovati if not closure_problem(o)]
+        if no:
+            out(f"== NON CHIUDIBILI ({len(no)}) - su questi non viene fatto nulla")
+            for o, motivo in no:
+                out(f"  {o.public_id} | {o.customer} | {motivo}")
+            out("")
+        if not ok:
+            conn.rollback()
+            out("Nessun ordine chiudibile.")
+            return 2
+        order_ids = [o.public_id for o in ok]
     try:
         orders, allocs = preview(cur, tuple(order_ids))
     except OrderResidualClosureError as exc:
@@ -86,6 +127,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--esegui", action="store_true")
     ap.add_argument("--ordini", nargs="+", default=list(DEFAULT_ORDERS))
+    ap.add_argument("--solo-chiudibili", action="store_true")
     a = ap.parse_args()
     from secret_boundary import load_postgresql_parameters
     import psycopg
@@ -93,7 +135,7 @@ def main() -> int:
     conn = psycopg.connect(host=p["host"], port=p["port"], dbname=p["dbname"], user=p["user"],
                            password=p["password"], sslmode=p["sslmode"], connect_timeout=p["connect_timeout"])
     try:
-        return run(conn, a.ordini, a.esegui)
+        return run(conn, a.ordini, a.esegui, solo_chiudibili=a.solo_chiudibili)
     finally:
         conn.close()
 

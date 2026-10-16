@@ -37,10 +37,10 @@ from .errors import PostgreSQLError
 # solo reso esplicito. Verificato con i due test esistenti (entrambi a un solo
 # piano, quindi gia' compatibili) + i test di dominio/applicazione; l'ultima
 # parola e' l'integrazione Postgres reale, come da D5 del freeze di questo file.
-_SELECT = (
-    "SELECT rps.public_id, v.public_id, v.denominazione, c.public_id, c.denominazione, "
-    "rps.stato, rps.quantita_residua_da_avviare, rps.unita_domanda, "
-    "rps.grammi_seme_richiesti, rps.sowing_at, rps.harvest_target_at, rps.data_consegna "
+# Il filtro "cosa e' ancora da seminare" vive in UN solo punto (FROM_WHERE_DA_SEMINARE) cosi' chi lo riusa
+# (es. diario_web/sessioni_semina.py) non ne copia una versione che poi diverge: il difetto dei piani
+# correnti multipli e' gia' stato corretto due volte a mano in due file diversi.
+FROM_WHERE_DA_SEMINARE = (
     "FROM tpo.righe_piano_semina rps "
     "JOIN tpo.varieta v ON v.id = rps.varieta_id "
     "JOIN tpo.piano_produzione_revisioni pr ON pr.id = rps.piano_revisione_id "
@@ -54,6 +54,13 @@ _SELECT = (
     "AND rps.stato IN ('PIANIFICATA','PRONTA','TARDIVA') "
     "AND o.stato IN ('APERTO','PARZIALMENTE_EVASO') "
     "AND rps.quantita_residua_da_avviare > 0"
+)
+
+_SELECT = (
+    "SELECT rps.public_id, v.public_id, v.denominazione, c.public_id, c.denominazione, "
+    "rps.stato, rps.quantita_residua_da_avviare, rps.unita_domanda, "
+    "rps.grammi_seme_richiesti, rps.sowing_at, rps.harvest_target_at, rps.data_consegna "
+    + FROM_WHERE_DA_SEMINARE
 )
 
 

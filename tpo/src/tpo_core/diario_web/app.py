@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from datetime import datetime, timezone
 
-from . import actions, db_context, interpreter, rendiconto
+from . import actions, db_context, incassi, interpreter, rendiconto, sessioni_semina
 from .auth import richiedi_autenticazione
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 
@@ -61,6 +61,12 @@ def interpreta(body: dict, _: str = Depends(richiedi_autenticazione)) -> JSONRes
 
     proposte, errori = [], []
     for r in richieste:
+        if r.azione == "pagamento_consegna":
+            try:
+                proposte.append(_proposta_pagamento_da_richiesta(settings, r))
+            except incassi.PagamentoNonPossibile as exc:
+                errori.append(str(exc))
+            continue
         if r.azione == "chiarimento" or r.varieta_public_id is None:
             errori.append(r.chiarimento or "Richiesta non chiara, riformula.")
             continue
@@ -122,13 +128,82 @@ def conferma(body: dict, attore: str = Depends(richiedi_autenticazione)) -> JSON
                 passi=[actions.PassoTransizione(stato=s) for s in proposta["passi"]],
             )
             esito = actions.esegui_transition(settings, p, ACTOR)
+        elif proposta.get("tipo") == "pagamento_consegna":
+            p = incassi.PropostaPagamento(
+                consegne=[{"codice": c["codice"], "data": c.get("data", ""), "voci": c.get("voci", [])}
+                          for c in proposta["consegne"]],
+                cliente_nome=proposta["cliente_nome"], metodo=proposta["metodo"],
+                data_pagamento=proposta["data_pagamento"], importo=proposta.get("importo"),
+            )
+            esito = incassi.esegui_pagamento(settings, p, ACTOR)
         else:
             raise HTTPException(400, "Tipo di proposta non riconosciuto.")
-    except (actions.PropostaAmbigua, actions.SeminaNonTrovata, actions.SeminaOperazioneFallita) as exc:
+    except (actions.PropostaAmbigua, actions.SeminaNonTrovata, actions.SeminaOperazioneFallita,
+            incassi.PagamentoNonPossibile, incassi.PagamentoFallito) as exc:
         return JSONResponse({"ok": False, "messaggio": str(exc)}, status_code=409)
     except KeyError as exc:
         raise HTTPException(400, f"Proposta incompleta: manca {exc}.")
     return JSONResponse({"ok": True, "messaggio": esito})
+
+
+def _json_pagamento(p: incassi.PropostaPagamento) -> dict:
+    return {"tipo": "pagamento_consegna", "cliente_nome": p.cliente_nome, "consegne": p.consegne,
+            "metodo": p.metodo, "data_pagamento": p.data_pagamento, "importo": p.importo}
+
+
+def _proposta_pagamento_da_richiesta(settings: PostgreSQLSettings, r) -> dict:
+    """Frase libera -> proposta di pagamento. Senza codici espliciti si propongono TUTTE le consegne
+    da incassare del cliente (le legge ora dal database); l'utente le vede e puo' toglierne prima di confermare."""
+    cliente = next((c for c in incassi.da_incassare(settings) if c.cliente_public_id == r.cliente_public_id), None)
+    if cliente is None:
+        raise incassi.PagamentoNonPossibile("Il cliente non ha consegne da incassare.")
+    codici = list(r.consegne) if r.consegne else [c.codice for c in cliente.consegne]
+    try:
+        p = incassi.prepara_pagamento(settings, codici, r.metodo_pagamento, r.data_pagamento, r.importo)
+    except incassi.PagamentoNonPossibile as exc:
+        raise incassi.PagamentoNonPossibile(f"{cliente.cliente_nome}: {exc}") from exc
+    return _json_pagamento(p)
+
+
+@app.get("/api/sessioni-semina")
+def api_sessioni_semina(sessioni: int = 2, _: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Piano semine a sessioni (mercoledi' e domenica): cosa seminare e per chi. Sola lettura."""
+    try:
+        p = sessioni_semina.piano(_settings(), n_sessioni=max(1, min(sessioni, 8)))
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"errore": f"Piano semine non disponibile: {exc}"}, status_code=503)
+    return JSONResponse(sessioni_semina.a_dizionario(p))
+
+
+@app.get("/api/da-incassare")
+def api_da_incassare(_: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Consegne effettuate e non ancora pagate, per cliente. Sola lettura."""
+    try:
+        elenco = incassi.da_incassare(_settings())
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"errore": f"Elenco non disponibile: {exc}"}, status_code=503)
+    return JSONResponse({
+        "metodi": list(incassi.METODI),
+        "clienti": [
+            {"cliente_public_id": c.cliente_public_id, "cliente": c.cliente_nome,
+             "consegne": [{"codice": x.codice, "data": x.data, "giorni": x.giorni, "voci": x.voci}
+                          for x in c.consegne]}
+            for c in elenco
+        ],
+    })
+
+
+@app.post("/api/pagamento/prepara")
+def api_pagamento_prepara(body: dict, _: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Dai pulsanti della pagina (senza modello): propone il pagamento delle consegne scelte. Non scrive."""
+    try:
+        p = incassi.prepara_pagamento(
+            _settings(), list(body.get("consegne") or []), body.get("metodo"),
+            body.get("data_pagamento") or None, body.get("importo") or None,
+        )
+    except incassi.PagamentoNonPossibile as exc:
+        return JSONResponse({"proposte": [], "errori": [str(exc)]})
+    return JSONResponse({"proposte": [_json_pagamento(p)], "errori": []})
 
 
 @app.get("/api/salute")

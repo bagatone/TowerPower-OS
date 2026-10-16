@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 import anthropic
 
-from . import db_context
+from . import db_context, incassi
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 
 MODEL = os.environ.get("DIARIO_MODEL", "claude-sonnet-4-5")
@@ -38,7 +38,40 @@ _TOOL = {
                     "properties": {
                         "azione": {
                             "type": "string",
-                            "enum": ["semina_commission", "semina_transition", "chiarimento"],
+                            "enum": ["semina_commission", "semina_transition", "pagamento_consegna",
+                                     "chiarimento"],
+                        },
+                        "cliente_public_id": {
+                            "type": ["string", "null"],
+                            "description": "solo per pagamento_consegna: public_id esatto del cliente "
+                                            "(es. CLI-000015) tra quelli con consegne da incassare nel contesto "
+                                            "fornito, mai inventato. null se non identificabile con certezza.",
+                        },
+                        "consegne": {
+                            "type": ["array", "null"],
+                            "items": {"type": "string"},
+                            "description": "solo per pagamento_consegna: codici consegna (es. CON-000014) SOLO "
+                                            "se l'utente li ha scritti o ha indicato una sola delle consegne "
+                                            "da incassare del cliente. null se l'utente dice solo che il "
+                                            "cliente ha pagato: il sistema propone allora tutte le sue "
+                                            "consegne da incassare.",
+                        },
+                        "metodo_pagamento": {
+                            "type": ["string", "null"],
+                            "enum": ["BONIFICO", "CONTANTI", "CARTA", "BIZUM", "ALTRO", None],
+                            "description": "solo per pagamento_consegna: contanti->CONTANTI, bonifico->"
+                                            "BONIFICO, carta/POS->CARTA, bizum->BIZUM. null se l'utente non "
+                                            "lo ha detto: NON indovinare, il sistema lo chiedera'.",
+                        },
+                        "data_pagamento": {
+                            "type": ["string", "null"],
+                            "description": "solo per pagamento_consegna, AAAA-MM-GG, SOLO se l'utente ha "
+                                            "indicato un giorno preciso; altrimenti null (si usera' oggi).",
+                        },
+                        "importo": {
+                            "type": ["string", "null"],
+                            "description": "solo per pagamento_consegna: importo incassato come numero "
+                                            "(es. \"45.50\"), SOLO se l'utente lo ha detto; altrimenti null.",
                         },
                         "varieta_public_id": {
                             "type": ["string", "null"],
@@ -98,18 +131,42 @@ class RichiestaInterpretata:
     physical_started_at: str | None
     target_state: str | None
     chiarimento: str | None
+    cliente_public_id: str | None = None
+    consegne: tuple[str, ...] | None = None
+    metodo_pagamento: str | None = None
+    data_pagamento: str | None = None
+    importo: str | None = None
 
 
-def _prompt_sistema(varieta: list[db_context.VarietaInfo]) -> str:
+def _prompt_sistema(varieta: list[db_context.VarietaInfo],
+                    clienti: list[incassi.ClienteDaIncassare] | None = None) -> str:
     elenco = "\n".join(f"- {v.public_id}: {v.denominazione} (codice {v.codice})" for v in varieta)
+    if clienti:
+        incassare = "\n".join(
+            f"- {c.cliente_public_id}: {c.cliente_nome} -> " + ", ".join(x.codice for x in c.consegne)
+            for c in clienti)
+    else:
+        incassare = "(nessuna: tutte le consegne effettuate risultano pagate)"
     return f"""Sei l'interprete del "diario" di Tower Power, una micro-fattoria di microgreens.
 Il tuo unico compito: tradurre una frase in italiano sugli eventi di campo (semine, cambi di
-stadio) in richieste strutturate per il sistema TPO, usando lo strumento fornito. Non scrivi
-mai nulla direttamente: la tua proposta viene sempre mostrata all'utente prima di essere
-eseguita.
+stadio) e sugli incassi (un cliente ha pagato una o piu' consegne) in richieste strutturate per
+il sistema TPO, usando lo strumento fornito. Non scrivi mai nulla direttamente: la tua proposta
+viene sempre mostrata all'utente prima di essere eseguita.
 
 Varietà esistenti nel sistema (usa SEMPRE uno di questi public_id, mai un altro, mai inventato):
 {elenco}
+
+Clienti con consegne ancora DA INCASSARE (public_id cliente -> codici consegna). Per un
+pagamento usa SEMPRE uno di questi clienti, mai un altro:
+{incassare}
+
+Regole sui pagamenti ("Splash ha pagato in contanti", "Abaluus ha pagato CON-000014 con bonifico"):
+- azione="pagamento_consegna" con cliente_public_id dall'elenco sopra; varieta_public_id resta null.
+- Se il cliente non e' nell'elenco o non e' identificabile con certezza: azione="chiarimento".
+- Se l'utente non dice il metodo, lascia metodo_pagamento=null: NON indovinarlo, il sistema lo chiedera'.
+- "consegne" solo se l'utente nomina le consegne o ne indica una sola fra piu'; se dice solo che il
+  cliente ha pagato, consegne=null (il sistema mostra tutte le sue consegne da incassare e l'utente
+  conferma).
 
 Regole stringenti:
 - Se la frase nomina più varietà con la stessa azione (es. "Mizuna e Rábano passano in luce"),
@@ -141,11 +198,13 @@ Regole stringenti:
 def interpreta(testo: str, settings: PostgreSQLSettings) -> list[RichiestaInterpretata]:
     varieta = db_context.elenca_varieta(settings)
     by_id = {v.public_id: v for v in varieta}
+    clienti = incassi.da_incassare(settings)
+    clienti_by_id = {c.cliente_public_id: c for c in clienti}
     client = anthropic.Anthropic()
     risposta = client.messages.create(
         model=MODEL,
         max_tokens=1024,
-        system=_prompt_sistema(varieta),
+        system=_prompt_sistema(varieta, clienti),
         tools=[_TOOL],
         tool_choice={"type": "tool", "name": "interpreta_diario"},
         messages=[{"role": "user", "content": testo}],
@@ -159,6 +218,25 @@ def interpreta(testo: str, settings: PostgreSQLSettings) -> list[RichiestaInterp
         )]
     risultati = []
     for r in blocco.input.get("richieste", []):
+        if r.get("azione") == "pagamento_consegna":
+            cid = r.get("cliente_public_id")
+            if cid not in clienti_by_id:
+                risultati.append(RichiestaInterpretata(
+                    azione="chiarimento", varieta_public_id=None, varieta_nome=None, semina_public_id=None,
+                    num_set=None, origin=None, physical_started_at=None, target_state=None,
+                    chiarimento="Cliente non riconosciuto fra quelli con consegne da incassare "
+                                f"in: {testo!r}",
+                ))
+                continue
+            risultati.append(RichiestaInterpretata(
+                azione="pagamento_consegna", varieta_public_id=None, varieta_nome=None,
+                semina_public_id=None, num_set=None, origin=None, physical_started_at=None,
+                target_state=None, chiarimento=None, cliente_public_id=cid,
+                consegne=tuple(r["consegne"]) if r.get("consegne") else None,
+                metodo_pagamento=r.get("metodo_pagamento"), data_pagamento=r.get("data_pagamento"),
+                importo=r.get("importo"),
+            ))
+            continue
         vid = r.get("varieta_public_id")
         nome = by_id[vid].denominazione if vid in by_id else None
         if r.get("azione") != "chiarimento" and vid not in by_id:

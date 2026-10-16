@@ -68,6 +68,43 @@
   .riga-r .dettaglio{color:var(--muted); font-size:13px;}
   .riga-r.chiarire .dettaglio{color:var(--bad);}
   .rendiconto .vuoto{color:var(--muted); font-size:14px; padding:4px 0;}
+  .semine{margin-bottom:24px;}
+  .semine h2{font-size:16px; margin:0 0 8px;}
+  .sessione{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:12px 14px; margin-top:8px;
+  }
+  .sessione h3{margin:0 0 2px; font-size:15px; text-transform:capitalize;}
+  .sessione .tot{color:var(--muted); font-size:13px; margin-bottom:6px;}
+  .sessione .var{padding:8px 0; border-top:1px solid var(--border);}
+  .sessione .var:first-of-type{border-top:0;}
+  .sessione .var .nome{display:flex; justify-content:space-between; gap:10px; font-weight:600;}
+  .sessione .var .nome .g{color:var(--muted); font-weight:400; font-size:13px;}
+  .sessione .dest{display:flex; justify-content:space-between; gap:10px; font-size:14px; padding:2px 0 0 10px;}
+  .sessione .dest .d{color:var(--muted); font-size:13px;}
+  .sessione .nota{color:var(--bad); font-size:13px; padding:0 0 2px 10px;}
+  .semine .avviso{background:var(--bad-soft); color:var(--bad); border-radius:10px; padding:8px 12px; margin-top:8px; font-size:13px;}
+  .semine .avviso .n{font-weight:400; margin:2px 0 6px;}
+  .semine .avviso .ord{color:var(--text); padding:4px 0; border-top:1px solid var(--border);}
+  .semine .avviso .ord .v{color:var(--muted);}
+  .semine .vuoto,.semine .piu{color:var(--muted); font-size:14px; padding:4px 0;}
+  .incassi{margin-bottom:24px;}
+  .incassi h2{font-size:16px; margin:0 0 8px;}
+  .incassi .cliente{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:12px 14px; margin-top:8px;
+  }
+  .incassi .cliente h3{margin:0 0 6px; font-size:15px;}
+  .incassi label.cons{display:flex; gap:10px; align-items:flex-start; padding:5px 0; font-size:14px; cursor:pointer;}
+  .incassi label.cons input{margin-top:4px; width:18px; height:18px; flex:none;}
+  .incassi .cons .dettaglio{color:var(--muted); font-size:13px;}
+  .incassi .cons .vecchia{color:var(--bad);}
+  .incassi .azioni{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:6px;}
+  .incassi select{
+    font:inherit; font-size:15px; padding:11px 10px; border-radius:10px; margin-top:10px;
+    border:1px solid var(--border); background:var(--surface); color:var(--text);
+  }
+  .incassi .vuoto{color:var(--muted); font-size:14px; padding:4px 0;}
 </style>
 </head>
 <body>
@@ -77,7 +114,11 @@
 
   <div id="rendiconto" class="rendiconto"><div class="vuoto">Carico il rendiconto di oggi…</div></div>
 
-  <textarea id="testo" placeholder='Es. "Mizuna e Rábano sono passate in luce" oppure "Seminato 2 set di rucola"'></textarea>
+  <div id="semine" class="semine"><div class="vuoto">Carico il piano semine…</div></div>
+
+  <div id="incassi" class="incassi"><div class="vuoto">Carico le consegne da incassare…</div></div>
+
+  <textarea id="testo" placeholder='Es. "Mizuna e Rábano sono passate in luce", "Seminato 2 set di rucola", "Splash ha pagato in contanti"'></textarea>
   <div>
     <button id="btnInterpreta">Interpreta</button>
   </div>
@@ -115,6 +156,17 @@ function cardProposta(p, idx) {
       ${campo("Avvio", p.physical_started_at)}
       ${campo("Residuo dopo", p.residuo_dopo + " g")}
     `;
+  } else if (p.tipo === "pagamento_consegna") {
+    const consegne = p.consegne.map((c) =>
+      `<div class="riga"><span class="k">${escapeHtml(c.codice)} · ${escapeHtml(c.data)}</span>` +
+      `<span>${escapeHtml((c.voci || []).join(", ") || "—")}</span></div>`).join("");
+    div.innerHTML = `
+      <h3>Pagamento — ${escapeHtml(p.cliente_nome)}</h3>
+      ${consegne}
+      ${campo("Metodo", p.metodo)}
+      ${campo("Data pagamento", p.data_pagamento)}
+      ${p.importo ? campo("Importo", p.importo) : ""}
+    `;
   } else {
     div.innerHTML = `
       <h3>Cambio stadio — ${escapeHtml(p.varieta_nome)}</h3>
@@ -142,6 +194,7 @@ function cardProposta(p, idx) {
       esitoDiv.className = "esito" + (data.ok ? "" : " fallito");
       esitoDiv.textContent = data.messaggio;
       btn.remove(); btnAnnulla.remove();
+      if (data.ok && p.tipo === "pagamento_consegna") caricaIncassi();
     } catch (e) {
       esitoDiv.className = "esito fallito";
       esitoDiv.textContent = "Errore di rete: " + e;
@@ -206,6 +259,126 @@ async function caricaRendiconto() {
   }
 }
 caricaRendiconto();
+
+function mostraEsito(data) {
+  risultatiEl.innerHTML = "";
+  (data.proposte || []).forEach((p, i) => risultatiEl.appendChild(cardProposta(p, i)));
+  (data.errori || []).forEach((e) => {
+    const d = document.createElement("div");
+    d.className = "errore";
+    d.textContent = e;
+    risultatiEl.appendChild(d);
+  });
+  risultatiEl.scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function preparaPagamento(codici, metodo) {
+  statoEl.textContent = "Preparo la proposta…";
+  try {
+    const r = await fetch("/api/pagamento/prepara", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({consegne: codici, metodo}),
+    });
+    statoEl.textContent = "";
+    mostraEsito(await r.json());
+  } catch (e) {
+    statoEl.textContent = "Errore: " + e;
+  }
+}
+
+function bloccoCliente(c, metodi) {
+  const div = document.createElement("div");
+  div.className = "cliente";
+  const righe = c.consegne.map((x) => {
+    const vecchia = x.giorni >= 14 ? " vecchia" : "";
+    const quanto = x.giorni === 1 ? "1 giorno" : x.giorni + " giorni";
+    return `<label class="cons"><input type="checkbox" value="${escapeHtml(x.codice)}" checked>
+      <span><strong>${escapeHtml(x.codice)}</strong> · ${escapeHtml(x.data)}
+      <span class="dettaglio${vecchia}">(${escapeHtml(quanto)})</span><br>
+      <span class="dettaglio">${escapeHtml(x.voci.join(", ") || "—")}</span></span></label>`;
+  }).join("");
+  const opzioni = `<option value="">Metodo…</option>` +
+    metodi.map((m) => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
+  div.innerHTML = `<h3>${escapeHtml(c.cliente)}</h3>${righe}
+    <div class="azioni"><select>${opzioni}</select><button type="button">Segna come pagate</button></div>`;
+  const sel = div.querySelector("select");
+  div.querySelector("button").onclick = () => {
+    const scelte = [...div.querySelectorAll("input:checked")].map((i) => i.value);
+    if (!scelte.length) { statoEl.textContent = "Seleziona almeno una consegna."; return; }
+    if (!sel.value) { statoEl.textContent = "Scegli il metodo di pagamento."; return; }
+    preparaPagamento(scelte, sel.value);
+  };
+  return div;
+}
+
+async function caricaIncassi() {
+  const el = document.getElementById("incassi");
+  try {
+    const r = await fetch("/api/da-incassare");
+    const data = await r.json();
+    if (data.errore) {
+      el.innerHTML = `<div class="errore">${escapeHtml(data.errore)}</div>`;
+      return;
+    }
+    if (!(data.clienti || []).length) {
+      el.innerHTML = `<h2>Da incassare</h2><div class="vuoto">Tutte le consegne sono pagate.</div>`;
+      return;
+    }
+    const n = data.clienti.reduce((a, c) => a + c.consegne.length, 0);
+    el.innerHTML = `<h2>Da incassare · ${n} consegn${n === 1 ? "a" : "e"}, ${data.clienti.length} client${data.clienti.length === 1 ? "e" : "i"}</h2>`;
+    data.clienti.forEach((c) => el.appendChild(bloccoCliente(c, data.metodi)));
+  } catch (e) {
+    el.innerHTML = `<div class="errore">Elenco non caricato: ${escapeHtml(String(e))}</div>`;
+  }
+}
+caricaIncassi();
+
+function numero(x) { return String(x); }
+function dataBreve(iso) { const [, m, d] = iso.split("-"); return `${d}/${m}`; }
+
+async function caricaSemine() {
+  const el = document.getElementById("semine");
+  try {
+    const r = await fetch("/api/sessioni-semina");
+    const data = await r.json();
+    if (data.errore) { el.innerHTML = `<div class="errore">${escapeHtml(data.errore)}</div>`; return; }
+    el.innerHTML = `<h2>Prossime semine · ${escapeHtml(data.giorni.join(" e "))}</h2>`;
+    if (!data.sessioni.length) {
+      el.insertAdjacentHTML("beforeend", `<div class="vuoto">Nessuna semina da fare nelle sessioni.</div>`);
+    }
+    data.sessioni.forEach((s) => {
+      const tot = Object.entries(s.totali).map(([u, q]) => `${q} ${u}`).join(", ");
+      const vars = s.varieta.map((v) => {
+        const dest = v.destinatari.map((d) => `
+          <div class="dest"><span>${escapeHtml(d.cliente)} · ${escapeHtml(d.quantita)}</span>
+          <span class="d">consegna ${escapeHtml(dataBreve(d.consegna))} · ${escapeHtml(d.ordine)}</span></div>` +
+          d.note.map((n) => `<div class="nota">${escapeHtml(n)}</div>`).join("")).join("");
+        return `<div class="var"><div class="nome"><span>${escapeHtml(v.varieta)} · ${escapeHtml(v.quantita)} ${escapeHtml(v.unita)}</span>
+          <span class="g">${escapeHtml(v.grammi)} g di seme</span></div>${dest}</div>`;
+      }).join("");
+      el.insertAdjacentHTML("beforeend", `<div class="sessione"><h3>${escapeHtml(s.giorno)} ${escapeHtml(dataBreve(s.data))}${s.oggi ? " · oggi" : ""}</h3>
+        <div class="tot">${s.varieta.length} varietà · ${escapeHtml(tot)}</div>${vars}</div>`);
+    });
+    if (data.piu_avanti) {
+      el.insertAdjacentHTML("beforeend", `<div class="piu">Più avanti: ${data.piu_avanti === 1 ? "un'altra riga" : "altre " + data.piu_avanti + " righe"}, fino al ${escapeHtml(dataBreve(data.ultima_data_piu_avanti))}.</div>`);
+    }
+    const elencoOrdini = (titolo, nota, ordini, ritardo) => {
+      if (!ordini.length) return;
+      const righe = ordini.map((o) => `<div class="ord"><b>${escapeHtml(o.cliente)}</b> · ${escapeHtml(o.ordine)}
+        · ${ritardo ? "consegna" : "prevista"} ${escapeHtml(dataBreve(o.consegna))}${ritardo ? ` · piano in ritardo di ${o.ritardo_giorni} gg` : ""}
+        <div class="v">${o.voci.map(escapeHtml).join(", ")}</div></div>`).join("");
+      el.insertAdjacentHTML("beforeend", `<div class="avviso"><b>${escapeHtml(titolo)} (${ordini.length})</b>
+        <div class="n">${escapeHtml(nota)}</div>${righe}</div>`);
+    };
+    elencoOrdini("Da verificare", "Consegna troppo vicina per una semina nuova: coperti da giacenza o semine in corso? Consegna da spostare?",
+      data.da_verificare || [], true);
+    elencoOrdini("Ordini scaduti", "Consegna prevista passata e ordine ancora aperto: se il residuo non è più dovuto, da chiudere.",
+      data.scaduti || [], false);
+  } catch (e) {
+    el.innerHTML = `<div class="errore">Piano semine non caricato: ${escapeHtml(String(e))}</div>`;
+  }
+}
+caricaSemine();
 
 btnInterpreta.onclick = async () => {
   const testo = testoEl.value.trim();

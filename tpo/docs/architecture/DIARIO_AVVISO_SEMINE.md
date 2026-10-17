@@ -12,9 +12,10 @@ link): i nomi dei clienti non passano dal servizio esterno.
    database) e compone il messaggio. Parte solo mercoledi/domenica (ora delle Canarie).
 3. Lo manda a **Telegram** (canale preferito, se `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` sono impostati) oppure a **ntfy**
    (`NTFY_TOPIC`).
-   - Telegram non ha una cache da consultare: finestra **07:00-08:00** (Canarie), cosi' dei due tentativi in UTC (ora legale /
-     solare) ne cade uno solo e non ci sono doppioni.
-   - ntfy: finestra 07:00-10:00 e controllo nella cache di ntfy (12 ore) che l'avviso di oggi non sia gia' arrivato.
+   - Telegram non ha una cache da consultare: i doppioni li evita il **workflow**. Ha due orari in UTC (06:35 e 07:35) e di quei due
+     ne parte uno solo, quello che alle Canarie cade alle 07:35 (06:35 UTC con l'ora legale, 07:35 UTC con l'ora solare); l'altro
+     si ferma subito e il log lo dice. Il diario manda l'avviso fino alle 10:00, quindi un ritardo di GitHub non lo fa perdere.
+   - ntfy: finestra 07:00-10:00 (come Telegram) e controllo nella cache di ntfy (12 ore) che l'avviso di oggi non sia gia' arrivato.
      Nota: ntfy.sh puo' rifiutare l'IP condiviso di Render con **HTTP 429**: per questo e' il canale di riserva.
 
 Esempio:  `Semina di domenica 18/10: 4,5 SET` / `Afila 3 SET` / `Cilantro 1 SET` / `Rábano 0,5 SET` /
@@ -38,6 +39,6 @@ App **ntfy** sul telefono, iscrizione a un canale con nome lungo e segreto, `NTF
 
 ## Limiti dichiarati
 - Telegram e ntfy sono servizi di terzi: il messaggio contiene solo varieta' e SET, mai clienti ne' codici ordine.
-- Gli orari dei workflow di GitHub possono slittare di qualche minuto: con Telegram, se **entrambi** i tentativi cadono dopo le 08:00
-  l'avviso non parte (si vede dal log del workflow "Fuori orario"; si puo' forzare con `?forza=1`).
+- Gli orari dei workflow di GitHub possono slittare anche di un'ora: l'avviso parte comunque fino alle 10:00 delle Canarie. Se il
+  workflow parte dopo le 10:00 il log dice "Fuori orario" e si puo' forzare con `?forza=1`.
 - Se il servizio Render non si sveglia o la password e' sbagliata, il workflow fallisce e GitHub lo segnala nella pagina Actions.

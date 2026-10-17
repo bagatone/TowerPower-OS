@@ -11,9 +11,10 @@ Canale (variabili d'ambiente, mai nel repository):
   NTFY_SERVER  default https://ntfy.sh
   DIARIO_URL   indirizzo del diario, nel messaggio / aperto toccando la notifica (default https://tpo-diario.onrender.com)
 
-Quando parte: solo mercoledi e domenica (ora delle Canarie). Con ntfy tra le 07:00 e le 10:00 e una seconda chiamata nella
-stessa mattina non rimanda l'avviso (si guarda nella cache di ntfy). Telegram non ha cache da consultare: finestra stretta
-07:00-08:00, cosi' dei due tentativi in UTC (ora legale / solare) ne cade uno solo e non ci sono doppioni ne' buchi.
+Quando parte: solo mercoledi e domenica (ora delle Canarie) tra le 07:00 e le 10:00, quindi un ritardo del servizio che lo
+lancia (GitHub) non fa perdere l'avviso. Nessun doppione: con ntfy una seconda chiamata nella stessa mattina non rimanda
+l'avviso (cache di ntfy); con Telegram, che non ha cache, il workflow fa partire una sola delle due chiamate in UTC
+(quella giusta per ora legale o solare).
 """
 from __future__ import annotations
 
@@ -188,11 +189,10 @@ def invia(avviso: Avviso, opener: Opener = urllib.request.urlopen) -> None:
         _invia_ntfy(avviso, opener)
 
 
-def finestra_ok(ora: datetime, stretta: bool = False) -> bool:
-    """Mercoledi/domenica tra le 07:00 e le 10:00 (ora delle Canarie). `stretta` (Telegram, che non ha una cache per
-    controllare i doppioni): solo tra le 07:00 e le 08:00, e basta uno dei due tentativi in UTC a cadere li'."""
-    fine = ORA_DA + 1 if stretta else ORA_A
-    return ora.isoweekday() in ss.GIORNI_DEFAULT and ORA_DA <= ora.hour < fine
+def finestra_ok(ora: datetime) -> bool:
+    """Mercoledi/domenica tra le 07:00 e le 10:00 (ora delle Canarie). Niente doppioni: con ntfy si guarda la cache; con
+    Telegram ci pensa il workflow, che di due chiamate in UTC (ora legale / solare) ne fa partire una sola."""
+    return ora.isoweekday() in ss.GIORNI_DEFAULT and ORA_DA <= ora.hour < ORA_A
 
 
 def esegui(settings: PostgreSQLSettings, ora: datetime | None = None, *, anteprima: bool = False, prova: bool = False,
@@ -208,9 +208,8 @@ def esegui(settings: PostgreSQLSettings, ora: datetime | None = None, *, antepri
             invia(avviso, opener)
         return {"inviato": not anteprima, "motivo": "prova", "canale": canale(), "titolo": avviso.titolo,
                 "messaggio": avviso.corpo}
-    if not forza and not finestra_ok(ora, stretta=telegram):
-        quando = "tra le 07:00 e le 08:00" if telegram else "tra le 07:00 e le 10:00"
-        return {"inviato": False, "motivo": f"Fuori orario: l'avviso parte solo mercoledi e domenica {quando} "
+    if not forza and not finestra_ok(ora):
+        return {"inviato": False, "motivo": "Fuori orario: l'avviso parte solo mercoledi e domenica tra le 07:00 e le 10:00 "
                                             "(ora delle Canarie). Per provare: forza=1.", "titolo": None, "messaggio": None}
     avviso = componi(ss.piano(settings, oggi=ora.date()))
     base = {"titolo": avviso.titolo, "messaggio": avviso.corpo, "canale": canale()}

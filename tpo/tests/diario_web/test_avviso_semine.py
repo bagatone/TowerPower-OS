@@ -269,14 +269,13 @@ def test_telegram_manda_titolo_corpo_e_link_senza_clienti(telegram) -> None:
     assert ntfy.letture == []                                        # nessuna cache da consultare
 
 
-def test_telegram_ha_la_finestra_stretta_07_08(telegram) -> None:
+def test_telegram_ha_la_stessa_finestra_07_10_e_non_chiede_la_cache(telegram) -> None:
     ntfy = _Ntfy()
-    esito = av.esegui(object(), DOMENICA_8_30, opener=ntfy)          # il secondo tentativo in UTC: non rimanda
-    assert esito["inviato"] is False and "07:00 e le 08:00" in esito["motivo"]
-    assert ntfy.inviati == [] and telegram == []
-    assert av.finestra_ok(DOMENICA_8_30) is True and av.finestra_ok(DOMENICA_8_30, stretta=True) is False
-    assert av.finestra_ok(datetime(2026, 10, 18, 7, 59, tzinfo=TZ), stretta=True) is True
-    assert av.esegui(object(), DOMENICA_8_30, forza=True, opener=ntfy)["inviato"] is True
+    esito = av.esegui(object(), DOMENICA_8_30, opener=ntfy)          # un ritardo di GitHub non fa perdere l'avviso
+    assert esito["inviato"] is True and esito["canale"] == "telegram" and ntfy.letture == []
+    tardi = av.esegui(object(), datetime(2026, 10, 18, 10, 0, tzinfo=TZ), opener=ntfy)
+    assert tardi["inviato"] is False and "07:00 e le 10:00" in tardi["motivo"] and len(ntfy.inviati) == 1
+    assert av.esegui(object(), datetime(2026, 10, 18, 10, 0, tzinfo=TZ), forza=True, opener=ntfy)["inviato"] is True
 
 
 def test_telegram_prova_e_anteprima(telegram) -> None:

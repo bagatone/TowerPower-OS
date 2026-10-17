@@ -1,14 +1,17 @@
 # Avviso sul telefono delle sessioni di semina (mercoledi e domenica mattina).
-# Questo workflow NON calcola nulla: sveglia il diario su Render, che legge il piano e manda la notifica (ntfy).
-# Due tentativi in UTC (06:35 e 07:35) perche' il cambio ora legale/solare delle Canarie sposta l'ora locale: il diario
-# manda l'avviso solo tra le 07:00 e le 10:00 ora delle Canarie e mai due volte nella stessa mattina.
+# Questo workflow NON calcola nulla: sveglia il diario su Render, che legge il piano e manda la notifica (Telegram o ntfy).
+# Due orari in UTC (06:35 e 07:35) perche' il cambio ora legale/solare delle Canarie sposta l'ora locale: di quei due ne
+# parte UNO solo, quello che alle Canarie cade alle 07:35 (06:35 UTC con l'ora legale, 07:35 UTC con l'ora solare).
+# L'altro si ferma subito. Cosi' niente doppioni, e un ritardo di GitHub non fa perdere l'avviso: il diario lo manda
+# fino alle 10:00 ora delle Canarie.
 # I workflow con "schedule" partono solo dal ramo predefinito del repository (main).
 # Secret necessari (Settings > Secrets and variables > Actions): DIARIO_URL, DIARIO_PASSWORD.
 name: Avviso semine
 
 on:
   schedule:
-    - cron: "35 6,7 * * 0,3"
+    - cron: "35 6 * * 0,3"
+    - cron: "35 7 * * 0,3"
   workflow_dispatch:
     inputs:
       prova:
@@ -28,8 +31,19 @@ jobs:
           DIARIO_URL: ${{ secrets.DIARIO_URL }}
           DIARIO_PASSWORD: ${{ secrets.DIARIO_PASSWORD }}
           PROVA: ${{ github.event_name == 'workflow_dispatch' && inputs.prova }}
+          EVENTO: ${{ github.event_name }}
+          ORARIO: ${{ github.event.schedule }}
         run: |
           set -euo pipefail
+          if [ "$EVENTO" = "schedule" ]; then
+            # +0100 = ora legale alle Canarie, +0000 = ora solare
+            scarto=$(TZ=Atlantic/Canary date +%z)
+            case "$ORARIO" in "35 6 "*) giusto="+0100" ;; *) giusto="+0000" ;; esac
+            if [ "$scarto" != "$giusto" ]; then
+              echo "Orario $ORARIO non e' quello giusto per lo scarto $scarto delle Canarie: l'altro manda l'avviso."
+              exit 0
+            fi
+          fi
           query=""
           if [ "$PROVA" = "true" ]; then query="?prova=1"; fi
           # il servizio gratuito di Render dorme: il primo tentativo puo' impiegare un minuto, per questo i nuovi tentativi

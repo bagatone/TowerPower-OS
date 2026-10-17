@@ -1,23 +1,25 @@
 """AVVISO SUL TELEFONO delle sessioni di semina (17/10/2026, richiesta di Matteo): mercoledi e domenica mattina arriva una
 notifica con COSA seminare, il TOTALE PER VARIETA' e il totale complessivo. Il "per chi" (clienti) NON e' nel messaggio:
-passa da un servizio esterno (ntfy), quindi resta nella schermata "Semine" del diario, che si apre toccando la notifica.
+passa da un servizio esterno (Telegram o ntfy), quindi resta nella schermata "Semine" del diario (nel messaggio c'e' il link).
 
 Sola lettura sul database: legge il piano con `sessioni_semina.piano` (lo stesso della schermata Semine). L'unica cosa che
-"scrive" e' la notifica verso ntfy. Mai scritture sul database (guardia D del freeze OPERATIONAL_WEB_ADAPTER).
+"scrive" e' la notifica verso il servizio esterno. Mai scritture sul database (guardia D del freeze OPERATIONAL_WEB_ADAPTER).
 
-Configurazione (variabili d'ambiente, mai nel repository):
-  NTFY_TOPIC   nome del canale, lungo e segreto: chi lo conosce legge gli avvisi (obbligatorio per inviare)
+Canale (variabili d'ambiente, mai nel repository):
+  TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID   se ci sono entrambe, l'avviso va su Telegram (canale preferito)
+  NTFY_TOPIC   in alternativa, nome del canale ntfy, lungo e segreto (ntfy.sh puo' rifiutare l'IP di Render con HTTP 429)
   NTFY_SERVER  default https://ntfy.sh
-  DIARIO_URL   indirizzo del diario, aperto toccando la notifica (default https://tpo-diario.onrender.com)
+  DIARIO_URL   indirizzo del diario, nel messaggio / aperto toccando la notifica (default https://tpo-diario.onrender.com)
 
-Quando parte: solo mercoledi e domenica (ora delle Canarie) tra le 07:00 e le 10:00; una seconda chiamata nella stessa
-mattina non rimanda l'avviso (si guarda nella cache di ntfy se e' gia' stato mandato). Cosi' un orario in UTC con due
-tentativi (ora legale / solare) o un ritardo del servizio che lo lancia non producono doppioni ne' buchi.
+Quando parte: solo mercoledi e domenica (ora delle Canarie). Con ntfy tra le 07:00 e le 10:00 e una seconda chiamata nella
+stessa mattina non rimanda l'avviso (si guarda nella cache di ntfy). Telegram non ha cache da consultare: finestra stretta
+07:00-08:00, cosi' dei due tentativi in UTC (ora legale / solare) ne cade uno solo e non ci sono doppioni ne' buchi.
 """
 from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -96,17 +98,28 @@ def componi(piano: ss.PianoSessioni) -> Avviso:
     return Avviso(titolo, "\n".join(righe), priorita, f"semine-{piano.oggi.isoformat()}")
 
 
+def _diario_url() -> str:
+    return os.environ.get("DIARIO_URL", DIARIO_URL_DEFAULT).strip().rstrip("/") or DIARIO_URL_DEFAULT
+
+
+def canale() -> str:
+    """"telegram" se sono impostati sia TELEGRAM_BOT_TOKEN sia TELEGRAM_CHAT_ID, altrimenti "ntfy"."""
+    if os.environ.get("TELEGRAM_BOT_TOKEN", "").strip() and os.environ.get("TELEGRAM_CHAT_ID", "").strip():
+        return "telegram"
+    return "ntfy"
+
+
 def _config() -> tuple[str, str, str]:
     topic = os.environ.get("NTFY_TOPIC", "").strip()
     if not topic:
-        raise AvvisoNonPossibile("NTFY_TOPIC non impostata: senza il nome del canale non so dove mandare l'avviso.")
+        raise AvvisoNonPossibile(
+            "Nessun canale configurato: servono TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID (oppure NTFY_TOPIC).")
     server = os.environ.get("NTFY_SERVER", NTFY_DEFAULT).strip().rstrip("/") or NTFY_DEFAULT
-    diario = os.environ.get("DIARIO_URL", DIARIO_URL_DEFAULT).strip().rstrip("/") or DIARIO_URL_DEFAULT
-    return topic, server, diario
+    return topic, server, _diario_url()
 
 
 def gia_inviato(server: str, topic: str, tag: str, opener: Opener = urllib.request.urlopen) -> bool:
-    """Guarda nella cache di ntfy (ultime 12 ore) se un avviso con questo tag e' gia' arrivato. Se non si riesce a
+    """Solo ntfy: guarda nella cache (ultime 12 ore) se un avviso con questo tag e' gia' arrivato. Se non si riesce a
     controllare risponde False: meglio un doppione di un avviso mancato."""
     try:
         with opener(f"{server}/{topic}/json?poll=1&since=12h", timeout=TIMEOUT) as risposta:
@@ -121,25 +134,65 @@ def gia_inviato(server: str, topic: str, tag: str, opener: Opener = urllib.reque
     return False
 
 
-def invia(avviso: Avviso, opener: Opener = urllib.request.urlopen) -> None:
-    topic, server, diario = _config()
-    corpo = {"topic": topic, "title": avviso.titolo, "message": avviso.corpo, "priority": avviso.priorita,
-             "tags": [avviso.tag, "seedling"], "click": f"{diario}/#semine"}
-    richiesta = urllib.request.Request(
-        server, data=json.dumps(corpo).encode("utf-8"), method="POST",
-        headers={"Content-Type": "application/json"})
+def _pubblica(richiesta: urllib.request.Request, opener: Opener, segreti: tuple[str, ...] = ()) -> None:
+    """Manda la richiesta. Gli errori sono leggibili e NON contengono mai token o nome del canale."""
+    def pulito(testo: str) -> str:
+        for segreto in segreti:
+            if segreto:
+                testo = testo.replace(segreto, "***")
+        return testo
+
     try:
         with opener(richiesta, timeout=TIMEOUT) as risposta:
             if getattr(risposta, "status", 200) >= 300:
                 raise AvvisoNonPossibile(f"Il servizio di notifica ha risposto {risposta.status}.")
     except AvvisoNonPossibile:
         raise
+    except urllib.error.HTTPError as exc:
+        dettaglio = ""
+        try:
+            dettaglio = str(json.loads(exc.read().decode("utf-8")).get("description") or "")
+        except Exception:  # noqa: BLE001
+            pass
+        raise AvvisoNonPossibile(pulito(f"Avviso non inviato: HTTP {exc.code} {exc.reason}"
+                                        + (f" - {dettaglio}" if dettaglio else ""))) from None
     except Exception as exc:  # noqa: BLE001 -- mostrato, mai un crash silenzioso
-        raise AvvisoNonPossibile(f"Avviso non inviato: {exc}") from exc
+        raise AvvisoNonPossibile(pulito(f"Avviso non inviato: {exc}")) from None
 
 
-def finestra_ok(ora: datetime) -> bool:
-    return ora.isoweekday() in ss.GIORNI_DEFAULT and ORA_DA <= ora.hour < ORA_A
+def _invia_telegram(avviso: Avviso, opener: Opener) -> None:
+    token = os.environ["TELEGRAM_BOT_TOKEN"].strip()
+    chat = os.environ["TELEGRAM_CHAT_ID"].strip()
+    testo = f"{avviso.titolo}\n\n{avviso.corpo}\n\n{_diario_url()}/#semine"
+    corpo = {"chat_id": chat, "text": testo, "disable_web_page_preview": True}
+    richiesta = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage", data=json.dumps(corpo).encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json"})
+    _pubblica(richiesta, opener, (token,))
+
+
+def _invia_ntfy(avviso: Avviso, opener: Opener) -> None:
+    topic, server, diario = _config()
+    corpo = {"topic": topic, "title": avviso.titolo, "message": avviso.corpo, "priority": avviso.priorita,
+             "tags": [avviso.tag, "seedling"], "click": f"{diario}/#semine"}
+    richiesta = urllib.request.Request(
+        server, data=json.dumps(corpo).encode("utf-8"), method="POST",
+        headers={"Content-Type": "application/json"})
+    _pubblica(richiesta, opener, (topic,))
+
+
+def invia(avviso: Avviso, opener: Opener = urllib.request.urlopen) -> None:
+    if canale() == "telegram":
+        _invia_telegram(avviso, opener)
+    else:
+        _invia_ntfy(avviso, opener)
+
+
+def finestra_ok(ora: datetime, stretta: bool = False) -> bool:
+    """Mercoledi/domenica tra le 07:00 e le 10:00 (ora delle Canarie). `stretta` (Telegram, che non ha una cache per
+    controllare i doppioni): solo tra le 07:00 e le 08:00, e basta uno dei due tentativi in UTC a cadere li'."""
+    fine = ORA_DA + 1 if stretta else ORA_A
+    return ora.isoweekday() in ss.GIORNI_DEFAULT and ORA_DA <= ora.hour < fine
 
 
 def esegui(settings: PostgreSQLSettings, ora: datetime | None = None, *, anteprima: bool = False, prova: bool = False,
@@ -147,21 +200,25 @@ def esegui(settings: PostgreSQLSettings, ora: datetime | None = None, *, antepri
     """Prepara e (se non e' anteprima) manda l'avviso. Ritorna sempre un dizionario leggibile, mai un'eccezione per
     "fuori orario" o "gia' mandato"."""
     ora = (ora or datetime.now(TZ)).astimezone(TZ)
+    telegram = canale() == "telegram"
     if prova:
         avviso = Avviso("Prova avviso semine", "Se leggi questo, le notifiche del diario arrivano sul telefono.", 3,
                         "semine-prova")
         if not anteprima:
             invia(avviso, opener)
-        return {"inviato": not anteprima, "motivo": "prova", "titolo": avviso.titolo, "messaggio": avviso.corpo}
-    if not forza and not finestra_ok(ora):
-        return {"inviato": False, "motivo": "Fuori orario: l'avviso parte solo mercoledi e domenica tra le 07:00 e le 10:00 "
+        return {"inviato": not anteprima, "motivo": "prova", "canale": canale(), "titolo": avviso.titolo,
+                "messaggio": avviso.corpo}
+    if not forza and not finestra_ok(ora, stretta=telegram):
+        quando = "tra le 07:00 e le 08:00" if telegram else "tra le 07:00 e le 10:00"
+        return {"inviato": False, "motivo": f"Fuori orario: l'avviso parte solo mercoledi e domenica {quando} "
                                             "(ora delle Canarie). Per provare: forza=1.", "titolo": None, "messaggio": None}
     avviso = componi(ss.piano(settings, oggi=ora.date()))
-    base = {"titolo": avviso.titolo, "messaggio": avviso.corpo}
+    base = {"titolo": avviso.titolo, "messaggio": avviso.corpo, "canale": canale()}
     if anteprima:
         return {**base, "inviato": False, "motivo": "anteprima"}
-    topic, server, _ = _config()
-    if not forza and gia_inviato(server, topic, avviso.tag, opener):
-        return {**base, "inviato": False, "motivo": "Avviso di oggi gia' inviato."}
+    if not telegram:
+        topic, server, _ = _config()
+        if not forza and gia_inviato(server, topic, avviso.tag, opener):
+            return {**base, "inviato": False, "motivo": "Avviso di oggi gia' inviato."}
     invia(avviso, opener)
     return {**base, "inviato": True, "motivo": "inviato"}

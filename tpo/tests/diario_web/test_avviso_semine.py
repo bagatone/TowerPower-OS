@@ -1,5 +1,5 @@
 """Avviso sul telefono delle sessioni di semina (17/10/2026). Nessun database, nessuna rete: il piano e ntfy sono finti.
-Si verifica il testo (totale per varieta', nessun nome di cliente), il giorno/ora, il non-doppione e gli errori leggibili."""
+Si verifica il testo (totale per varieta', nessun nome di cliente), il giorno/ora, il non-doppione, i due canali (ntfy e Telegram) e gli errori leggibili."""
 from __future__ import annotations
 
 import json
@@ -106,6 +106,8 @@ class _Ntfy:
 def ambiente(monkeypatch):
     monkeypatch.setenv("NTFY_TOPIC", "canale-segreto-xyz")
     monkeypatch.delenv("NTFY_SERVER", raising=False)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
     monkeypatch.delenv("DIARIO_URL", raising=False)
     visti = []
 
@@ -229,3 +231,95 @@ def test_route_errori_leggibili(monkeypatch) -> None:
     monkeypatch.setattr(av, "esegui", database_giu)
     r = client.post("/api/avviso-semine", auth=AUTH)
     assert r.status_code == 503 and "database spento" in r.json()["errore"]
+
+
+# ---- Telegram (canale preferito se configurato) ----
+
+TOKEN = "123456:ABC-token-segretissimo"
+DOMENICA_8_30 = datetime(2026, 10, 18, 8, 30, tzinfo=TZ)
+
+
+@pytest.fixture
+def telegram(ambiente, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "987654")
+    return ambiente
+
+
+def test_il_canale_e_telegram_solo_se_ci_sono_token_e_chat(ambiente, monkeypatch) -> None:
+    assert av.canale() == "ntfy"
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    assert av.canale() == "ntfy"                                   # manca la chat
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "987654")
+    assert av.canale() == "telegram"
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "  ")
+    assert av.canale() == "ntfy"
+
+
+def test_telegram_manda_titolo_corpo_e_link_senza_clienti(telegram) -> None:
+    ntfy = _Ntfy()
+    esito = av.esegui(object(), DOMENICA_7_30, opener=ntfy)
+    assert esito["inviato"] is True and esito["canale"] == "telegram"
+    (url, metodo, corpo), = ntfy.inviati
+    assert url == f"https://api.telegram.org/bot{TOKEN}/sendMessage" and metodo == "POST"
+    assert corpo["chat_id"] == "987654" and corpo["disable_web_page_preview"] is True
+    assert corpo["text"].startswith("Semina di domenica 18/10: 4,5 SET\n\nAfila 3 SET")
+    assert corpo["text"].endswith("https://tpo-diario.onrender.com/#semine")
+    assert not any(cliente in corpo["text"] for cliente in CLIENTI)
+    assert ntfy.letture == []                                        # nessuna cache da consultare
+
+
+def test_telegram_ha_la_finestra_stretta_07_08(telegram) -> None:
+    ntfy = _Ntfy()
+    esito = av.esegui(object(), DOMENICA_8_30, opener=ntfy)          # il secondo tentativo in UTC: non rimanda
+    assert esito["inviato"] is False and "07:00 e le 08:00" in esito["motivo"]
+    assert ntfy.inviati == [] and telegram == []
+    assert av.finestra_ok(DOMENICA_8_30) is True and av.finestra_ok(DOMENICA_8_30, stretta=True) is False
+    assert av.finestra_ok(datetime(2026, 10, 18, 7, 59, tzinfo=TZ), stretta=True) is True
+    assert av.esegui(object(), DOMENICA_8_30, forza=True, opener=ntfy)["inviato"] is True
+
+
+def test_telegram_prova_e_anteprima(telegram) -> None:
+    ntfy = _Ntfy()
+    prova = av.esegui(object(), datetime(2026, 10, 19, 15, 0, tzinfo=TZ), prova=True, opener=ntfy)
+    assert prova["inviato"] is True and prova["canale"] == "telegram"
+    assert ntfy.inviati[0][2]["text"].startswith("Prova avviso semine")
+    anteprima = av.esegui(object(), DOMENICA_7_30, anteprima=True, opener=ntfy)
+    assert anteprima["inviato"] is False and anteprima["canale"] == "telegram" and len(ntfy.inviati) == 1
+
+
+def test_telegram_errori_leggibili_senza_token(telegram) -> None:
+    import io
+    import urllib.error
+
+    def rifiuta(richiesta, timeout=None):
+        corpo = json.dumps({"ok": False, "description": "Forbidden: bot was blocked"}).encode("utf-8")
+        raise urllib.error.HTTPError(richiesta.full_url, 403, "Forbidden", {}, io.BytesIO(corpo))
+
+    with pytest.raises(av.AvvisoNonPossibile) as e:
+        av.esegui(object(), DOMENICA_7_30, opener=rifiuta)
+    assert "403" in str(e.value) and "bot was blocked" in str(e.value) and TOKEN not in str(e.value)
+
+    def giu(richiesta, timeout=None):
+        raise OSError(f"impossibile raggiungere {richiesta.full_url}")
+
+    with pytest.raises(av.AvvisoNonPossibile) as e:
+        av.esegui(object(), DOMENICA_7_30, opener=giu)
+    assert TOKEN not in str(e.value) and "***" in str(e.value)
+
+
+def test_ntfy_non_espone_il_nome_del_canale_negli_errori(ambiente) -> None:
+    def giu(richiesta, timeout=None):
+        if isinstance(richiesta, str):
+            return _Risposta("")
+        raise OSError("errore su canale-segreto-xyz")
+
+    with pytest.raises(av.AvvisoNonPossibile) as e:
+        av.esegui(object(), DOMENICA_7_30, opener=giu)
+    assert "canale-segreto-xyz" not in str(e.value)
+
+
+def test_senza_nessun_canale_dice_cosa_manca(ambiente, monkeypatch) -> None:
+    monkeypatch.delenv("NTFY_TOPIC")
+    with pytest.raises(av.AvvisoNonPossibile, match="TELEGRAM_BOT_TOKEN"):
+        av.esegui(object(), DOMENICA_7_30, opener=_Ntfy())

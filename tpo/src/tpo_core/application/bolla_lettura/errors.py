@@ -17,3 +17,9 @@ class ConsegnaNonConsegnataError(BollaLetturaError):
     """La BOLLA si emette solo per una CONSEGNA realmente CONSEGNATA."""
 
     code = "BOLLA_CONSEGNA_NON_CONSEGNATA"
+
+
+class UnioneBolleError(BollaLetturaError):
+    """Le bolle indicate non si possono riunire in una sola."""
+
+    code = "BOLLA_UNIONE_NON_POSSIBILE"

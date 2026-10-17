@@ -100,7 +100,7 @@ def _same(kind: str, a: Any, b: Any) -> bool:
 
 def current_version(cursor: Any, variety: str, *, lock: bool = False) -> dict[str, Any]:
     cursor.execute(
-        f"""SELECT v.denominazione,{', '.join('pv.' + c for c in COLUMNS.split(','))}
+        f"""SELECT v.denominazione,{', '.join('pv.' + c for c in COLUMNS.split(','))}, v.codice_tracciabilita
             FROM tpo.protocollo_versioni pv
             JOIN tpo.protocolli p ON p.id=pv.protocollo_id
             JOIN tpo.cultivar_usi cu ON cu.id=p.cultivar_uso_id
@@ -109,7 +109,8 @@ def current_version(cursor: Any, variety: str, *, lock: bool = False) -> dict[st
             JOIN tpo.usi_produttivi up ON up.id=cu.uso_produttivo_id AND up.codice='MICROGREEN'
             WHERE pv.stato_approvazione='APPROVATA' AND pv.valida_al IS NULL
             ORDER BY v.denominazione, pv.id {'FOR UPDATE OF pv' if lock else ''}""")
-    rows = [r for r in cursor.fetchall() if _fold(r[0]) == _fold(variety)]
+    # si accetta il nome della varieta' (Lenticchia) oppure il suo codice di tracciabilita' (LEN)
+    rows = [r for r in cursor.fetchall() if _fold(variety) in (_fold(r[0]), _fold(r[-1] or ""))]
     if len(rows) != 1:
         raise ProtocolRevisionError(
             f"{variety}: trovate {len(rows)} versioni di protocollo APPROVATE correnti (attesa 1).")

@@ -51,6 +51,9 @@ class RigaBolla:
     rettifica: bool
     origini: tuple[OrigineLotto, ...]
     quantita_senza_origine: Decimal
+    # Solo nelle bolle unite (vedi unione.py): da quale CONSEGNA viene la riga e quando e' stata consegnata.
+    consegna_origine: str | None = None
+    data_consegna_origine: date | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,8 @@ class Bolla:
     destinazione_fisica: str | None
     righe: tuple[RigaBolla, ...]
     pagamento: PagamentoBolla | None = None
+    # Solo nelle bolle unite: tutti i codici CONSEGNA riuniti (consegna_id e' l'ultima).
+    consegne_unite: tuple[str, ...] = ()
 
     @property
     def righe_senza_origine(self) -> int:

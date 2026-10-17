@@ -2,11 +2,12 @@
 
 from .errors import (
     BollaLetturaError, ConsegnaNonConsegnataError, ConsegnaNonTrovataError,
-    InvalidBollaLetturaQueryError,
+    InvalidBollaLetturaQueryError, UnioneBolleError,
 )
 from .models import Bolla, OrigineLotto, PagamentoBolla, RichiediBolla, RigaBolla
 from .ports import BollaLetturaReader
 from .service import BollaLetturaService
+from .unione import unisci_bolle
 
 __all__ = [
     "Bolla",
@@ -20,4 +21,6 @@ __all__ = [
     "PagamentoBolla",
     "RichiediBolla",
     "RigaBolla",
+    "UnioneBolleError",
+    "unisci_bolle",
 ]

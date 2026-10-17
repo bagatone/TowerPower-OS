@@ -140,3 +140,15 @@ def test_variety_name_matches_ignoring_case_and_accents(harvest_environment):
     cursor = conn.cursor()
     assert current_version(cursor, _variety(engine).upper())["public_id"] == "PV-000001"
     conn.close()
+
+
+def test_variety_can_be_given_by_its_traceability_code(harvest_environment):
+    """17/10/2026: Matteo scrive LEN (codice di tracciabilita'), non il nome per esteso."""
+    engine, _writer = harvest_environment
+    code = scalar(engine, "SELECT codice_tracciabilita FROM tpo.varieta ORDER BY id LIMIT 1")
+    conn = _connect(engine)
+    cursor = conn.cursor()
+    assert current_version(cursor, code.lower())["variety"] == _variety(engine)
+    with pytest.raises(ProtocolRevisionError):
+        current_version(cursor, code.lower() + "x")
+    conn.close()

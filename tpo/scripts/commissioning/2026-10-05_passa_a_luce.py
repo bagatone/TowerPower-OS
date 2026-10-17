@@ -13,7 +13,7 @@ alla conferma). CRESCITA NON viene registrata: LUCE e CRESCITA sono lo stesso pr
 
 Senza --esegui NON scrive nulla (anteprima). Idempotente.
 
-Uso:
+Uso (la varieta' si indica col nome o col codice, es. Lenticchia oppure LEN):
   .venv/bin/python scripts/commissioning/2026-10-05_passa_a_luce.py                  # anteprima
   .venv/bin/python scripts/commissioning/2026-10-05_passa_a_luce.py --esegui
   ... --semina SEM-000016 --semina SEM-000018 ...                                   # scelta esplicita
@@ -75,8 +75,11 @@ def main() -> int:
     cur = conn.cursor()
     print(f"== LUCE {luce:%Y-%m-%d %H:%M} -- {'ESECUZIONE' if a.esegui else 'ANTEPRIMA (nulla viene scritto)'}")
     try:
-        cur.execute("SELECT denominazione FROM tpo.varieta")
-        nomi = {norm(r[0]): r[0] for r in cur.fetchall()}
+        cur.execute("SELECT denominazione, codice_tracciabilita FROM tpo.varieta")
+        righe_varieta = cur.fetchall()
+        nomi = {norm(r[0]): r[0] for r in righe_varieta}
+        # si accetta anche il codice di tracciabilita' della varieta' (es. LEN per Lenticchia)
+        nomi.update({norm(r[1]): r[0] for r in righe_varieta if r[1] and norm(r[1]) not in nomi})
         scelte = []  # (semina, nome varieta')
         for chiave, richiesti in dichiarate.items():
             if chiave not in nomi:

@@ -91,8 +91,12 @@ def render_bolla_pdf(
     effettiva = bolla.data_effettiva
     data_consegna = (_local(effettiva).strftime("%d/%m/%Y %H:%M") if effettiva
                      else bolla.data_prevista.strftime("%d/%m/%Y"))
+    numero = " + ".join(bolla.consegne_unite) if bolla.consegne_unite else bolla.consegna_id.value
+    if bolla.consegne_unite:
+        giorni = sorted({r.data_consegna_origine for r in bolla.righe if r.data_consegna_origine})
+        data_consegna = " - ".join(g.strftime("%d/%m/%Y") for g in giorni) or data_consegna
     meta = [
-        [p("Número", small), p(bolla.consegna_id.value, strong),
+        [p("Número", small), p(numero, strong),
          p("Fecha de entrega", small), p(data_consegna, strong)],
         [p("Cliente", small), p(f"{bolla.cliente_denominazione} ({bolla.cliente_id})", strong),
          p("Destino", small), p(bolla.destinazione_fisica or "-", base)],
@@ -133,7 +137,12 @@ def render_bolla_pdf(
             ))
         if not detail:
             detail.append(p("-", base))
-        rows.append([p(str(riga.posizione), base), p(label, strong), p(qty, base), detail])
+        label_cell: list | Paragraph = p(label, strong)
+        if riga.consegna_origine:
+            giorno = (f" - {riga.data_consegna_origine.strftime('%d/%m/%Y')}"
+                      if riga.data_consegna_origine else "")
+            label_cell = [p(label, strong), p(f"{riga.consegna_origine}{giorno}", small)]
+        rows.append([p(str(riga.posizione), base), label_cell, p(qty, base), detail])
         style_cmds.append(("LINEBELOW", (0, len(rows) - 1), (-1, len(rows) - 1), 0.25,
                            colors.HexColor("#cccccc")))
     lines_table = Table(rows, colWidths=[12 * mm, 42 * mm, 26 * mm, 100 * mm], repeatRows=1)
@@ -162,7 +171,7 @@ def render_bolla_pdf(
         canvas.setFillColor(colors.HexColor("#777777"))
         canvas.drawString(
             15 * mm, 10 * mm,
-            f"{bolla.consegna_id.value} - generado el "
+            f"{numero} - generado el "
             f"{_local(generata_il).strftime('%d/%m/%Y %H:%M')} por Tower Power OS",
         )
         canvas.drawRightString(A4[0] - 15 * mm, 10 * mm, f"Página {doc.page}")
@@ -172,7 +181,7 @@ def render_bolla_pdf(
     document = SimpleDocTemplate(
         buffer, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm,
         topMargin=15 * mm, bottomMargin=18 * mm,
-        title=f"Albarán de entrega {bolla.consegna_id.value}", author="Tower Power OS",
+        title=f"Albarán de entrega {numero}", author="Tower Power OS",
         pageCompression=1 if compress else 0,
     )
     document.build(story, onFirstPage=footer, onLaterPages=footer)

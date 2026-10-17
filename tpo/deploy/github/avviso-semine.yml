@@ -1,0 +1,39 @@
+# Avviso sul telefono delle sessioni di semina (mercoledi e domenica mattina).
+# Questo workflow NON calcola nulla: sveglia il diario su Render, che legge il piano e manda la notifica (ntfy).
+# Due tentativi in UTC (06:35 e 07:35) perche' il cambio ora legale/solare delle Canarie sposta l'ora locale: il diario
+# manda l'avviso solo tra le 07:00 e le 10:00 ora delle Canarie e mai due volte nella stessa mattina.
+# I workflow con "schedule" partono solo dal ramo predefinito del repository (main).
+# Secret necessari (Settings > Secrets and variables > Actions): DIARIO_URL, DIARIO_PASSWORD.
+name: Avviso semine
+
+on:
+  schedule:
+    - cron: "35 6,7 * * 0,3"
+  workflow_dispatch:
+    inputs:
+      prova:
+        description: "Manda solo un messaggio di prova (a qualunque ora)"
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  avviso:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Chiede al diario di mandare l'avviso
+        env:
+          DIARIO_URL: ${{ secrets.DIARIO_URL }}
+          DIARIO_PASSWORD: ${{ secrets.DIARIO_PASSWORD }}
+          PROVA: ${{ github.event_name == 'workflow_dispatch' && inputs.prova }}
+        run: |
+          set -euo pipefail
+          query=""
+          if [ "$PROVA" = "true" ]; then query="?prova=1"; fi
+          # il servizio gratuito di Render dorme: il primo tentativo puo' impiegare un minuto, per questo i nuovi tentativi
+          curl --silent --show-error --fail-with-body \
+               --retry 6 --retry-delay 20 --retry-all-errors --max-time 120 \
+               -u "avviso:${DIARIO_PASSWORD}" -X POST "${DIARIO_URL%/}/api/avviso-semine${query}"
+          echo

@@ -30,3 +30,9 @@ services:
         value: "giulia@towerpower"
       - key: DIARIO_MODEL
         value: "claude-sonnet-4-5"
+      - key: NTFY_TOPIC
+        sync: false
+      - key: NTFY_SERVER
+        value: "https://ntfy.sh"
+      - key: DIARIO_URL
+        value: "https://tpo-diario.onrender.com"

@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from datetime import datetime, timezone
 
-from . import actions, db_context, incassi, interpreter, magazzino, rendiconto, sessioni_semina
+from . import actions, avviso_semine, db_context, incassi, interpreter, magazzino, rendiconto, sessioni_semina
 from .auth import richiedi_autenticazione
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 
@@ -173,6 +173,22 @@ def api_sessioni_semina(sessioni: int = 2, _: str = Depends(richiedi_autenticazi
     except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
         return JSONResponse({"errore": f"Piano semine non disponibile: {exc}"}, status_code=503)
     return JSONResponse(sessioni_semina.a_dizionario(p))
+
+
+@app.post("/api/avviso-semine")
+def api_avviso_semine(anteprima: bool = False, prova: bool = False, forza: bool = False,
+                      _: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Manda sul telefono (ntfy) l'avviso delle sessioni di semina: totale per varieta' e totale complessivo, senza nomi di
+    clienti. Lo chiama un servizio esterno mercoledi e domenica mattina (vedi docs/architecture/DIARIO_AVVISO_SEMINE.md).
+    anteprima=1 mostra il messaggio senza mandarlo; prova=1 manda un messaggio di prova; forza=1 ignora giorno/ora.
+    Non scrive nulla sul database."""
+    try:
+        esito = avviso_semine.esegui(_settings(), anteprima=anteprima, prova=prova, forza=forza)
+    except avviso_semine.AvvisoNonPossibile as exc:
+        return JSONResponse({"inviato": False, "errore": str(exc)}, status_code=503)
+    except Exception as exc:  # noqa: BLE001 -- mostrato, mai un crash silenzioso
+        return JSONResponse({"inviato": False, "errore": f"Avviso non preparato: {exc}"}, status_code=503)
+    return JSONResponse(esito)
 
 
 @app.get("/api/magazzino")

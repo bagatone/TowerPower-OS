@@ -10,13 +10,8 @@
     --muted:#646F5E; --accent:#6D28D9; --accent-strong:#5416B8;
     --good:#2E8B54; --good-soft:#E3F2E7; --bad:#BC3B31; --bad-soft:#FBE6E3;
   }
-  @media (prefers-color-scheme: dark){
-    :root{
-      --bg:#12160F; --surface:#1B2118; --border:#33392E; --text:#EDEAE0;
-      --muted:#A2AC97; --accent:#B08CF0; --accent-strong:#C7ABF5;
-      --good:#5CBA82; --good-soft:#1B2E20; --bad:#E38177; --bad-soft:#3A2019;
-    }
-  }
+  /* sempre sfondo chiaro (scelta di Matteo, 17/10/2026): niente modo scuro */
+  :root{color-scheme:light;}
   *{box-sizing:border-box;}
   body{
     margin:0; background:var(--bg); color:var(--text);
@@ -105,26 +100,141 @@
     border:1px solid var(--border); background:var(--surface); color:var(--text);
   }
   .incassi .vuoto{color:var(--muted); font-size:14px; padding:4px 0;}
+
+  /* --- navigazione a 4 schermate --- */
+  .wrap{padding-bottom:96px;}
+  .testa{margin-bottom:16px;}
+  .vista{display:none;}
+  .vista.attiva{display:block;}
+  .menu{
+    position:fixed; left:0; right:0; bottom:0; z-index:10;
+    background:var(--surface); border-top:1px solid var(--border);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .menu .dentro{display:flex; max-width:640px; margin:0 auto;}
+  .menu a{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;
+    padding:9px 4px 8px; font-size:12px; font-weight:600; text-decoration:none;
+    color:var(--muted); position:relative; -webkit-tap-highlight-color:transparent;
+  }
+  .menu a svg{width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;}
+  .menu a[aria-current="page"]{color:var(--accent);}
+  .menu a[aria-current="page"]::before{
+    content:""; position:absolute; top:-1px; left:22%; right:22%; height:3px;
+    background:var(--accent); border-radius:0 0 3px 3px;
+  }
+  .menu a:focus-visible{outline:2px solid var(--accent); outline-offset:-4px; border-radius:10px;}
+  .menu .badge{
+    position:absolute; top:4px; left:calc(50% + 6px); min-width:18px; height:18px; padding:0 5px;
+    border-radius:9px; background:var(--bad); color:#fff; font-size:11px; line-height:18px; text-align:center;
+  }
+  .menu .badge[hidden]{display:none;}
+  .incassi h2,.semine h2{margin-top:0;}
+  #risultatiIncassi:empty{display:none;}
+  #risultatiIncassi{margin-bottom:22px;}
+
+  /* --- magazzino --- */
+  .magazzino h2{font-size:16px; margin:22px 0 8px;}
+  .magazzino h2:first-child{margin-top:0;}
+  .magazzino .nota-sistema{color:var(--muted); font-size:13px; margin:0 0 12px;}
+  .tessere{display:grid; grid-template-columns:repeat(3,1fr); gap:8px;}
+  .tessera{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px;}
+  .tessera .num{font-size:24px; font-weight:700; line-height:1.15; font-variant-numeric:tabular-nums;}
+  .tessera .num small{font-size:13px; font-weight:600; color:var(--muted); margin-left:2px;}
+  .tessera .et{color:var(--muted); font-size:12px; margin-top:2px;}
+  .stadio{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 14px; margin-top:8px;}
+  .stadio .testa-stadio{display:flex; justify-content:space-between; align-items:baseline; gap:10px;}
+  .stadio .nome{font-weight:600;}
+  .stadio .tot{font-variant-numeric:tabular-nums; font-weight:700;}
+  .stadio .tot small{color:var(--muted); font-weight:400; font-size:12px;}
+  .barra{height:6px; border-radius:3px; background:var(--border); margin-top:6px; overflow:hidden;}
+  .barra > i{display:block; height:100%; background:var(--accent); border-radius:3px;}
+  .stadio.fuori .barra > i{background:var(--muted);}
+  .stadio .semina{
+    display:flex; justify-content:space-between; gap:10px; font-size:14px; padding:5px 0;
+    border-top:1px solid var(--border);
+  }
+  .stadio .semina:first-of-type{margin-top:8px;}
+  .stadio .semina .d{color:var(--muted); font-size:13px; text-align:right;}
+  .stadio .semina .ignoto{color:var(--bad); font-weight:600;}
+  .stadio.vuoto-stadio{opacity:.6;}
+  .gruppo-seme{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 14px; margin-top:8px;}
+  .gruppo-seme .testa-stadio{display:flex; justify-content:space-between; align-items:baseline; gap:10px;}
+  .lotto{padding:8px 0; border-top:1px solid var(--border); font-size:14px;}
+  .gruppo-seme .testa-stadio + .lotto{margin-top:8px;}
+  .lotto .riga-l{display:flex; justify-content:space-between; gap:10px;}
+  .lotto .d{color:var(--muted); font-size:13px;}
+  .lotto .scad{color:var(--bad); font-weight:600;}
+  .lotto .anom{background:var(--bad-soft); color:var(--bad); border-radius:8px; padding:4px 8px; font-size:13px; margin-top:4px;}
+  .materiale{
+    display:flex; justify-content:space-between; gap:10px; align-items:baseline;
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:10px 12px; margin-top:6px; font-size:14px;
+  }
+  .materiale .d{color:var(--muted); font-size:13px;}
+  .materiale .q{font-weight:700; font-variant-numeric:tabular-nums; text-align:right;}
+  .materiale .q small{display:block; color:var(--muted); font-weight:400; font-size:12px;}
+  .magazzino .vuoto{color:var(--muted); font-size:14px; padding:4px 0;}
+  .magazzino .avviso-set{background:var(--bad-soft); color:var(--bad); border-radius:10px; padding:8px 12px; margin-top:8px; font-size:13px;}
+  .per-varieta{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
+  .per-varieta span{background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:3px 10px; font-size:13px;}
+  .per-varieta b{font-variant-numeric:tabular-nums;}
+  @media (prefers-reduced-motion: no-preference){ .barra > i{transition:width .3s ease;} }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Diario Tower Power</h1>
-  <div class="sub">Scrivi cosa è successo. Ti mostro l'azione esatta prima di registrarla.</div>
-
-  <div id="rendiconto" class="rendiconto"><div class="vuoto">Carico il rendiconto di oggi…</div></div>
-
-  <div id="semine" class="semine"><div class="vuoto">Carico il piano semine…</div></div>
-
-  <div id="incassi" class="incassi"><div class="vuoto">Carico le consegne da incassare…</div></div>
-
-  <textarea id="testo" placeholder='Es. "Mizuna e Rábano sono passate in luce", "Seminato 2 set di rucola", "Splash ha pagato in contanti"'></textarea>
-  <div>
-    <button id="btnInterpreta">Interpreta</button>
+  <div class="testa">
+    <h1 id="titolo">Oggi</h1>
+    <div class="sub" id="sottotitolo"></div>
   </div>
-  <div id="stato" class="stato"></div>
-  <div id="risultati"></div>
+
+  <section id="vista-oggi" class="vista" aria-labelledby="titolo">
+    <div id="rendiconto" class="rendiconto"><div class="vuoto">Carico il rendiconto di oggi…</div></div>
+
+    <textarea id="testo" placeholder='Es. "Mizuna e Rábano sono passate in luce", "Seminato 2 set di rucola", "Splash ha pagato in contanti"'></textarea>
+    <div>
+      <button id="btnInterpreta">Interpreta</button>
+    </div>
+    <div id="stato" class="stato"></div>
+    <div id="risultati"></div>
+  </section>
+
+  <section id="vista-incassi" class="vista">
+    <div id="statoIncassi" class="stato"></div>
+    <div id="risultatiIncassi"></div>
+    <div id="incassi" class="incassi"><div class="vuoto">Carico le consegne da incassare…</div></div>
+  </section>
+
+  <section id="vista-semine" class="vista">
+    <div id="semine" class="semine"><div class="vuoto">Carico il piano semine…</div></div>
+  </section>
+
+  <section id="vista-magazzino" class="vista">
+    <div id="magazzino" class="magazzino"><div class="vuoto">Carico il magazzino…</div></div>
+  </section>
 </div>
+
+<nav class="menu" aria-label="Schermate">
+  <div class="dentro">
+    <a href="#oggi" data-vista="oggi">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg>
+      Oggi
+    </a>
+    <a href="#incassi" data-vista="incassi">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.8"/><path d="M6 9.5v.01M18 14.5v.01"/></svg>
+      Incassi<span class="badge" id="badgeIncassi" hidden></span>
+    </a>
+    <a href="#semine" data-vista="semine">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21v-9"/><path d="M12 12C12 8 9 5.5 4.5 5.5 4.5 10 7.5 12 12 12Z"/><path d="M12 14c0-3.2 2.4-5.5 7.5-5.5 0 4-3 5.5-7.5 5.5Z"/></svg>
+      Semine
+    </a>
+    <a href="#magazzino" data-vista="magazzino">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8.5 12 4l9 4.5v9L12 22l-9-4.5Z"/><path d="M3 8.5 12 13l9-4.5M12 13v9"/></svg>
+      Magazzino
+    </a>
+  </div>
+</nav>
 
 <script>
 const testoEl = document.getElementById("testo");
@@ -209,10 +319,13 @@ function cardProposta(p, idx) {
   return div;
 }
 
+// "1.000000" -> "1", "0.500000" -> "0.5" (le quantità arrivano come testo decimale dal database)
+function qta(s) { return /^-?\d+\.\d+$/.test(String(s)) ? String(s).replace(/0+$/, "").replace(/\.$/, "") : String(s); }
+
 function rigaConsegna(x) {
   return `<div class="riga-r">
     <div><span class="principale">${escapeHtml(x.cliente)}</span> — ${escapeHtml(x.varieta)}</div>
-    <div class="dettaglio">${escapeHtml(x.quantita)} ${escapeHtml(x.unita)} · ${escapeHtml(x.ordine)}</div>
+    <div class="dettaglio">${escapeHtml(qta(x.quantita))} ${escapeHtml(x.unita)} · ${escapeHtml(x.ordine)}</div>
   </div>`;
 }
 function rigaChiarire(x) {
@@ -224,7 +337,7 @@ function rigaChiarire(x) {
 function rigaSemina(x) {
   return `<div class="riga-r">
     <div><span class="principale">${escapeHtml(x.varieta)}</span> per ${escapeHtml(x.cliente)}</div>
-    <div class="dettaglio">${escapeHtml(x.quantita)} ${escapeHtml(x.unita)} · ${escapeHtml(x.stato)}</div>
+    <div class="dettaglio">${escapeHtml(qta(x.quantita))} ${escapeHtml(x.unita)} · ${escapeHtml(x.stato)}</div>
   </div>`;
 }
 
@@ -260,29 +373,33 @@ async function caricaRendiconto() {
 }
 caricaRendiconto();
 
+const statoIncassiEl = document.getElementById("statoIncassi");
+const risultatiIncassiEl = document.getElementById("risultatiIncassi");
+
 function mostraEsito(data) {
-  risultatiEl.innerHTML = "";
-  (data.proposte || []).forEach((p, i) => risultatiEl.appendChild(cardProposta(p, i)));
+  const dove = risultatiIncassiEl;
+  dove.innerHTML = "";
+  (data.proposte || []).forEach((p, i) => dove.appendChild(cardProposta(p, i)));
   (data.errori || []).forEach((e) => {
     const d = document.createElement("div");
     d.className = "errore";
     d.textContent = e;
-    risultatiEl.appendChild(d);
+    dove.appendChild(d);
   });
-  risultatiEl.scrollIntoView({behavior: "smooth", block: "start"});
+  dove.scrollIntoView({behavior: "smooth", block: "start"});
 }
 
 async function preparaPagamento(codici, metodo) {
-  statoEl.textContent = "Preparo la proposta…";
+  statoIncassiEl.textContent = "Preparo la proposta…";
   try {
     const r = await fetch("/api/pagamento/prepara", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({consegne: codici, metodo}),
     });
-    statoEl.textContent = "";
+    statoIncassiEl.textContent = "";
     mostraEsito(await r.json());
   } catch (e) {
-    statoEl.textContent = "Errore: " + e;
+    statoIncassiEl.textContent = "Errore: " + e;
   }
 }
 
@@ -304,8 +421,8 @@ function bloccoCliente(c, metodi) {
   const sel = div.querySelector("select");
   div.querySelector("button").onclick = () => {
     const scelte = [...div.querySelectorAll("input:checked")].map((i) => i.value);
-    if (!scelte.length) { statoEl.textContent = "Seleziona almeno una consegna."; return; }
-    if (!sel.value) { statoEl.textContent = "Scegli il metodo di pagamento."; return; }
+    if (!scelte.length) { statoIncassiEl.textContent = "Seleziona almeno una consegna."; return; }
+    if (!sel.value) { statoIncassiEl.textContent = "Scegli il metodo di pagamento."; return; }
     preparaPagamento(scelte, sel.value);
   };
   return div;
@@ -322,9 +439,11 @@ async function caricaIncassi() {
     }
     if (!(data.clienti || []).length) {
       el.innerHTML = `<h2>Da incassare</h2><div class="vuoto">Tutte le consegne sono pagate.</div>`;
+      impostaBadge(0);
       return;
     }
     const n = data.clienti.reduce((a, c) => a + c.consegne.length, 0);
+    impostaBadge(n);
     el.innerHTML = `<h2>Da incassare · ${n} consegn${n === 1 ? "a" : "e"}, ${data.clienti.length} client${data.clienti.length === 1 ? "e" : "i"}</h2>`;
     data.clienti.forEach((c) => el.appendChild(bloccoCliente(c, data.metodi)));
   } catch (e) {
@@ -379,6 +498,135 @@ async function caricaSemine() {
   }
 }
 caricaSemine();
+
+/* ---------- Magazzino (sola lettura) ---------- */
+const NOMI_STADIO = {
+  AVVIATA: "Appena avviate", GERMINAZIONE: "Germinazione", LUCE: "Luce", CRESCITA: "Crescita",
+  PRONTA_ALLA_RACCOLTA: "Pronte alla raccolta",
+};
+function dataLunga(iso) { if (!iso) return "—"; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; }
+function giorniA(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  return Math.round((new Date(y, m - 1, d) - oggi) / 86400000);
+}
+function percento(a, b) { const x = parseFloat(a), y = parseFloat(b); return y > 0 ? Math.max(0, Math.min(100, (x / y) * 100)) : 0; }
+
+function htmlColtivazione(c) {
+  const massimo = Math.max(1, ...c.stadi.map((s) => parseFloat(s.set)));
+  let html = `<h2>In coltivazione</h2>
+    <div class="nota-sistema">SET attesi tra germinazione e crescita. Appena avviate e pronte alla raccolta sono a parte.</div>`;
+  c.stadi.forEach((s) => {
+    const fuori = s.stadio === "AVVIATA" || s.stadio === "PRONTA_ALLA_RACCOLTA";
+    const righe = s.elenco.map((x) => `<div class="semina">
+        <span><b>${escapeHtml(x.varieta)}</b> <span class="d">${escapeHtml(x.codice)}</span></span>
+        <span class="d">${x.set === null ? '<span class="ignoto">SET ?</span>' : escapeHtml(x.set) + " SET"} · dal ${escapeHtml(dataBreve(x.avvio))}${x.raccolto ? " · raccolti " + escapeHtml(x.raccolto) : ""}</span></div>`).join("");
+    html += `<div class="stadio${fuori ? " fuori" : ""}${s.semine ? "" : " vuoto-stadio"}">
+      <div class="testa-stadio"><span class="nome">${escapeHtml(NOMI_STADIO[s.stadio] || s.stadio)}</span>
+        <span class="tot">${escapeHtml(s.set)} <small>SET · ${s.semine} ${s.semine === 1 ? "semina" : "semine"}</small></span></div>
+      <div class="barra"><i style="width:${percento(s.set, massimo)}%"></i></div>${righe}</div>`;
+  });
+  if (c.senza_set.length) {
+    html += `<div class="avviso-set">Resa attesa non compilata (non contate nel totale): ${c.senza_set.map(escapeHtml).join(", ")}</div>`;
+  }
+  if (c.per_varieta.length) {
+    html += `<div class="per-varieta">${c.per_varieta.map((v) => `<span>${escapeHtml(v.varieta)} <b>${escapeHtml(v.set)}</b></span>`).join("")}</div>`;
+  }
+  return html;
+}
+
+function htmlSemi(s) {
+  let html = `<h2>Semi</h2>`;
+  if (!s.referenze.length) return html + `<div class="vuoto">Nessun lotto di seme a sistema.</div>`;
+  s.referenze.forEach((g) => {
+    const lotti = g.lotti.map((l) => {
+      const gg = l.scadenza ? giorniA(l.scadenza) : null;
+      const scad = l.scadenza
+        ? (gg < 0 ? `<span class="scad">scaduto il ${escapeHtml(dataLunga(l.scadenza))}</span>`
+          : gg <= 60 ? `<span class="scad">scade il ${escapeHtml(dataLunga(l.scadenza))}</span>`
+          : `scade il ${escapeHtml(dataLunga(l.scadenza))}`)
+        : "senza scadenza";
+      return `<div class="lotto">
+        <div class="riga-l"><span><b>${escapeHtml(l.lotto)}</b> · ${escapeHtml(l.fornitore)}</span>
+          <span><b>${escapeHtml(l.residuo)}</b> <span class="d">/ ${escapeHtml(l.iniziale)} g</span></span></div>
+        <div class="barra"><i style="width:${percento(l.residuo, l.iniziale)}%"></i></div>
+        <div class="d">lotto ${escapeHtml(l.lotto_produttore)} · ricevuto ${escapeHtml(dataLunga(l.ricevuto))} · ${scad}${l.seminato_per.length ? " · usato per " + l.seminato_per.map(escapeHtml).join(", ") : ""}</div>
+        ${l.anomalia ? `<div class="anom">${escapeHtml(l.anomalia)}</div>` : ""}</div>`;
+    }).join("");
+    html += `<div class="gruppo-seme"><div class="testa-stadio"><span class="nome"><b>${escapeHtml(g.referenza)}</b></span>
+      <span class="tot"><b>${escapeHtml(g.residuo)}</b> <small>g residui</small></span></div>${lotti}</div>`;
+  });
+  return html;
+}
+
+function htmlMateriali(m) {
+  let html = `<h2>Materiali</h2><div class="nota-sistema">Regola di consumo: ${m.pezzi_per_set} vaschette + ${m.pezzi_per_set} substrati per SET.</div>`;
+  if (!m.articoli.length) return html + `<div class="vuoto">Nessun articolo a sistema.</div>`;
+  m.articoli.forEach((a) => {
+    html += `<div class="materiale"><div><b>${escapeHtml(a.nome)}</b><div class="d">${escapeHtml(a.codice)} · ultimo movimento ${escapeHtml(dataLunga(a.ultimo_movimento))}</div></div>
+      <div class="q">${escapeHtml(a.giacenza)} <span class="d">${escapeHtml(a.unita === "UNIT" ? "pz" : a.unita.toLowerCase())}</span>
+        ${a.set_possibili !== null ? `<small>bastano per ${escapeHtml(a.set_possibili)} SET</small>` : ""}</div></div>`;
+  });
+  return html;
+}
+
+let magazzinoCaricatoAlle = 0;
+async function caricaMagazzino() {
+  const el = document.getElementById("magazzino");
+  try {
+    const r = await fetch("/api/magazzino");
+    const data = await r.json();
+    if (data.errore) { el.innerHTML = `<div class="errore">${escapeHtml(data.errore)}</div>`; return; }
+    const sets = data.materiali.set_possibili;
+    el.innerHTML = `
+      <div class="nota-sistema">Numeri del sistema, non un conteggio fisico.</div>
+      <div class="tessere">
+        <div class="tessera"><div class="num">${escapeHtml(data.coltivazione.in_semina.set)}<small>SET</small></div><div class="et">in coltivazione</div></div>
+        <div class="tessera"><div class="num">${escapeHtml(data.semi.totale_g)}<small>g</small></div><div class="et">semi residui</div></div>
+        <div class="tessera"><div class="num">${sets === null ? "—" : escapeHtml(sets)}<small>SET</small></div><div class="et">coi materiali</div></div>
+      </div>` + htmlColtivazione(data.coltivazione) + htmlSemi(data.semi) + htmlMateriali(data.materiali);
+    magazzinoCaricatoAlle = Date.now();
+  } catch (e) {
+    el.innerHTML = `<div class="errore">Magazzino non caricato: ${escapeHtml(String(e))}</div>`;
+  }
+}
+
+/* ---------- Navigazione tra le 4 schermate ---------- */
+const VISTE = {
+  oggi: "Cosa c'è da fare oggi. Scrivi cosa è successo: ti mostro l'azione esatta prima di registrarla.",
+  incassi: "Consegne fatte e non ancora pagate.",
+  semine: "Cosa seminare nelle prossime sessioni, e per chi.",
+  magazzino: "Cosa c'è in casa e cosa sta crescendo.",
+};
+const TITOLI = {oggi: "Oggi", incassi: "Incassi", semine: "Semine", magazzino: "Magazzino"};
+
+function impostaBadge(n) {
+  const b = document.getElementById("badgeIncassi");
+  b.textContent = n > 99 ? "99+" : String(n);
+  b.hidden = !n;
+}
+
+function mostraVista(nome) {
+  if (!VISTE[nome]) nome = "oggi";
+  document.querySelectorAll(".vista").forEach((v) => v.classList.toggle("attiva", v.id === "vista-" + nome));
+  document.querySelectorAll(".menu a").forEach((a) => {
+    if (a.dataset.vista === nome) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  });
+  document.getElementById("titolo").textContent = TITOLI[nome];
+  document.getElementById("sottotitolo").textContent = VISTE[nome];
+  document.title = TITOLI[nome] + " — Tower Power";
+  if (nome === "magazzino" && Date.now() - magazzinoCaricatoAlle > 60000) caricaMagazzino();
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll(".menu a").forEach((a) => {
+  a.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    history.pushState(null, "", "#" + a.dataset.vista);
+    mostraVista(a.dataset.vista);
+  });
+});
+window.addEventListener("popstate", () => mostraVista(location.hash.slice(1)));
+mostraVista(location.hash.slice(1));
 
 btnInterpreta.onclick = async () => {
   const testo = testoEl.value.trim();

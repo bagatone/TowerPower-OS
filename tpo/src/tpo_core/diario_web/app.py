@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from datetime import datetime, timezone
 
-from . import actions, db_context, incassi, interpreter, rendiconto, sessioni_semina
+from . import actions, db_context, incassi, interpreter, magazzino, rendiconto, sessioni_semina
 from .auth import richiedi_autenticazione
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 
@@ -173,6 +173,16 @@ def api_sessioni_semina(sessioni: int = 2, _: str = Depends(richiedi_autenticazi
     except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
         return JSONResponse({"errore": f"Piano semine non disponibile: {exc}"}, status_code=503)
     return JSONResponse(sessioni_semina.a_dizionario(p))
+
+
+@app.get("/api/magazzino")
+def api_magazzino(_: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Semi, materiali e semine in coltivazione per stadio. Sola lettura: numeri del sistema, non un conteggio fisico."""
+    try:
+        dati = magazzino.leggi(_settings())
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"errore": f"Magazzino non disponibile: {exc}"}, status_code=503)
+    return JSONResponse(dati)
 
 
 @app.get("/api/da-incassare")

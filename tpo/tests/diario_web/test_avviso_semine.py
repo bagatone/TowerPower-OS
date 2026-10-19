@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi.testclient import TestClient
 
-from src.tpo_core.diario_web import app as app_module, avviso_semine as av, sessioni_semina as ss
+from src.tpo_core.diario_web import app as app_module, avviso_semine as av, controlli, sessioni_semina as ss
 
 AUTH = ("matteo", "segreta")
 TZ = ZoneInfo("Atlantic/Canary")
@@ -116,6 +116,7 @@ def ambiente(monkeypatch):
         return _piano(oggi=oggi)
 
     monkeypatch.setattr(ss, "piano", finto_piano)
+    monkeypatch.setattr(controlli, "leggi", lambda settings, adesso=None: controlli.componi([], [], [], adesso))
     return visti
 
 
@@ -322,3 +323,36 @@ def test_senza_nessun_canale_dice_cosa_manca(ambiente, monkeypatch) -> None:
     monkeypatch.delenv("NTFY_TOPIC")
     with pytest.raises(av.AvvisoNonPossibile, match="TELEGRAM_BOT_TOKEN"):
         av.esegui(object(), DOMENICA_7_30, opener=_Ntfy())
+
+
+# ---- righe del promemoria stadi (19/10/2026) ----
+
+def _controllo_con_cose(settings, adesso=None):
+    giorno = datetime(2026, 10, 15, 9, tzinfo=TZ)
+    semine = [("SEM-1", "H-1", "Hinojo", "GERMINAZIONE", giorno, Decimal("1"), "SET", 3, 20, 0, None)]   # 15+3 = 18: oggi
+    clienti = [("CLI-1", "Restaurante Salvaje", True), ("CLI-2", "Restaurante Selvaje", True)]
+    return controlli.componi(semine, clienti, [], adesso)
+
+
+def test_l_avviso_aggiunge_le_righe_del_promemoria_senza_nomi_di_clienti(ambiente, monkeypatch) -> None:
+    monkeypatch.setattr(controlli, "leggi", _controllo_con_cose)
+    prova = av.esegui(object(), DOMENICA_7_30, anteprima=True)
+    righe = prova["messaggio"].split("\n")
+    assert "Passano a luce: Hinojo 1." in righe
+    assert "Da controllare: 1 (vedi Oggi)." in righe
+    assert righe[-1] == "Tocca per vedere per chi."          # l'invito resta in fondo
+    assert "Salvaje" not in prova["messaggio"] and "Selvaje" not in prova["messaggio"]
+
+
+def test_se_il_controllo_si_rompe_l_avviso_parte_lo_stesso(ambiente, monkeypatch) -> None:
+    def rotto(settings, adesso=None):
+        raise RuntimeError("db lento")
+
+    monkeypatch.setattr(controlli, "leggi", rotto)
+    prova = av.esegui(object(), DOMENICA_7_30, anteprima=True)
+    assert prova["titolo"].startswith("Semina di domenica 18/10") and "Passano a luce" not in prova["messaggio"]
+
+
+def test_senza_nulla_da_segnalare_il_testo_resta_quello_di_prima(ambiente) -> None:
+    prova = av.esegui(object(), DOMENICA_7_30, anteprima=True)
+    assert "Passano a luce" not in prova["messaggio"] and "Da controllare" not in prova["messaggio"]

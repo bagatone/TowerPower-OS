@@ -191,6 +191,7 @@
 
   <section id="vista-oggi" class="vista" aria-labelledby="titolo">
     <div id="rendiconto" class="rendiconto"><div class="vuoto">Carico il rendiconto di oggi…</div></div>
+    <div id="controlli" class="rendiconto"></div>
 
     <textarea id="testo" placeholder='Es. "Mizuna e Rábano sono passate in luce", "Seminato 2 set di rucola", "Splash ha pagato in contanti"'></textarea>
     <div>
@@ -372,6 +373,40 @@ async function caricaRendiconto() {
   }
 }
 caricaRendiconto();
+
+const AZIONI = {luce: "passa a luce", pronta: "pronta da raccogliere"};
+function rigaPromemoria(v, quando) {
+  const cosa = `${AZIONI[v.azione] || v.azione}`;
+  const q = v.set ? `${escapeHtml(qta(v.set))} SET ` : "";
+  const ritardo = quando === "in_ritardo" ? ` · previsto il ${escapeHtml(dataBreve(v.prevista))} (${v.giorni} g fa)` : "";
+  return `<div class="riga-r">
+    <div><span class="principale">${escapeHtml(v.varieta)}</span> — ${q}${escapeHtml(cosa)}</div>
+    <div class="dettaglio">${escapeHtml(v.codice || v.semina)} · ${escapeHtml(v.semina)}${ritardo}</div>
+  </div>`;
+}
+function rigaAnomalia(a) {
+  return `<div class="riga-r chiarire"><div>${escapeHtml(a.testo)}</div></div>`;
+}
+async function caricaControlli() {
+  const el = document.getElementById("controlli");
+  try {
+    const r = await fetch("/api/controlli");
+    const data = await r.json();
+    if (data.errore) { el.innerHTML = `<div class="errore">${escapeHtml(data.errore)}</div>`; return; }
+    const p = data.promemoria;
+    let html = "";
+    const blocchi = [["oggi", "Cambi di stadio oggi"], ["in_ritardo", "In ritardo sul protocollo"], ["domani", "Domani"]];
+    for (const [chiave, titolo] of blocchi) {
+      if ((p[chiave] || []).length) html += `<h2>${titolo}</h2>` + p[chiave].map((v) => rigaPromemoria(v, chiave)).join("");
+    }
+    if ((data.anomalie || []).length) html += `<h2>Da controllare</h2>` + data.anomalie.map(rigaAnomalia).join("");
+    if (html) html += `<div class="vuoto">${escapeHtml(data.nota || "")}</div>`;
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="errore">Controlli non caricati: ${escapeHtml(String(e))}</div>`;
+  }
+}
+caricaControlli();
 
 const statoIncassiEl = document.getElementById("statoIncassi");
 const risultatiIncassiEl = document.getElementById("risultatiIncassi");

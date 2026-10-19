@@ -20,7 +20,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from datetime import datetime, timezone
 
-from . import actions, avviso_semine, db_context, incassi, interpreter, magazzino, rendiconto, sessioni_semina
+from . import (actions, avviso_semine, controlli, db_context, incassi, interpreter, magazzino, rendiconto,
+               sessioni_semina)
 from .auth import richiedi_autenticazione
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 
@@ -198,6 +199,17 @@ def api_magazzino(_: str = Depends(richiedi_autenticazione)) -> JSONResponse:
         dati = magazzino.leggi(_settings())
     except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
         return JSONResponse({"errore": f"Magazzino non disponibile: {exc}"}, status_code=503)
+    return JSONResponse(dati)
+
+
+@app.get("/api/controlli")
+def api_controlli(_: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Promemoria dei cambi di stadio (oggi / domani / in ritardo, dal protocollo) e anomalie da controllare.
+    Sola lettura: sono previsioni e segnalazioni, non cambiano mai nessuno stato."""
+    try:
+        dati = controlli.leggi(_settings())
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"errore": f"Controlli non disponibili: {exc}"}, status_code=503)
     return JSONResponse(dati)
 
 

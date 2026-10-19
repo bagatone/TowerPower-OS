@@ -74,9 +74,13 @@ def main() -> int:
             print(f"STOP: chiusura {t} precede l'ultimo evento {ultimo}.")
             return 1
         dichiarata = (datetime.fromisoformat(a.dichiarata_il).date() if a.dichiarata_il else datetime.now(TZ).date())
-        venduti = (f"{a.venduti} SET venduto (vendita non registrata) e " if Decimal(a.venduti) > 0 else "")
+        parti = []
+        if Decimal(a.venduti) > 0:
+            parti.append(f"{a.venduti} SET venduto (vendita non registrata)")
+        if Decimal(a.scartati) > 0:
+            parti.append(f"{a.scartati} SET scartato (collassato, non vendibile)")
         reason = (f"Chiusura {a.semina} ({varieta} {avvio:%d/%m/%Y}) dichiarata da Matteo il {dichiarata:%d/%m/%Y}: "
-                  f"{venduti}{a.scartati} SET scartato (collassato, non vendibile)"
+                  f"{' e '.join(parti) or 'nessuna quantita dichiarata'}"
                   + (f"; {a.nota}" if a.nota else "")
                   + ". Nessuna RACCOLTA ne' movimento di magazzino registrato per questa semina.")
         cmd = [RUN, "semina", "transition", "--semina", a.semina, "--expected-semina-version", str(version),

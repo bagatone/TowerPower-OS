@@ -29,7 +29,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
-from . import sessioni_semina as ss
+from . import controlli, sessioni_semina as ss
 
 TZ = ZoneInfo("Atlantic/Canary")
 NTFY_DEFAULT = "https://ntfy.sh"
@@ -71,8 +71,9 @@ def _totale(sessione: ss.Sessione) -> str:
     return ", ".join(f"{_n(q)} {u}" for u, q in sessione.quantita_per_unita.items())
 
 
-def componi(piano: ss.PianoSessioni) -> Avviso:
-    """Piano -> testo della notifica. Funzione pura. Nessun nome di cliente."""
+def componi(piano: ss.PianoSessioni, controllo: tuple[str, ...] = ()) -> Avviso:
+    """Piano -> testo della notifica. Funzione pura. Nessun nome di cliente.
+    `controllo`: righe in piu' dal promemoria degli stadi (passano a luce / pronte / da controllare)."""
     sessioni = list(piano.sessioni)
     oggi = next((s for s in sessioni if s.data == piano.oggi), None)
     prossime = [s for s in sessioni if s.data > piano.oggi]
@@ -95,6 +96,7 @@ def componi(piano: ss.PianoSessioni) -> Avviso:
         extra.append(f"ordini scaduti {len(piano.scaduti)}")
     if extra:
         righe.append("Attenzione: " + ", ".join(extra) + ".")
+    righe += list(controllo)
     righe.append("Tocca per vedere per chi.")
     return Avviso(titolo, "\n".join(righe), priorita, f"semine-{piano.oggi.isoformat()}")
 
@@ -195,6 +197,14 @@ def finestra_ok(ora: datetime) -> bool:
     return ora.isoweekday() in ss.GIORNI_DEFAULT and ORA_DA <= ora.hour < ORA_A
 
 
+def _righe_controllo(settings: PostgreSQLSettings, ora: datetime) -> tuple[str, ...]:
+    """Righe del promemoria stadi. Se il controllo non riesce l'avviso parte lo stesso, senza queste righe."""
+    try:
+        return tuple(controlli.righe_avviso(controlli.leggi(settings, adesso=ora)))
+    except Exception:  # noqa: BLE001 -- le semine del giorno contano di piu' del promemoria
+        return ()
+
+
 def esegui(settings: PostgreSQLSettings, ora: datetime | None = None, *, anteprima: bool = False, prova: bool = False,
            forza: bool = False, opener: Opener = urllib.request.urlopen) -> dict:
     """Prepara e (se non e' anteprima) manda l'avviso. Ritorna sempre un dizionario leggibile, mai un'eccezione per
@@ -211,7 +221,7 @@ def esegui(settings: PostgreSQLSettings, ora: datetime | None = None, *, antepri
     if not forza and not finestra_ok(ora):
         return {"inviato": False, "motivo": "Fuori orario: l'avviso parte solo mercoledi e domenica tra le 07:00 e le 10:00 "
                                             "(ora delle Canarie). Per provare: forza=1.", "titolo": None, "messaggio": None}
-    avviso = componi(ss.piano(settings, oggi=ora.date()))
+    avviso = componi(ss.piano(settings, oggi=ora.date()), _righe_controllo(settings, ora))
     base = {"titolo": avviso.titolo, "messaggio": avviso.corpo, "canale": canale()}
     if anteprima:
         return {**base, "inviato": False, "motivo": "anteprima"}

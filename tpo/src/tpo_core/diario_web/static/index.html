@@ -179,6 +179,14 @@
   .per-varieta{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
   .per-varieta span{background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:3px 10px; font-size:13px;}
   .per-varieta b{font-variant-numeric:tabular-nums;}
+  .riga-r.con-azione{flex-wrap:wrap;}
+  .riga-r .azioni-riga{flex-basis:100%; margin-top:2px;}
+  .riga-r button.piccolo{font-size:13px; padding:6px 12px; margin-top:0;}
+  .pannello-stadio .riga-form{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;}
+  .pannello-stadio select,.pannello-stadio input{
+    font:inherit; font-size:16px; padding:8px 10px; border-radius:8px; border:1px solid var(--border);
+    background:var(--surface); color:var(--text);}
+  .pannello-stadio .nota{color:var(--muted); font-size:13px; margin-top:6px;}
   @media (prefers-reduced-motion: no-preference){ .barra > i{transition:width .3s ease;} }
 </style>
 </head>
@@ -191,7 +199,7 @@
 
   <section id="vista-oggi" class="vista" aria-labelledby="titolo">
     <div id="rendiconto" class="rendiconto"><div class="vuoto">Carico il rendiconto di oggi…</div></div>
-    <div id="controlli" class="rendiconto"></div>
+    <div id="controlli" class="rendiconto"><div id="registraStadio"></div><div id="listaControlli"></div></div>
 
     <textarea id="testo" placeholder='Es. "Mizuna e Rábano sono passate in luce", "Seminato 2 set di rucola", "Splash ha pagato in contanti"'></textarea>
     <div>
@@ -249,6 +257,10 @@ function escapeHtml(s) {
   }[c]));
 }
 
+function quandoBreve(iso) {          // "2026-10-18T12:00:00+01:00" -> "18/10 12:00"
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)} ${iso.slice(11, 16)}`;
+}
+
 function campo(k, v) {
   return `<div class="riga"><span class="k">${escapeHtml(k)}</span><span>${escapeHtml(v)}</span></div>`;
 }
@@ -285,6 +297,8 @@ function cardProposta(p, idx) {
       ${campo("Da", p.stato_attuale)}
       ${campo("A", p.passi[p.passi.length - 1])}
       ${p.passi.length > 1 ? campo("Passi", p.passi.join(" → ")) : ""}
+      ${p.istanti ? campo("Quando", p.istanti.map(quandoBreve).join(" → ")) : ""}
+      ${(p.note || []).map((n) => `<div class="nota">${escapeHtml(n)}</div>`).join("")}
     `;
   }
   const btn = document.createElement("button");
@@ -306,6 +320,7 @@ function cardProposta(p, idx) {
       esitoDiv.textContent = data.messaggio;
       btn.remove(); btnAnnulla.remove();
       if (data.ok && p.tipo === "pagamento_consegna") caricaIncassi();
+      if (data.ok && p.tipo === "semina_transition") { magazzinoCaricatoAlle = 0; caricaControlli(); }
     } catch (e) {
       esitoDiv.className = "esito fallito";
       esitoDiv.textContent = "Errore di rete: " + e;
@@ -375,20 +390,83 @@ async function caricaRendiconto() {
 caricaRendiconto();
 
 const AZIONI = {luce: "passa a luce", pronta: "pronta da raccogliere"};
+const STADIO_DI = {luce: "LUCE", pronta: "PRONTA_ALLA_RACCOLTA"};
+function bottoneRegistra(semina, azione, varieta) {
+  if (!STADIO_DI[azione]) return "";
+  return `<div class="azioni-riga"><button class="piccolo secondary" data-registra="${escapeHtml(semina)}" ` +
+         `data-azione="${escapeHtml(azione)}" data-varieta="${escapeHtml(varieta)}">Registra…</button></div>`;
+}
 function rigaPromemoria(v, quando) {
   const cosa = `${AZIONI[v.azione] || v.azione}`;
   const q = v.set ? `${escapeHtml(qta(v.set))} SET ` : "";
   const ritardo = quando === "in_ritardo" ? ` · previsto il ${escapeHtml(dataBreve(v.prevista))} (${v.giorni} g fa)` : "";
-  return `<div class="riga-r">
+  return `<div class="riga-r con-azione">
     <div><span class="principale">${escapeHtml(v.varieta)}</span> — ${q}${escapeHtml(cosa)}</div>
     <div class="dettaglio">${escapeHtml(v.codice || v.semina)} · ${escapeHtml(v.semina)}${ritardo}</div>
+    ${bottoneRegistra(v.semina, v.azione, v.varieta)}
   </div>`;
 }
 function rigaAnomalia(a) {
-  return `<div class="riga-r chiarire"><div>${escapeHtml(a.testo)}</div></div>`;
+  const bottone = a.tipo === "semina_ferma" ? bottoneRegistra(a.semina, a.azione, a.varieta) : "";
+  return `<div class="riga-r chiarire con-azione"><div>${escapeHtml(a.testo)}</div>${bottone}</div>`;
 }
+
+function oggiCanarie() { return new Date().toLocaleDateString("sv-SE", {timeZone: "Atlantic/Canary"}); }
+function giornoFa(iso, n) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d - n)).toISOString().slice(0, 10);
+}
+
+function apriPannelloStadio(semina, azione, varieta) {
+  const el = document.getElementById("registraStadio");
+  const oggi = oggiCanarie();
+  el.innerHTML = `<div class="card pannello-stadio">
+    <h3>Registra — ${escapeHtml(varieta)}: ${escapeHtml(AZIONI[azione])}</h3>
+    <div class="dettaglio">${escapeHtml(semina)} · quando è successo?</div>
+    <div class="riga-form">
+      <select id="stadioGiorno" aria-label="Giorno">
+        <option value="${oggi}">Oggi</option>
+        <option value="${giornoFa(oggi, 1)}">Ieri</option>
+        <option value="${giornoFa(oggi, 2)}">L'altro ieri</option>
+        <option value="altro">Altro giorno…</option>
+      </select>
+      <input type="date" id="stadioAltro" max="${oggi}" hidden aria-label="Altro giorno">
+      <input type="time" id="stadioOra" aria-label="Ora (facoltativa)">
+    </div>
+    <div class="nota">Ora facoltativa: se non la metti, oggi vale adesso, un giorno passato vale le 12:00.</div>
+    <div><button id="stadioPrepara">Prepara</button> <button id="stadioChiudi" class="secondary">Chiudi</button></div>
+    <div id="proposteStadio"></div>
+  </div>`;
+  const sel = document.getElementById("stadioGiorno"), altro = document.getElementById("stadioAltro");
+  sel.onchange = () => { altro.hidden = sel.value !== "altro"; };
+  document.getElementById("stadioChiudi").onclick = () => { el.innerHTML = ""; };
+  document.getElementById("stadioPrepara").onclick = async () => {
+    const dove = document.getElementById("proposteStadio");
+    const giorno = sel.value === "altro" ? altro.value : sel.value;
+    if (!giorno) { dove.innerHTML = `<div class="errore">Scegli il giorno.</div>`; return; }
+    dove.innerHTML = `<div class="vuoto">Preparo…</div>`;
+    try {
+      const r = await fetch("/api/stadio/prepara", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({semina, stadio: STADIO_DI[azione], giorno, ora: document.getElementById("stadioOra").value || null}),
+      });
+      const data = await r.json();
+      dove.innerHTML = "";
+      (data.errori || []).forEach((e) => { dove.insertAdjacentHTML("beforeend", `<div class="errore">${escapeHtml(e)}</div>`); });
+      (data.proposte || []).forEach((p, i) => dove.appendChild(cardProposta(p, i)));
+    } catch (e) {
+      dove.innerHTML = `<div class="errore">Errore di rete: ${escapeHtml(String(e))}</div>`;
+    }
+  };
+  el.scrollIntoView({behavior: "smooth", block: "start"});
+}
+document.getElementById("controlli").addEventListener("click", (ev) => {
+  const b = ev.target.closest("button[data-registra]");
+  if (b) apriPannelloStadio(b.dataset.registra, b.dataset.azione, b.dataset.varieta);
+});
+
 async function caricaControlli() {
-  const el = document.getElementById("controlli");
+  const el = document.getElementById("listaControlli");
   try {
     const r = await fetch("/api/controlli");
     const data = await r.json();

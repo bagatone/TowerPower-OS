@@ -16,8 +16,9 @@ from __future__ import annotations
 import io
 from argparse import Namespace
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from ..cli.semina import run_semina_command
 from ..domain.states import SeminaState
@@ -26,6 +27,9 @@ from . import db_context
 
 ORDINE_STATI = [s.value for s in SeminaState]  # AVVIATA..CHIUSA, ordine dichiarato nel dominio
 TZ_CANARIE = timezone(timedelta(hours=1))
+TZ_LOCALE = ZoneInfo("Atlantic/Canary")      # ora legale compresa: serve per i giorni/ore dichiarati dall'utente
+STADI_CON_PULSANTE = ("LUCE", "PRONTA_ALLA_RACCOLTA")   # cambi di stadio proponibili dai bottoni del Promemoria
+ORA_PREDEFINITA_GIORNO_PASSATO = time(12, 0)
 
 
 class PropostaAmbigua(Exception):
@@ -59,6 +63,7 @@ class PropostaCommission:
 @dataclass(frozen=True)
 class PassoTransizione:
     stato: str
+    istante: str | None = None          # ISO 8601 con fuso; None = "adesso" al momento dell'esecuzione
 
 
 @dataclass(frozen=True)
@@ -68,6 +73,7 @@ class PropostaTransition:
     varieta_nome: str
     stato_attuale: str
     passi: list[PassoTransizione]
+    note: list[str] = field(default_factory=list)       # es. "ora non indicata: 12:00" (solo per l'anteprima)
     tipo: str = field(default="semina_transition", init=False)
 
 
@@ -139,6 +145,73 @@ def prepara_transition(
     )
 
 
+def istanti_passi(
+    stati: list[str], avvio: datetime, ultimo_evento: datetime | None, giorno: date | None, ora: time | None,
+    adesso: datetime,
+) -> tuple[list[datetime], list[str]]:
+    """Istante di ogni passo, rispettando le regole del dominio (strettamente crescenti, non prima dell'avvio) e
+    quelle di buon senso (mai nel futuro). Funzione pura.
+
+    - Il passaggio a GERMINAZIONE, quando non e' l'ultimo passo, e' amministrativo: alla data di avvio (come negli
+      script fatti a mano). Gli altri passi finiscono all'istante dichiarato, a un minuto l'uno dall'altro.
+    - Oggi senza ora = adesso. Giorno passato senza ora = 12:00 (orario non osservato)."""
+    adesso = adesso.astimezone(TZ_LOCALE)
+    oggi = adesso.date()
+    giorno = giorno or oggi
+    note: list[str] = []
+    if giorno > oggi:
+        raise PropostaAmbigua("La data scelta e' nel futuro: indica oggi o un giorno passato.")
+    if ora is None:
+        if giorno == oggi:
+            t = adesso.replace(second=0, microsecond=0)
+        else:
+            ora = ORA_PREDEFINITA_GIORNO_PASSATO
+            note.append(f"Ora non indicata: registro le {ora:%H:%M} (orario non osservato).")
+    if ora is not None:
+        t = datetime.combine(giorno, ora, tzinfo=TZ_LOCALE)
+    if t > adesso:
+        raise PropostaAmbigua("L'ora scelta e' nel futuro: indica un'ora gia' passata.")
+    amministrativo = len(stati) > 1 and stati[0] == "GERMINAZIONE"
+    reali = stati[1:] if amministrativo else stati
+    reali_istanti = [t - timedelta(minutes=len(reali) - 1 - i) for i in range(len(reali))]
+    minimo = max(x for x in (avvio, ultimo_evento) if x is not None)
+    primo = reali_istanti[0]
+    if primo < avvio or (ultimo_evento is not None and primo <= ultimo_evento) or (amministrativo and primo <= avvio):
+        quando = minimo.astimezone(TZ_LOCALE)
+        raise PropostaAmbigua(
+            f"La data scelta e' troppo presto: l'ultimo passaggio registrato o l'avvio e' del {quando:%d/%m/%Y %H:%M}. "
+            "Scegli un istante dopo.")
+    istanti = ([avvio] if amministrativo else []) + reali_istanti
+    return istanti, note
+
+
+def prepara_transition_semina(
+    settings: PostgreSQLSettings, semina_public_id: str, target_state: str,
+    giorno: date | None = None, ora: time | None = None, adesso: datetime | None = None,
+) -> PropostaTransition:
+    """Cambio di stadio di UNA semina precisa (dal bottone del Promemoria), con giorno/ora dichiarati."""
+    if target_state not in STADI_CON_PULSANTE:
+        raise PropostaAmbigua(f"Da questo bottone si registrano solo i passaggi a {' o '.join(STADI_CON_PULSANTE)}.")
+    semina = db_context.semina_per_public_id(settings, semina_public_id)
+    if semina is None:
+        raise SeminaNonTrovata(f"{semina_public_id} non esiste.")
+    if semina.stato == "CHIUSA":
+        raise PropostaAmbigua(f"{semina.varieta_nome} ({semina.public_id}) e' gia' CHIUSA.")
+    idx_attuale, idx_target = ORDINE_STATI.index(semina.stato), ORDINE_STATI.index(target_state)
+    if idx_target <= idx_attuale:
+        raise PropostaAmbigua(f"{semina.varieta_nome} ({semina.public_id}) e' gia' a {semina.stato}.")
+    stati = ORDINE_STATI[idx_attuale + 1: idx_target + 1]
+    istanti, note = istanti_passi(stati, semina.data_avvio, semina.ultimo_evento, giorno, ora,
+                                  adesso or datetime.now(TZ_LOCALE))
+    return PropostaTransition(
+        varieta_public_id=semina.varieta_public_id, semina_public_id=semina.public_id,
+        varieta_nome=semina.varieta_nome, stato_attuale=semina.stato,
+        passi=[PassoTransizione(stato=st, istante=i.astimezone(TZ_LOCALE).replace(microsecond=0).isoformat())
+               for st, i in zip(stati, istanti)],
+        note=note,
+    )
+
+
 def esegui_commission(settings: PostgreSQLSettings, proposta: PropostaCommission, actor: str) -> str:
     # Rilettura live difensiva: la versione del lotto seme potrebbe essere
     # cambiata fra la proposta e questa conferma (un altro movimento nel
@@ -173,6 +246,14 @@ def esegui_commission(settings: PostgreSQLSettings, proposta: PropostaCommission
 
 def esegui_transition(settings: PostgreSQLSettings, proposta: PropostaTransition, actor: str) -> str:
     output = []
+    for passo in proposta.passi:                  # prima di scrivere QUALSIASI passo: nessun istante nel futuro
+        if passo.istante:
+            try:
+                quando = datetime.fromisoformat(passo.istante)
+            except ValueError:
+                quando = None
+            if quando is None or quando.tzinfo is None or quando > datetime.now(timezone.utc) + timedelta(minutes=1):
+                raise SeminaOperazioneFallita(f"Istante non valido o nel futuro per {passo.stato}: nulla registrato.")
     for passo in proposta.passi:
         # Rilettura live della versione corrente PRIMA di ogni singolo
         # passo (non solo prima del primo): dopo ogni transizione la
@@ -185,7 +266,9 @@ def esegui_transition(settings: PostgreSQLSettings, proposta: PropostaTransition
             raise SeminaNonTrovata(
                 f"{proposta.semina_public_id} non risulta più attiva (chiusa o modificata nel frattempo)."
             )
-        effective_at = datetime.now(TZ_CANARIE).replace(microsecond=0).isoformat()
+        effective_at = passo.istante or datetime.now(TZ_CANARIE).replace(microsecond=0).isoformat()
+        dichiarata = (f" Data/ora dichiarata: {datetime.fromisoformat(passo.istante):%d/%m/%Y %H:%M}."
+                      if passo.istante else "")
         marca = _ora_compatta()
         args = Namespace(
             semina_command="transition",
@@ -197,7 +280,7 @@ def esegui_transition(settings: PostgreSQLSettings, proposta: PropostaTransition
             provenance='{"target_state":"OWNER_AUTHORIZED","effective_at":"OWNER_AUTHORIZED"}',
             actor=actor,
             reason=f"Transizione a {passo.stato} per {proposta.varieta_nome} "
-                   f"({proposta.semina_public_id}), registrata tramite il diario.",
+                   f"({proposta.semina_public_id}), registrata tramite il diario.{dichiarata}",
             correlation_id=f"DIARIO-SEMINA-TRANSITION-{proposta.semina_public_id}-{passo.stato}-{marca}",
             idempotency_key=f"diario-transition-{proposta.semina_public_id.lower()}-{passo.stato.lower()}-{marca}",
             confirm=True,

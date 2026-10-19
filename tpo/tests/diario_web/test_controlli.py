@@ -61,6 +61,7 @@ def test_semina_ferma_oltre_il_limite_diventa_anomalia_e_non_promemoria() -> Non
     r = _comp(semine)
     assert [a["semina"] for a in r["anomalie"]] == ["SEM-01", "SEM-02"]
     assert all(a["tipo"] == "semina_ferma" for a in r["anomalie"])
+    assert [a["azione"] for a in r["anomalie"]] == ["luce", "pronta"]       # serve al bottone "Registra"
     assert "Stato non aggiornato?" in r["anomalie"][0]["testo"] and "14 giorni fa" in r["anomalie"][0]["testo"]
     assert [v["semina"] for v in r["promemoria"]["in_ritardo"]] == ["SEM-03"]
 

@@ -12,6 +12,7 @@ qui vale anche per le sole letture di supporto al diario).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 import psycopg
@@ -41,6 +42,19 @@ class SeminaAttiva:
     version: int
     codice_tracciabilita: str
     data_avvio: str
+
+
+@dataclass(frozen=True)
+class SeminaDettaglio:
+    """Una semina letta per codice: serve a proporre un cambio di stadio con data (bottone del Promemoria)."""
+    public_id: str
+    stato: str
+    version: int
+    codice_tracciabilita: str
+    data_avvio: datetime
+    varieta_public_id: str
+    varieta_nome: str
+    ultimo_evento: datetime | None
 
 
 @dataclass(frozen=True)
@@ -75,6 +89,21 @@ def semine_attive_per_varieta(settings: PostgreSQLSettings, varieta_public_id: s
             (varieta_public_id,),
         )
         return [SeminaAttiva(*row) for row in cur.fetchall()]
+
+
+def semina_per_public_id(settings: PostgreSQLSettings, semina_public_id: str) -> SeminaDettaglio | None:
+    with _connect(settings) as conn, conn.cursor() as cur:
+        conn.read_only = True
+        cur.execute(
+            """SELECT s.public_id, s.stato::text, s.version, s.codice_tracciabilita, s.data_avvio,
+                      v.public_id, v.denominazione,
+                      (SELECT max(e.effective_at) FROM tpo.semina_lifecycle_eventi e WHERE e.semina_id = s.id)
+               FROM tpo.semine s JOIN tpo.varieta v ON v.id = s.varieta_id
+               WHERE s.public_id = %s""",
+            (semina_public_id,),
+        )
+        row = cur.fetchone()
+        return SeminaDettaglio(*row) if row else None
 
 
 def candidati_lotto_protocollo(

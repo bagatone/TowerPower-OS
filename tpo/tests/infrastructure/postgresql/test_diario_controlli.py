@@ -52,3 +52,20 @@ def test_le_query_girano_sullo_schema_vero_in_sola_lettura(writer_postgresql_eng
     giorno = (avvio + timedelta(days=4)).astimezone(controlli.TZ).replace(hour=8)
     dati = controlli.leggi(object(), adesso=giorno)
     assert [v["semina"] for v in dati["promemoria"]["oggi"] if v["azione"] == "luce"] == ["SEM-976001"]
+
+
+def test_semina_per_codice_in_sola_lettura(writer_postgresql_engine, monkeypatch):
+    engine = writer_postgresql_engine
+    _semina(engine, 976011, "TST-1910-K", raccolto="0.5", atteso="2", stato="GERMINAZIONE")
+    aperte = []
+
+    def connessione(settings):
+        aperte.append(_connect(engine))
+        return aperte[-1]
+
+    monkeypatch.setattr(db_context, "_connect", connessione)
+    d = db_context.semina_per_public_id(object(), "SEM-976011")
+    assert d.public_id == "SEM-976011" and d.stato == "GERMINAZIONE" and d.codice_tracciabilita == "TST-1910-K"
+    assert d.data_avvio.tzinfo is not None and d.varieta_nome and d.varieta_public_id.startswith("VAR-")
+    assert db_context.semina_per_public_id(object(), "SEM-999999") is None
+    assert all(c.read_only is True for c in aperte)

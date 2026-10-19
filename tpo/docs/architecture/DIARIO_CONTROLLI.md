@@ -24,3 +24,18 @@ Nessun nome di cliente. Se il controllo fallisce l'avviso parte lo stesso senza 
 ## Test
 `tests/diario_web/test_controlli.py`, `tests/infrastructure/postgresql/test_diario_controlli.py`,
 `tests/diario_web/test_avviso_semine.py` (righe extra).
+
+## Registrare un cambio di stadio dal diario (19/10/2026, opzione 1 della roadmap, prima parte)
+Ogni riga del Promemoria (e le semine "ferme" in Da controllare) ha un bottone **Registra…**: si sceglie il giorno
+(oggi / ieri / l'altro ieri / altro giorno) ed eventualmente l'ora, si vede la proposta esatta, e solo con
+**Conferma ed esegui** parte il comando governato `semina transition` (lo stesso di `2026-10-05_passa_a_luce.py`).
+- Rotta `POST /api/stadio/prepara` (non scrive) + `POST /api/conferma` (esegue). Stessi vincoli D2/D3 del freeze:
+  nessuna logica di dominio nuova, attore fisso, tracciamento in `audit_eventi`.
+- Istanti: oggi senza ora = adesso; giorno passato senza ora = 12:00 (orario non osservato, detto nell'anteprima);
+  mai nel futuro; mai prima dell'avvio o dell'ultimo passaggio registrato (messaggio col limite). Fuso Atlantic/Canary
+  con ora legale. Dalla AVVIATA la GERMINAZIONE e' amministrativa, alla data di avvio (come negli script a mano).
+  Passi multipli (es. luce -> pronta passa da CRESCITA): a un minuto l'uno dall'altro, l'ultimo all'istante dichiarato.
+- Tutti gli istanti vengono controllati PRIMA di scrivere qualunque passo; il motivo registrato riporta data/ora dichiarata.
+- Per ora solo i passaggi a LUCE e PRONTA_ALLA_RACCOLTA. Restano da fare: nuova semina con data/ora, chiusura semina,
+  consegne e prove omaggio (seconde parti dell'opzione 1).
+- Test: `tests/diario_web/test_stadio_con_data.py`, `tests/infrastructure/postgresql/test_diario_controlli.py`.

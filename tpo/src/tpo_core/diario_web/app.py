@@ -18,7 +18,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 
 from . import (actions, avviso_semine, controlli, db_context, incassi, interpreter, magazzino, rendiconto,
                sessioni_semina)
@@ -95,15 +95,40 @@ def interpreta(body: dict, _: str = Depends(richiedi_autenticazione)) -> JSONRes
                 p = actions.prepara_transition(
                     settings, r.varieta_public_id, r.varieta_nome, r.target_state, r.semina_public_id,
                 )
-                proposte.append({
-                    "tipo": "semina_transition", "varieta_public_id": p.varieta_public_id,
-                    "semina_public_id": p.semina_public_id, "varieta_nome": p.varieta_nome,
-                    "stato_attuale": p.stato_attuale,
-                    "passi": [passo.stato for passo in p.passi],
-                })
+                proposte.append(_json_transition(p))
         except (actions.PropostaAmbigua, actions.SeminaNonTrovata) as exc:
             errori.append(str(exc))
     return JSONResponse({"proposte": proposte, "errori": errori})
+
+
+def _json_transition(p: actions.PropostaTransition) -> dict:
+    return {
+        "tipo": "semina_transition", "varieta_public_id": p.varieta_public_id,
+        "semina_public_id": p.semina_public_id, "varieta_nome": p.varieta_nome,
+        "stato_attuale": p.stato_attuale,
+        "passi": [passo.stato for passo in p.passi],
+        "istanti": [passo.istante for passo in p.passi] if any(passo.istante for passo in p.passi) else None,
+        "note": list(p.note),
+    }
+
+
+@app.post("/api/stadio/prepara")
+def api_stadio_prepara(body: dict, _: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Dai bottoni del Promemoria (senza modello): propone il cambio di stadio di UNA semina, con giorno e ora
+    dichiarati (default: adesso). Non scrive: l'esecuzione resta /api/conferma con conferma a schermo."""
+    try:
+        giorno = date.fromisoformat(body["giorno"]) if body.get("giorno") else None
+        ora = time.fromisoformat(body["ora"]) if body.get("ora") else None
+    except ValueError:
+        return JSONResponse({"proposte": [], "errori": ["Giorno o ora non validi."]})
+    try:
+        p = actions.prepara_transition_semina(_settings(), str(body.get("semina") or ""),
+                                              str(body.get("stadio") or ""), giorno, ora)
+    except (actions.PropostaAmbigua, actions.SeminaNonTrovata) as exc:
+        return JSONResponse({"proposte": [], "errori": [str(exc)]})
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"proposte": [], "errori": [f"Proposta non preparata: {exc}"]})
+    return JSONResponse({"proposte": [_json_transition(p)], "errori": []})
 
 
 @app.post("/api/conferma")
@@ -122,11 +147,14 @@ def conferma(body: dict, attore: str = Depends(richiedi_autenticazione)) -> JSON
             )
             esito = actions.esegui_commission(settings, p, ACTOR)
         elif proposta.get("tipo") == "semina_transition":
+            istanti = proposta.get("istanti") or [None] * len(proposta["passi"])
+            if len(istanti) != len(proposta["passi"]):
+                raise HTTPException(400, "Proposta incompleta: istanti e passi non corrispondono.")
             p = actions.PropostaTransition(
                 varieta_public_id=proposta["varieta_public_id"],
                 semina_public_id=proposta["semina_public_id"], varieta_nome=proposta["varieta_nome"],
                 stato_attuale=proposta["stato_attuale"],
-                passi=[actions.PassoTransizione(stato=s) for s in proposta["passi"]],
+                passi=[actions.PassoTransizione(stato=s, istante=i) for s, i in zip(proposta["passi"], istanti)],
             )
             esito = actions.esegui_transition(settings, p, ACTOR)
         elif proposta.get("tipo") == "pagamento_consegna":

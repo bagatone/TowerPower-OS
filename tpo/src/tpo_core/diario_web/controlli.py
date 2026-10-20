@@ -116,7 +116,7 @@ def _stadi(semine: Sequence[Sequence[Any]], oggi: date) -> tuple[dict, list]:
         if ritardo > limite:
             cosa = "doveva passare a luce" if azione == "luce" else "doveva essere pronta"
             anomalie.append({
-                "tipo": "semina_ferma", "azione": azione, "semina": pid, "codice": codice, "varieta": varieta,
+                "tipo": "semina_ferma", "azione": azione, "set": voce["set"], "semina": pid, "codice": codice, "varieta": varieta,
                 "testo": f"{varieta} {codice} ({pid}): {stato_testo}, {cosa} il {_breve(prevista)} "
                          f"({ritardo} giorni fa). Stato non aggiornato?"})
         elif ritardo > 0:

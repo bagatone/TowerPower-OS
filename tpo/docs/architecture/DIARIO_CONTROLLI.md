@@ -39,3 +39,16 @@ Ogni riga del Promemoria (e le semine "ferme" in Da controllare) ha un bottone *
 - Per ora solo i passaggi a LUCE e PRONTA_ALLA_RACCOLTA. Restano da fare: nuova semina con data/ora, chiusura semina,
   consegne e prove omaggio (seconde parti dell'opzione 1).
 - Test: `tests/diario_web/test_stadio_con_data.py`, `tests/infrastructure/postgresql/test_diario_controlli.py`.
+
+## Chiudere una semina dal diario (20/10/2026, opzione 1, seconda parte)
+Bottone **Chiudi…** su ogni riga del Promemoria, sulle semine ferme e su ogni semina del Magazzino. Si sceglie come e'
+finita (Venduta tutta / Venduta in parte e il resto scartato / Scartata / Interrotta), i SET venduti e scartati
+(precompilati dai SET attesi), una nota facoltativa e quando (come per i cambi di stadio). Anteprima, poi
+**Conferma ed esegui**.
+- Rotta `POST /api/chiusura/prepara` (non scrive) + `/api/conferma` tipo `semina_chiusura`. Stesso comando governato di
+  `2026-10-05_chiudi_semina.py` (`semina transition --target-state CHIUSA --final-outcome ...`).
+- Definitiva. Non crea RACCOLTE ne' movimenti di magazzino: le quantita' restano nel motivo, che il server RICOMPONE
+  dai campi (il testo arrivato dalla pagina non viene usato). Una semina con raccolte registrate NON si chiude da qui.
+- Istanti: stesse regole dei cambi di stadio (mai nel futuro, mai prima di avvio/ultimo passaggio, 12:00 per i giorni passati).
+- Test: `tests/diario_web/test_chiusura_semina.py`.
+- Coppie di clienti gia' verificate (Salvaje/Selvaje): `CLIENTI_SIMILI_GIA_VERIFICATI` in `controlli.py`.

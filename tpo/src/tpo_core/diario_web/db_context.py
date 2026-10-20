@@ -55,6 +55,7 @@ class SeminaDettaglio:
     varieta_public_id: str
     varieta_nome: str
     ultimo_evento: datetime | None
+    raccolte: int = 0
 
 
 @dataclass(frozen=True)
@@ -97,7 +98,8 @@ def semina_per_public_id(settings: PostgreSQLSettings, semina_public_id: str) ->
         cur.execute(
             """SELECT s.public_id, s.stato::text, s.version, s.codice_tracciabilita, s.data_avvio,
                       v.public_id, v.denominazione,
-                      (SELECT max(e.effective_at) FROM tpo.semina_lifecycle_eventi e WHERE e.semina_id = s.id)
+                      (SELECT max(e.effective_at) FROM tpo.semina_lifecycle_eventi e WHERE e.semina_id = s.id),
+                      (SELECT count(*) FROM tpo.raccolte r WHERE r.semina_id = s.id)
                FROM tpo.semine s JOIN tpo.varieta v ON v.id = s.varieta_id
                WHERE s.public_id = %s""",
             (semina_public_id,),

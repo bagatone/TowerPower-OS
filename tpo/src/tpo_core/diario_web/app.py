@@ -131,6 +131,31 @@ def api_stadio_prepara(body: dict, _: str = Depends(richiedi_autenticazione)) ->
     return JSONResponse({"proposte": [_json_transition(p)], "errori": []})
 
 
+def _json_chiusura(p: actions.PropostaChiusura) -> dict:
+    return {"tipo": "semina_chiusura", "semina_public_id": p.semina_public_id, "varieta_nome": p.varieta_nome,
+            "stato_attuale": p.stato_attuale, "esito": p.esito, "venduti": p.venduti, "scartati": p.scartati,
+            "nota": p.nota, "istante": p.istante, "motivo": p.motivo, "note": list(p.note)}
+
+
+@app.post("/api/chiusura/prepara")
+def api_chiusura_prepara(body: dict, _: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Dal bottone "Chiudi…": propone la chiusura definitiva di UNA semina con esito, SET venduti/scartati, giorno e ora.
+    Non scrive: l'esecuzione resta /api/conferma con conferma a schermo."""
+    try:
+        giorno = date.fromisoformat(body["giorno"]) if body.get("giorno") else None
+        ora = time.fromisoformat(body["ora"]) if body.get("ora") else None
+    except ValueError:
+        return JSONResponse({"proposte": [], "errori": ["Giorno o ora non validi."]})
+    try:
+        p = actions.prepara_chiusura(_settings(), str(body.get("semina") or ""), str(body.get("esito") or ""),
+                                     body.get("venduti"), body.get("scartati"), body.get("nota"), giorno, ora)
+    except (actions.PropostaAmbigua, actions.SeminaNonTrovata) as exc:
+        return JSONResponse({"proposte": [], "errori": [str(exc)]})
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"proposte": [], "errori": [f"Proposta non preparata: {exc}"]})
+    return JSONResponse({"proposte": [_json_chiusura(p)], "errori": []})
+
+
 @app.post("/api/conferma")
 def conferma(body: dict, attore: str = Depends(richiedi_autenticazione)) -> JSONResponse:
     proposta = body.get("proposta") or {}
@@ -157,6 +182,13 @@ def conferma(body: dict, attore: str = Depends(richiedi_autenticazione)) -> JSON
                 passi=[actions.PassoTransizione(stato=s, istante=i) for s, i in zip(proposta["passi"], istanti)],
             )
             esito = actions.esegui_transition(settings, p, ACTOR)
+        elif proposta.get("tipo") == "semina_chiusura":
+            p = actions.PropostaChiusura(
+                semina_public_id=proposta["semina_public_id"], varieta_nome=proposta["varieta_nome"],
+                stato_attuale=proposta["stato_attuale"], esito=proposta["esito"], venduti=proposta["venduti"],
+                scartati=proposta["scartati"], nota=proposta.get("nota", ""), istante=proposta["istante"],
+                motivo=proposta["motivo"])
+            esito = actions.esegui_chiusura(settings, p, ACTOR)
         elif proposta.get("tipo") == "pagamento_consegna":
             p = incassi.PropostaPagamento(
                 consegne=[{"codice": c["codice"], "data": c.get("data", ""), "voci": c.get("voci", [])}

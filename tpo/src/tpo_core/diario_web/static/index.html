@@ -181,6 +181,8 @@
   .per-varieta b{font-variant-numeric:tabular-nums;}
   .riga-r.con-azione{flex-wrap:wrap;}
   .riga-r .azioni-riga{flex-basis:100%; margin-top:2px;}
+  button.piccolo{font-size:13px; padding:6px 12px; margin-top:0;}
+  .stadio .semina button.piccolo{flex:none; align-self:center;}
   .riga-r button.piccolo{font-size:13px; padding:6px 12px; margin-top:0;}
   .pannello-stadio .riga-form{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;}
   .pannello-stadio select,.pannello-stadio input{
@@ -279,6 +281,19 @@ function cardProposta(p, idx) {
       ${campo("Avvio", p.physical_started_at)}
       ${campo("Residuo dopo", p.residuo_dopo + " g")}
     `;
+  } else if (p.tipo === "semina_chiusura") {
+    div.innerHTML = `
+      <h3>Chiusura semina — ${escapeHtml(p.varieta_nome)}</h3>
+      ${campo("Semina", p.semina_public_id)}
+      ${campo("Stato ora", p.stato_attuale)}
+      ${campo("Esito", p.esito)}
+      ${campo("SET venduti", qta(p.venduti))}
+      ${campo("SET scartati", qta(p.scartati))}
+      ${campo("Quando", quandoBreve(p.istante))}
+      ${p.nota ? campo("Nota", p.nota) : ""}
+      ${(p.note || []).map((n) => `<div class="nota">${escapeHtml(n)}</div>`).join("")}
+      <div class="nota"><b>Definitiva:</b> la semina non si riapre. Non crea raccolte né movimenti di magazzino.</div>
+    `;
   } else if (p.tipo === "pagamento_consegna") {
     const consegne = p.consegne.map((c) =>
       `<div class="riga"><span class="k">${escapeHtml(c.codice)} · ${escapeHtml(c.data)}</span>` +
@@ -320,7 +335,7 @@ function cardProposta(p, idx) {
       esitoDiv.textContent = data.messaggio;
       btn.remove(); btnAnnulla.remove();
       if (data.ok && p.tipo === "pagamento_consegna") caricaIncassi();
-      if (data.ok && p.tipo === "semina_transition") { magazzinoCaricatoAlle = 0; caricaControlli(); }
+      if (data.ok && (p.tipo === "semina_transition" || p.tipo === "semina_chiusura")) { magazzinoCaricatoAlle = 0; caricaControlli(); }
     } catch (e) {
       esitoDiv.className = "esito fallito";
       esitoDiv.textContent = "Errore di rete: " + e;
@@ -391,10 +406,11 @@ caricaRendiconto();
 
 const AZIONI = {luce: "passa a luce", pronta: "pronta da raccogliere"};
 const STADIO_DI = {luce: "LUCE", pronta: "PRONTA_ALLA_RACCOLTA"};
-function bottoneRegistra(semina, azione, varieta) {
-  if (!STADIO_DI[azione]) return "";
-  return `<div class="azioni-riga"><button class="piccolo secondary" data-registra="${escapeHtml(semina)}" ` +
-         `data-azione="${escapeHtml(azione)}" data-varieta="${escapeHtml(varieta)}">Registra…</button></div>`;
+function bottoneRegistra(semina, azione, varieta, sets) {
+  const registra = STADIO_DI[azione]
+    ? `<button class="piccolo secondary" data-registra="${escapeHtml(semina)}" data-azione="${escapeHtml(azione)}" data-varieta="${escapeHtml(varieta)}">Registra…</button> ` : "";
+  const chiudi = `<button class="piccolo secondary" data-chiudi="${escapeHtml(semina)}" data-varieta="${escapeHtml(varieta)}" data-set="${escapeHtml(sets || "")}">Chiudi…</button>`;
+  return `<div class="azioni-riga">${registra}${chiudi}</div>`;
 }
 function rigaPromemoria(v, quando) {
   const cosa = `${AZIONI[v.azione] || v.azione}`;
@@ -403,11 +419,11 @@ function rigaPromemoria(v, quando) {
   return `<div class="riga-r con-azione">
     <div><span class="principale">${escapeHtml(v.varieta)}</span> — ${q}${escapeHtml(cosa)}</div>
     <div class="dettaglio">${escapeHtml(v.codice || v.semina)} · ${escapeHtml(v.semina)}${ritardo}</div>
-    ${bottoneRegistra(v.semina, v.azione, v.varieta)}
+    ${bottoneRegistra(v.semina, v.azione, v.varieta, v.set)}
   </div>`;
 }
 function rigaAnomalia(a) {
-  const bottone = a.tipo === "semina_ferma" ? bottoneRegistra(a.semina, a.azione, a.varieta) : "";
+  const bottone = a.tipo === "semina_ferma" ? bottoneRegistra(a.semina, a.azione, a.varieta, a.set) : "";
   return `<div class="riga-r chiarire con-azione"><div>${escapeHtml(a.testo)}</div>${bottone}</div>`;
 }
 
@@ -460,9 +476,80 @@ function apriPannelloStadio(semina, azione, varieta) {
   };
   el.scrollIntoView({behavior: "smooth", block: "start"});
 }
+
+const ESITI_UI = [
+  ["raccolta completa", "Venduta tutta"],
+  ["raccolta parziale con scarto", "Venduta in parte, il resto scartato"],
+  ["scarto totale", "Scartata"],
+  ["interruzione", "Interrotta"],
+];
+function apriPannelloChiusura(semina, varieta, sets) {
+  const el = document.getElementById("registraStadio");
+  const oggi = oggiCanarie();
+  el.innerHTML = `<div class="card pannello-stadio">
+    <h3>Chiudi — ${escapeHtml(varieta)}</h3>
+    <div class="dettaglio">${escapeHtml(semina)}${sets ? " · " + escapeHtml(qta(sets)) + " SET attesi" : ""} · come è finita?</div>
+    <div class="riga-form">
+      <select id="chiEsito" aria-label="Esito">${ESITI_UI.map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select>
+    </div>
+    <div class="riga-form">
+      <label>SET venduti <input id="chiVenduti" inputmode="decimal" size="5"></label>
+      <label>SET scartati <input id="chiScartati" inputmode="decimal" size="5"></label>
+    </div>
+    <div class="riga-form"><input id="chiNota" placeholder="Nota (facoltativa)" maxlength="300" style="flex:1; min-width:200px"></div>
+    <div class="riga-form">
+      <select id="chiGiorno" aria-label="Giorno">
+        <option value="${oggi}">Oggi</option>
+        <option value="${giornoFa(oggi, 1)}">Ieri</option>
+        <option value="${giornoFa(oggi, 2)}">L'altro ieri</option>
+        <option value="altro">Altro giorno…</option>
+      </select>
+      <input type="date" id="chiAltro" max="${oggi}" hidden aria-label="Altro giorno">
+      <input type="time" id="chiOra" aria-label="Ora (facoltativa)">
+    </div>
+    <div class="nota">Quando è finita. Ora facoltativa: oggi vale adesso, un giorno passato vale le 12:00. La chiusura è definitiva.</div>
+    <div><button id="chiPrepara">Prepara</button> <button id="chiChiudi" class="secondary">Annulla</button></div>
+    <div id="proposteStadio"></div>
+  </div>`;
+  const esito = document.getElementById("chiEsito"), ven = document.getElementById("chiVenduti"), sca = document.getElementById("chiScartati");
+  const imposta = () => {
+    const n = sets || "";
+    if (esito.value === "raccolta completa") { ven.value = n; sca.value = "0"; }
+    else if (esito.value === "scarto totale") { ven.value = "0"; sca.value = n; }
+    else if (esito.value === "interruzione") { ven.value = "0"; sca.value = "0"; }
+    else { ven.value = ""; sca.value = ""; }
+  };
+  esito.onchange = imposta; imposta();
+  const sel = document.getElementById("chiGiorno"), altro = document.getElementById("chiAltro");
+  sel.onchange = () => { altro.hidden = sel.value !== "altro"; };
+  document.getElementById("chiChiudi").onclick = () => { el.innerHTML = ""; };
+  document.getElementById("chiPrepara").onclick = async () => {
+    const dove = document.getElementById("proposteStadio");
+    const giorno = sel.value === "altro" ? altro.value : sel.value;
+    if (!giorno) { dove.innerHTML = `<div class="errore">Scegli il giorno.</div>`; return; }
+    dove.innerHTML = `<div class="vuoto">Preparo…</div>`;
+    try {
+      const r = await fetch("/api/chiusura/prepara", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({semina, esito: esito.value, venduti: ven.value, scartati: sca.value,
+                              nota: document.getElementById("chiNota").value, giorno,
+                              ora: document.getElementById("chiOra").value || null}),
+      });
+      const data = await r.json();
+      dove.innerHTML = "";
+      (data.errori || []).forEach((e) => { dove.insertAdjacentHTML("beforeend", `<div class="errore">${escapeHtml(e)}</div>`); });
+      (data.proposte || []).forEach((p, i) => dove.appendChild(cardProposta(p, i)));
+    } catch (e) {
+      dove.innerHTML = `<div class="errore">Errore di rete: ${escapeHtml(String(e))}</div>`;
+    }
+  };
+  el.scrollIntoView({behavior: "smooth", block: "start"});
+}
 document.getElementById("controlli").addEventListener("click", (ev) => {
   const b = ev.target.closest("button[data-registra]");
-  if (b) apriPannelloStadio(b.dataset.registra, b.dataset.azione, b.dataset.varieta);
+  if (b) { apriPannelloStadio(b.dataset.registra, b.dataset.azione, b.dataset.varieta); return; }
+  const c = ev.target.closest("button[data-chiudi]");
+  if (c) apriPannelloChiusura(c.dataset.chiudi, c.dataset.varieta, c.dataset.set);
 });
 
 async function caricaControlli() {
@@ -633,7 +720,8 @@ function htmlColtivazione(c) {
     const fuori = s.stadio === "AVVIATA" || s.stadio === "PRONTA_ALLA_RACCOLTA";
     const righe = s.elenco.map((x) => `<div class="semina">
         <span><b>${escapeHtml(x.varieta)}</b> <span class="d">${escapeHtml(x.codice)}</span></span>
-        <span class="d">${x.set === null ? '<span class="ignoto">SET ?</span>' : escapeHtml(x.set) + " SET"} · dal ${escapeHtml(dataBreve(x.avvio))}${x.raccolto ? " · raccolti " + escapeHtml(x.raccolto) : ""}</span></div>`).join("");
+        <span class="d">${x.set === null ? '<span class="ignoto">SET ?</span>' : escapeHtml(x.set) + " SET"} · dal ${escapeHtml(dataBreve(x.avvio))}${x.raccolto ? " · raccolti " + escapeHtml(x.raccolto) : ""}</span>
+        <button class="piccolo secondary" data-chiudi-mag="${escapeHtml(x.id)}" data-varieta="${escapeHtml(x.varieta)}" data-set="${escapeHtml(x.set || "")}">Chiudi…</button></div>`).join("");
     html += `<div class="stadio${fuori ? " fuori" : ""}${s.semine ? "" : " vuoto-stadio"}">
       <div class="testa-stadio"><span class="nome">${escapeHtml(NOMI_STADIO[s.stadio] || s.stadio)}</span>
         <span class="tot">${escapeHtml(s.set)} <small>SET · ${s.semine} ${s.semine === 1 ? "semina" : "semine"}</small></span></div>
@@ -718,6 +806,14 @@ function impostaBadge(n) {
   b.textContent = n > 99 ? "99+" : String(n);
   b.hidden = !n;
 }
+
+document.getElementById("magazzino").addEventListener("click", (ev) => {
+  const c = ev.target.closest("button[data-chiudi-mag]");
+  if (!c) return;
+  history.pushState(null, "", "#oggi");
+  mostraVista("oggi");
+  apriPannelloChiusura(c.dataset.chiudiMag, c.dataset.varieta, c.dataset.set);
+});
 
 function mostraVista(nome) {
   if (!VISTE[nome]) nome = "oggi";

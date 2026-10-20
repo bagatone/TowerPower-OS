@@ -30,6 +30,7 @@ TZ_CANARIE = timezone(timedelta(hours=1))
 TZ_LOCALE = ZoneInfo("Atlantic/Canary")      # ora legale compresa: serve per i giorni/ore dichiarati dall'utente
 STADI_CON_PULSANTE = ("LUCE", "PRONTA_ALLA_RACCOLTA")   # cambi di stadio proponibili dai bottoni del Promemoria
 ORA_PREDEFINITA_GIORNO_PASSATO = time(12, 0)
+ESITI_CHIUSURA = ("raccolta completa", "raccolta parziale con scarto", "scarto totale", "interruzione")
 
 
 class PropostaAmbigua(Exception):
@@ -143,6 +144,106 @@ def prepara_transition(
         varieta_public_id=varieta_public_id, semina_public_id=semina.public_id,
         varieta_nome=varieta_nome, stato_attuale=semina.stato, passi=passi,
     )
+
+
+@dataclass(frozen=True)
+class PropostaChiusura:
+    """Chiusura definitiva di una semina con l'esito dichiarato (come scripts/commissioning/2026-10-05_chiudi_semina.py).
+    Non crea RACCOLTE ne' movimenti di magazzino: le quantita' restano scritte nel motivo."""
+    semina_public_id: str
+    varieta_nome: str
+    stato_attuale: str
+    esito: str
+    venduti: str
+    scartati: str
+    nota: str
+    istante: str
+    motivo: str
+    note: list[str] = field(default_factory=list)
+    tipo: str = field(default="semina_chiusura", init=False)
+
+
+def _quantita(nome: str, testo: str | None) -> Decimal:
+    try:
+        valore = Decimal(str(testo).replace(",", ".").strip()) if testo not in (None, "") else Decimal(0)
+    except Exception:  # noqa: BLE001 -- Decimal solleva eccezioni diverse sul testo non numerico
+        raise PropostaAmbigua(f"{nome}: '{testo}' non e' un numero.") from None
+    if valore < 0 or not valore.is_finite():
+        raise PropostaAmbigua(f"{nome} non puo' essere negativo.")
+    return valore
+
+
+def _n(valore: Decimal) -> str:
+    testo = format(valore, "f")
+    return (testo.rstrip("0").rstrip(".") if "." in testo else testo) or "0"
+
+
+def _motivo_chiusura(semina_pid: str, varieta: str, avvio: datetime, dichiarata: date, venduti: Decimal,
+                     scartati: Decimal, nota: str) -> str:
+    parti = []
+    if venduti > 0:
+        parti.append(f"{_n(venduti)} SET venduto (vendita non registrata)")
+    if scartati > 0:
+        parti.append(f"{_n(scartati)} SET scartato")
+    return (f"Chiusura {semina_pid} ({varieta} {avvio.astimezone(TZ_LOCALE):%d/%m/%Y}) dichiarata da Matteo il "
+            f"{dichiarata:%d/%m/%Y}: {' e '.join(parti) or 'nessuna quantita dichiarata'}"
+            + (f"; {nota}" if nota else "")
+            + ". Nessuna RACCOLTA ne' movimento di magazzino registrato per questa semina.")
+
+
+def prepara_chiusura(
+    settings: PostgreSQLSettings, semina_public_id: str, esito: str, venduti: str | None, scartati: str | None,
+    nota: str | None = None, giorno: date | None = None, ora: time | None = None, adesso: datetime | None = None,
+) -> PropostaChiusura:
+    if esito not in ESITI_CHIUSURA:
+        raise PropostaAmbigua(f"Esito non riconosciuto: scegli fra {', '.join(ESITI_CHIUSURA)}.")
+    semina = db_context.semina_per_public_id(settings, semina_public_id)
+    if semina is None:
+        raise SeminaNonTrovata(f"{semina_public_id} non esiste.")
+    if semina.stato == "CHIUSA":
+        raise PropostaAmbigua(f"{semina.varieta_nome} ({semina.public_id}) e' gia' CHIUSA.")
+    if semina.raccolte:
+        raise PropostaAmbigua(
+            f"{semina.public_id} ha {semina.raccolte} raccolte registrate: l'esito va scelto con piu' attenzione, "
+            "non si chiude da qui.")
+    v, sc = _quantita("SET venduti", venduti), _quantita("SET scartati", scartati)
+    adesso = adesso or datetime.now(TZ_LOCALE)
+    istanti, note = istanti_passi(["CHIUSA"], semina.data_avvio, semina.ultimo_evento, giorno, ora, adesso)
+    quando = istanti[0].astimezone(TZ_LOCALE).replace(microsecond=0)
+    nota = (nota or "").strip()[:300]
+    return PropostaChiusura(
+        semina_public_id=semina.public_id, varieta_nome=semina.varieta_nome, stato_attuale=semina.stato, esito=esito,
+        venduti=_n(v), scartati=_n(sc), nota=nota, istante=quando.isoformat(),
+        motivo=_motivo_chiusura(semina.public_id, semina.varieta_nome, semina.data_avvio,
+                                adesso.astimezone(TZ_LOCALE).date(), v, sc, nota),
+        note=note)
+
+
+def esegui_chiusura(settings: PostgreSQLSettings, proposta: PropostaChiusura, actor: str) -> str:
+    quando = datetime.fromisoformat(proposta.istante)
+    if quando.tzinfo is None or quando > datetime.now(timezone.utc) + timedelta(minutes=1):
+        raise SeminaOperazioneFallita("Istante non valido o nel futuro: nulla registrato.")
+    if proposta.esito not in ESITI_CHIUSURA:
+        raise SeminaOperazioneFallita("Esito non riconosciuto: nulla registrato.")
+    semina = db_context.semina_per_public_id(settings, proposta.semina_public_id)   # rilettura live
+    if semina is None or semina.stato == "CHIUSA":
+        raise SeminaNonTrovata(f"{proposta.semina_public_id} non risulta piu' aperta (gia' chiusa nel frattempo).")
+    if semina.raccolte:
+        raise SeminaOperazioneFallita(f"{semina.public_id} ha raccolte registrate: non si chiude da qui.")
+    try:        # il motivo si ricompone qui dai campi: quello arrivato dalla pagina serve solo per l'anteprima
+        venduti, scartati = _quantita("SET venduti", proposta.venduti), _quantita("SET scartati", proposta.scartati)
+    except PropostaAmbigua as exc:
+        raise SeminaOperazioneFallita(f"{exc} Nulla registrato.") from None
+    motivo = _motivo_chiusura(semina.public_id, semina.varieta_nome, semina.data_avvio,
+                              datetime.now(TZ_LOCALE).date(), venduti, scartati, (proposta.nota or "").strip()[:300])
+    args = Namespace(
+        semina_command="transition", semina=semina.public_id, expected_semina_version=semina.version,
+        target_state="CHIUSA", effective_at=quando.isoformat(), final_outcome=proposta.esito,
+        provenance='{"target_state":"OWNER_AUTHORIZED","effective_at":"OWNER_AUTHORIZED","final_outcome":"OWNER_AUTHORIZED"}',
+        actor=actor, reason=motivo,
+        correlation_id=f"DIARIO-SEMINA-CHIUSURA-{semina.public_id}",
+        idempotency_key=f"diario-chiusura-{semina.public_id.lower()}", confirm=True)
+    return _esegui(args)
 
 
 def istanti_passi(

@@ -166,3 +166,11 @@ def test_coppia_di_clienti_gia_verificata_non_si_segnala_piu() -> None:
     simili = [a["clienti"] for a in _comp(clienti=clienti)["anomalie"] if a["tipo"] == "clienti_simili"]
     assert ["CLI-000004", "CLI-000014"] not in simili            # verificata da Matteo
     assert ["CLI-000004", "CLI-000020"] in simili                # le altre coppie simili si vedono ancora
+
+
+def test_oggi_mostra_il_pacchetto_della_sessione_e_non_piu_le_righe_del_giorno(monkeypatch) -> None:
+    monkeypatch.setenv("DIARIO_PASSWORD", "segreta")
+    monkeypatch.setattr(app_module, "_settings", lambda: object())
+    html = TestClient(app_module.app).get("/", auth=AUTH).text
+    assert html.count('id="sessioneOggi"') == 1 and "/api/sessioni-semina?sessioni=1" in html
+    assert "caricaSessioneOggi()" in html and "Da seminare oggi" not in html

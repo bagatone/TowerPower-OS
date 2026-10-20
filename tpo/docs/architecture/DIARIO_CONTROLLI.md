@@ -59,3 +59,10 @@ Nel Magazzino ogni semina ha il bottone del passo successivo: **Passa a luce** (
 nella stessa schermata e dopo la conferma la lista si aggiorna. Luce e crescita sono lo stesso processo: nella lista
 sono un unico blocco "Crescita"; nel sistema gli stati restano LUCE e CRESCITA (dalla luce a pronta il comando passa
 da CRESCITA un minuto prima).
+
+## Oggi: il pacchetto della sessione, non piu' le righe del giorno (20/10/2026)
+Il riquadro "Da seminare oggi" (una riga per cliente, per giorno ideale, con tutti gli arretrati: 20 righe il 20/10)
+contraddiceva la regola "si semina solo mercoledi e domenica". Ora Oggi mostra "Prossima semina · mercoledi 21/10":
+totale per varieta' con grammi di seme, lo STESSO piano della schermata Semine e dell'avviso (`/api/sessioni-semina`),
+e in rosso quanti ordini sono scaduti o da verificare (non entrano nel pacchetto). Il rendiconto continua a fornire
+consegne e da chiarire; il campo `da_seminare` dell'API resta ma la pagina non lo usa piu'.

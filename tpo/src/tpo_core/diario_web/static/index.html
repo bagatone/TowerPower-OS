@@ -63,6 +63,7 @@
   .riga-r .dettaglio{color:var(--muted); font-size:13px;}
   .riga-r.chiarire .dettaglio{color:var(--bad);}
   .rendiconto .vuoto{color:var(--muted); font-size:14px; padding:4px 0;}
+  .rendiconto a{color:var(--accent); font-weight:600;}
   .semine{margin-bottom:24px;}
   .semine h2{font-size:16px; margin:0 0 8px;}
   .sessione{
@@ -202,6 +203,7 @@
 
   <section id="vista-oggi" class="vista" aria-labelledby="titolo">
     <div id="rendiconto" class="rendiconto"><div class="vuoto">Carico il rendiconto di oggi…</div></div>
+    <div id="sessioneOggi" class="rendiconto"></div>
     <div id="controlli" class="rendiconto"><div id="registraStadio"></div><div id="listaControlli"></div></div>
 
     <textarea id="testo" placeholder='Es. "Mizuna e Rábano sono passate in luce", "Seminato 2 set di rucola", "Splash ha pagato in contanti"'></textarea>
@@ -367,12 +369,6 @@ function rigaChiarire(x) {
     <div class="dettaglio">${escapeHtml(x.motivo)}</div>
   </div>`;
 }
-function rigaSemina(x) {
-  return `<div class="riga-r">
-    <div><span class="principale">${escapeHtml(x.varieta)}</span> per ${escapeHtml(x.cliente)}</div>
-    <div class="dettaglio">${escapeHtml(qta(x.quantita))} ${escapeHtml(x.unita)} · ${escapeHtml(x.stato)}</div>
-  </div>`;
-}
 
 async function caricaRendiconto() {
   const el = document.getElementById("rendiconto");
@@ -384,9 +380,9 @@ async function caricaRendiconto() {
       return;
     }
     const nulla = !(data.da_chiarire || []).length && !(data.consegne || []).length
-      && !(data.da_seminare || []).length;
+;
     if (nulla) {
-      el.innerHTML = `<div class="vuoto">Rendiconto del ${escapeHtml(data.data)}: nessuna consegna né semina in scadenza oggi.</div>`;
+      el.innerHTML = `<div class="vuoto">Rendiconto del ${escapeHtml(data.data)}: nessuna consegna oggi.</div>`;
       return;
     }
     let html = "";
@@ -396,15 +392,46 @@ async function caricaRendiconto() {
     if ((data.consegne || []).length) {
       html += `<h2>Consegne di oggi</h2>` + data.consegne.map(rigaConsegna).join("");
     }
-    if ((data.da_seminare || []).length) {
-      html += `<h2>Da seminare oggi</h2>` + data.da_seminare.map(rigaSemina).join("");
-    }
     el.innerHTML = html;
   } catch (e) {
     el.innerHTML = `<div class="errore">Rendiconto non caricato: ${escapeHtml(String(e))}</div>`;
   }
 }
 caricaRendiconto();
+
+// La semina si fa solo nelle due sessioni fisse (mercoledì e domenica): qui si vede il pacchetto della prossima,
+// lo stesso del piano della schermata Semine e dell'avviso del mattino (non più riga per riga "di oggi").
+async function caricaSessioneOggi() {
+  const el = document.getElementById("sessioneOggi");
+  try {
+    const r = await fetch("/api/sessioni-semina?sessioni=1");
+    const data = await r.json();
+    if (data.errore) { el.innerHTML = `<div class="errore">${escapeHtml(data.errore)}</div>`; return; }
+    let html = "";
+    const s = (data.sessioni || [])[0];
+    if (s) {
+      const tot = Object.entries(s.totali).map(([u, q]) => `${q.replace(".", ",")} ${u}`).join(", ");
+      html += `<h2>Prossima semina · ${escapeHtml(s.giorno)} ${escapeHtml(dataBreve(s.data))}${s.oggi ? " (oggi)" : ""}</h2>`;
+      html += s.varieta.map((v) => `<div class="riga-r">
+        <div><span class="principale">${escapeHtml(v.varieta)}</span></div>
+        <div class="dettaglio">${escapeHtml(v.quantita.replace(".", ","))} ${escapeHtml(v.unita)} · ${escapeHtml(v.grammi)} g di seme</div></div>`).join("");
+      html += `<div class="vuoto">Totale: ${escapeHtml(tot)} · per chi: <a href="#semine">schermata Semine</a></div>`;
+    } else {
+      html += `<h2>Prossima semina</h2><div class="vuoto">Nessuna semina da fare nelle prossime sessioni.</div>`;
+    }
+    const da = (data.da_verificare || []).length, sc = (data.scaduti || []).length;
+    if (da || sc) {
+      const parti = [];
+      if (da) parti.push(`${da} da verificare`);
+      if (sc) parti.push(`${sc} ordini scaduti (non entrano nel pacchetto)`);
+      html += `<div class="riga-r chiarire"><div>${parti.join(" · ")}: <a href="#semine">vedi Semine</a></div></div>`;
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<div class="errore">Prossima semina non caricata: ${escapeHtml(String(e))}</div>`;
+  }
+}
+caricaSessioneOggi();
 
 const AZIONI = {luce: "passa a luce", pronta: "pronta da raccogliere"};
 const STADIO_DI = {luce: "LUCE", pronta: "PRONTA_ALLA_RACCOLTA"};

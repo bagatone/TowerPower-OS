@@ -133,4 +133,4 @@ def test_rotte(monkeypatch) -> None:
 
 def test_la_pagina_ha_i_bottoni_chiudi(monkeypatch) -> None:
     html = _client(monkeypatch).get("/", auth=AUTH).text
-    assert "/api/chiusura/prepara" in html and "data-chiudi=" in html and "data-chiudi-mag" in html
+    assert "/api/chiusura/prepara" in html and "data-chiudi=" in html and "data-chiudi-mag" in html and "data-avanza-mag" in html and html.count('id="registraMag"') == 1

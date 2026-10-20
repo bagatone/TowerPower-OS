@@ -182,7 +182,8 @@
   .riga-r.con-azione{flex-wrap:wrap;}
   .riga-r .azioni-riga{flex-basis:100%; margin-top:2px;}
   button.piccolo{font-size:13px; padding:6px 12px; margin-top:0;}
-  .stadio .semina button.piccolo{flex:none; align-self:center;}
+  .stadio .semina.con-azione{flex-wrap:wrap;}
+  .stadio .semina .azioni-sem{flex-basis:100%; display:flex; gap:8px; margin-top:2px;}
   .riga-r button.piccolo{font-size:13px; padding:6px 12px; margin-top:0;}
   .pannello-stadio .riga-form{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:8px;}
   .pannello-stadio select,.pannello-stadio input{
@@ -222,6 +223,7 @@
   </section>
 
   <section id="vista-magazzino" class="vista">
+    <div id="registraMag"></div>
     <div id="magazzino" class="magazzino"><div class="vuoto">Carico il magazzino…</div></div>
   </section>
 </div>
@@ -335,7 +337,7 @@ function cardProposta(p, idx) {
       esitoDiv.textContent = data.messaggio;
       btn.remove(); btnAnnulla.remove();
       if (data.ok && p.tipo === "pagamento_consegna") caricaIncassi();
-      if (data.ok && (p.tipo === "semina_transition" || p.tipo === "semina_chiusura")) { magazzinoCaricatoAlle = 0; caricaControlli(); }
+      if (data.ok && (p.tipo === "semina_transition" || p.tipo === "semina_chiusura")) { magazzinoCaricatoAlle = 0; caricaControlli(); caricaMagazzino(); }
     } catch (e) {
       esitoDiv.className = "esito fallito";
       esitoDiv.textContent = "Errore di rete: " + e;
@@ -427,14 +429,19 @@ function rigaAnomalia(a) {
   return `<div class="riga-r chiarire con-azione"><div>${escapeHtml(a.testo)}</div>${bottone}</div>`;
 }
 
+function preparaContenitore(dove) {      // un solo pannello aperto alla volta, in Oggi o in Magazzino
+  document.getElementById("registraStadio").innerHTML = "";
+  document.getElementById("registraMag").innerHTML = "";
+  return document.getElementById(dove === "mag" ? "registraMag" : "registraStadio");
+}
 function oggiCanarie() { return new Date().toLocaleDateString("sv-SE", {timeZone: "Atlantic/Canary"}); }
 function giornoFa(iso, n) {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d - n)).toISOString().slice(0, 10);
 }
 
-function apriPannelloStadio(semina, azione, varieta) {
-  const el = document.getElementById("registraStadio");
+function apriPannelloStadio(semina, azione, varieta, dove) {
+  const el = preparaContenitore(dove);
   const oggi = oggiCanarie();
   el.innerHTML = `<div class="card pannello-stadio">
     <h3>Registra — ${escapeHtml(varieta)}: ${escapeHtml(AZIONI[azione])}</h3>
@@ -483,8 +490,8 @@ const ESITI_UI = [
   ["scarto totale", "Scartata"],
   ["interruzione", "Interrotta"],
 ];
-function apriPannelloChiusura(semina, varieta, sets) {
-  const el = document.getElementById("registraStadio");
+function apriPannelloChiusura(semina, varieta, sets, dove) {
+  const el = preparaContenitore(dove);
   const oggi = oggiCanarie();
   el.innerHTML = `<div class="card pannello-stadio">
     <h3>Chiudi — ${escapeHtml(varieta)}</h3>
@@ -702,7 +709,7 @@ caricaSemine();
 /* ---------- Magazzino (sola lettura) ---------- */
 const NOMI_STADIO = {
   AVVIATA: "Appena avviate", GERMINAZIONE: "Germinazione", LUCE: "Luce", CRESCITA: "Crescita",
-  PRONTA_ALLA_RACCOLTA: "Pronte alla raccolta",
+  PRONTA_ALLA_RACCOLTA: "Pronte alla raccolta", CRESCITA_UNITA: "Crescita",
 };
 function dataLunga(iso) { if (!iso) return "—"; const [y, m, d] = iso.split("-"); return `${d}/${m}/${y}`; }
 function giorniA(iso) {
@@ -712,16 +719,39 @@ function giorniA(iso) {
 }
 function percento(a, b) { const x = parseFloat(a), y = parseFloat(b); return y > 0 ? Math.max(0, Math.min(100, (x / y) * 100)) : 0; }
 
+const AZIONE_DA_STADIO = {AVVIATA: "luce", GERMINAZIONE: "luce", CRESCITA_UNITA: "pronta"};
+const TESTO_AZIONE = {luce: "Passa a luce", pronta: "Pronto alla raccolta"};
+// Luce e crescita sono lo stesso processo: nella lista sono un unico blocco "Crescita" (gli stati nel sistema restano due).
+function unisciLuceCrescita(stadi) {
+  const out = []; let unito = null;
+  for (const s of stadi) {
+    if (s.stadio !== "LUCE" && s.stadio !== "CRESCITA") { out.push(s); continue; }
+    if (!unito) { unito = {...s, stadio: "CRESCITA_UNITA", elenco: [...s.elenco]}; out.push(unito); }
+    else {
+      unito.set = String(Math.round((parseFloat(unito.set) + parseFloat(s.set)) * 100) / 100);
+      unito.semine += s.semine; unito.elenco = unito.elenco.concat(s.elenco);
+    }
+  }
+  if (unito) unito.elenco.sort((a, b) => (a.avvio < b.avvio ? -1 : a.avvio > b.avvio ? 1 : 0));
+  return out;
+}
+function bottoniSemina(x, stadio) {
+  const azione = AZIONE_DA_STADIO[stadio];
+  const dati = `data-varieta="${escapeHtml(x.varieta)}" data-set="${escapeHtml(x.set || "")}"`;
+  const avanza = azione ? `<button class="piccolo" data-avanza-mag="${escapeHtml(x.id)}" data-azione="${azione}" ${dati}>${TESTO_AZIONE[azione]}</button>` : "";
+  return `<div class="azioni-sem">${avanza}<button class="piccolo secondary" data-chiudi-mag="${escapeHtml(x.id)}" ${dati}>Chiudi…</button></div>`;
+}
 function htmlColtivazione(c) {
-  const massimo = Math.max(1, ...c.stadi.map((s) => parseFloat(s.set)));
+  const stadi = unisciLuceCrescita(c.stadi);
+  const massimo = Math.max(1, ...stadi.map((s) => parseFloat(s.set)));
   let html = `<h2>In coltivazione</h2>
-    <div class="nota-sistema">SET attesi tra germinazione e crescita. Appena avviate e pronte alla raccolta sono a parte.</div>`;
-  c.stadi.forEach((s) => {
+    <div class="nota-sistema">SET attesi tra germinazione e crescita. Appena avviate e pronte alla raccolta sono a parte. Tocca il bottone quando la semina passa allo stadio dopo.</div>`;
+  stadi.forEach((s) => {
     const fuori = s.stadio === "AVVIATA" || s.stadio === "PRONTA_ALLA_RACCOLTA";
-    const righe = s.elenco.map((x) => `<div class="semina">
+    const righe = s.elenco.map((x) => `<div class="semina con-azione">
         <span><b>${escapeHtml(x.varieta)}</b> <span class="d">${escapeHtml(x.codice)}</span></span>
         <span class="d">${x.set === null ? '<span class="ignoto">SET ?</span>' : escapeHtml(x.set) + " SET"} · dal ${escapeHtml(dataBreve(x.avvio))}${x.raccolto ? " · raccolti " + escapeHtml(x.raccolto) : ""}</span>
-        <button class="piccolo secondary" data-chiudi-mag="${escapeHtml(x.id)}" data-varieta="${escapeHtml(x.varieta)}" data-set="${escapeHtml(x.set || "")}">Chiudi…</button></div>`).join("");
+        ${bottoniSemina(x, s.stadio)}</div>`).join("");
     html += `<div class="stadio${fuori ? " fuori" : ""}${s.semine ? "" : " vuoto-stadio"}">
       <div class="testa-stadio"><span class="nome">${escapeHtml(NOMI_STADIO[s.stadio] || s.stadio)}</span>
         <span class="tot">${escapeHtml(s.set)} <small>SET · ${s.semine} ${s.semine === 1 ? "semina" : "semine"}</small></span></div>
@@ -808,11 +838,10 @@ function impostaBadge(n) {
 }
 
 document.getElementById("magazzino").addEventListener("click", (ev) => {
+  const a = ev.target.closest("button[data-avanza-mag]");
+  if (a) { apriPannelloStadio(a.dataset.avanzaMag, a.dataset.azione, a.dataset.varieta, "mag"); return; }
   const c = ev.target.closest("button[data-chiudi-mag]");
-  if (!c) return;
-  history.pushState(null, "", "#oggi");
-  mostraVista("oggi");
-  apriPannelloChiusura(c.dataset.chiudiMag, c.dataset.varieta, c.dataset.set);
+  if (c) apriPannelloChiusura(c.dataset.chiudiMag, c.dataset.varieta, c.dataset.set, "mag");
 });
 
 function mostraVista(nome) {

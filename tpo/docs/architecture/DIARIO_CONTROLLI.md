@@ -52,3 +52,10 @@ finita (Venduta tutta / Venduta in parte e il resto scartato / Scartata / Interr
 - Istanti: stesse regole dei cambi di stadio (mai nel futuro, mai prima di avvio/ultimo passaggio, 12:00 per i giorni passati).
 - Test: `tests/diario_web/test_chiusura_semina.py`.
 - Coppie di clienti gia' verificate (Salvaje/Selvaje): `CLIENTI_SIMILI_GIA_VERIFICATI` in `controlli.py`.
+
+## Lista "In coltivazione" cliccabile (20/10/2026, idea di Matteo)
+Nel Magazzino ogni semina ha il bottone del passo successivo: **Passa a luce** (appena avviate e in germinazione),
+**Pronto alla raccolta** (in crescita), piu' **Chiudi…** su tutte. Il pannello (giorno/ora, anteprima, conferma) si apre
+nella stessa schermata e dopo la conferma la lista si aggiorna. Luce e crescita sono lo stesso processo: nella lista
+sono un unico blocco "Crescita"; nel sistema gli stati restano LUCE e CRESCITA (dalla luce a pronta il comando passa
+da CRESCITA un minuto prima).

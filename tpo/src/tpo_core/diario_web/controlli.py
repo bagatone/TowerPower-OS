@@ -37,6 +37,11 @@ RITARDO_MAX_PRONTA = 5        # giorni oltre la data prevista di pronta: poi e' 
 SIMILITUDINE_CLIENTI = 0.8
 SEME_POCO_SET = 10            # sotto questi SET di seme residuo il lotto e' segnalato
 SEME_ATTIVO_GIORNI = 30
+# Coppie di clienti gia' verificate da Matteo: NON si segnalano piu' come "nome simile".
+# Per aggiungerne una: una riga con i due codici cliente (CLI-...).
+CLIENTI_SIMILI_GIA_VERIFICATI = (
+    frozenset({"CLI-000004", "CLI-000014"}),     # Selvaje / Salvaje: stesso ristorante, doppio neutralizzato (20/10/2026)
+)
 
 SQL_SEMINE = """SELECT s.public_id, s.codice_tracciabilita, v.denominazione, s.stato::text, s.data_avvio,
        s.expected_useful_quantity, s.expected_useful_uom::text,
@@ -130,7 +135,7 @@ def _clienti_simili(clienti: Sequence[Sequence[Any]]) -> list[dict]:
     for i, (id_a, nome_a, prog_a) in enumerate(clienti):
         for id_b, nome_b, prog_b in clienti[i + 1:]:
             a, b = _fold(nome_a), _fold(nome_b)
-            if not a or not b:
+            if not a or not b or frozenset({id_a, id_b}) in CLIENTI_SIMILI_GIA_VERIFICATI:
                 continue
             if difflib.SequenceMatcher(None, a, b).ratio() < SIMILITUDINE_CLIENTI:
                 continue

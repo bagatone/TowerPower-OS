@@ -159,3 +159,10 @@ def test_il_modulo_non_scrive_niente() -> None:
     for vietato in ("INSERT ", "UPDATE ", "DELETE ", "CREATE ", "DROP ", "ALTER ", "COMMIT"):
         assert vietato not in sorgente
     assert "READ_ONLY = TRUE" in sorgente
+
+
+def test_coppia_di_clienti_gia_verificata_non_si_segnala_piu() -> None:
+    clienti = [("CLI-000004", "Selvaje", True), ("CLI-000014", "Salvaje", False), ("CLI-000020", "Selvage", False)]
+    simili = [a["clienti"] for a in _comp(clienti=clienti)["anomalie"] if a["tipo"] == "clienti_simili"]
+    assert ["CLI-000004", "CLI-000014"] not in simili            # verificata da Matteo
+    assert ["CLI-000004", "CLI-000020"] in simili                # le altre coppie simili si vedono ancora

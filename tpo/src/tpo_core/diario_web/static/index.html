@@ -191,6 +191,27 @@
     font:inherit; font-size:16px; padding:8px 10px; border-radius:8px; border:1px solid var(--border);
     background:var(--surface); color:var(--text);}
   .pannello-stadio .nota{color:var(--muted); font-size:13px; margin-top:6px;}
+  /* --- nuova semina --- */
+  .nuova{margin-bottom:22px;}
+  .nuova .griglia,.nuova .rapidi,.nuova .stepper,.nuova .riga-form{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
+  .nuova .griglia{margin-top:12px;}
+  .nuova .rapidi,.nuova .stepper,.nuova .riga-form{margin-top:8px;}
+  .nuova button.chip{
+    margin-top:0; background:var(--surface); color:var(--text); border:1px solid var(--border);
+    padding:11px 14px; min-height:44px;
+  }
+  .nuova button.chip[aria-pressed="true"]{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .nuova button.chip small{display:block; font-weight:400; font-size:12px; opacity:.8;}
+  .nuova .stepper button,.nuova .rapidi button{margin-top:0; min-width:44px; min-height:44px; padding:8px 12px;}
+  .nuova .stepper input{width:70px; text-align:center;}
+  .nuova select,.nuova input{
+    font:inherit; font-size:16px; padding:8px 10px; border-radius:8px; border:1px solid var(--border);
+    background:var(--surface); color:var(--text);}
+  .nuova .nota,.nuova .spenti{color:var(--muted); font-size:13px; margin-top:6px;}
+  .nuova .spenti{margin-top:14px;}
+  .nuova .spenti div{padding:3px 0;}
+  .nuova .calcolo{font-size:14px; margin-top:8px;}
+  .nuova .card .nota{margin-top:8px;}
   @media (prefers-reduced-motion: no-preference){ .barra > i{transition:width .3s ease;} }
 </style>
 </head>
@@ -221,6 +242,10 @@
   </section>
 
   <section id="vista-semine" class="vista">
+    <div id="nuovaSemina" class="nuova">
+      <button id="btnNuovaSemina" type="button">+ Nuova semina</button>
+      <div id="pannelloNuova"></div>
+    </div>
     <div id="semine" class="semine"><div class="vuoto">Carico il piano semine…</div></div>
   </section>
 
@@ -285,6 +310,19 @@ function cardProposta(p, idx) {
       ${campo("Avvio", p.physical_started_at)}
       ${campo("Residuo dopo", p.residuo_dopo + " g")}
     `;
+  } else if (p.tipo === "nuova_semina") {
+    div.innerHTML = `
+      <h3>Nuova semina — ${escapeHtml(p.varieta_nome)}</h3>
+      ${campo("SET", p.num_set)}
+      ${campo("Quando", quandoBreve(p.physical_started_at))}
+      ${campo("Seme", p.grammi + " g (" + p.g_per_set + " g per SET)")}
+      ${campo("Lotto seme", p.lotto_seme_public_id + " · " + p.lotto_fornitore)}
+      ${campo("Residuo dopo", p.residuo_dopo + " g")}
+      ${campo("Protocollo", p.protocollo_versione_public_id)}
+      ${campo("Materiali", p.vaschette + " vaschette + " + p.substrati + " substrati")}
+      ${(p.note || []).map((n) => `<div class="nota">${escapeHtml(n)}</div>`).join("")}
+      <div class="nota">Cliente e ordine si collegano dopo, come finora.</div>
+    `;
   } else if (p.tipo === "semina_chiusura") {
     div.innerHTML = `
       <h3>Chiusura semina — ${escapeHtml(p.varieta_nome)}</h3>
@@ -337,8 +375,13 @@ function cardProposta(p, idx) {
       const data = await r.json();
       esitoDiv.className = "esito" + (data.ok ? "" : " fallito");
       esitoDiv.textContent = data.messaggio;
+      if (!data.ok && p.tipo === "nuova_semina") {       // si puo' riprovare: la stessa semina non si duplica mai
+        btn.disabled = false; btnAnnulla.disabled = false; btn.textContent = "Riprova";
+        return;
+      }
       btn.remove(); btnAnnulla.remove();
       if (data.ok && p.tipo === "pagamento_consegna") caricaIncassi();
+      if (data.ok && p.tipo === "nuova_semina") { magazzinoCaricatoAlle = 0; caricaSemine(); caricaMagazzino(); caricaControlli(); }
       if (data.ok && (p.tipo === "semina_transition" || p.tipo === "semina_chiusura")) { magazzinoCaricatoAlle = 0; caricaControlli(); caricaMagazzino(); }
     } catch (e) {
       esitoDiv.className = "esito fallito";
@@ -732,6 +775,119 @@ async function caricaSemine() {
   }
 }
 caricaSemine();
+
+/* ---------- Nuova semina (microgreens: varietà da lista, SET, giorno, ora) ---------- */
+const nuovaEl = document.getElementById("pannelloNuova");
+document.getElementById("btnNuovaSemina").onclick = async () => {
+  if (nuovaEl.innerHTML) { nuovaEl.innerHTML = ""; return; }     // secondo tocco = chiude
+  nuovaEl.innerHTML = `<div class="card"><div class="vuoto">Carico le varietà…</div></div>`;
+  try {
+    const r = await fetch("/api/nuova-semina/opzioni");
+    const data = await r.json();
+    if (data.errore) { nuovaEl.innerHTML = `<div class="errore">${escapeHtml(data.errore)}</div>`; return; }
+    disegnaNuovaSemina(data);
+  } catch (e) {
+    nuovaEl.innerHTML = `<div class="errore">Errore di rete: ${escapeHtml(String(e))}</div>`;
+  }
+};
+
+function disegnaNuovaSemina(data) {
+  const pronte = data.varieta.filter((v) => v.pronta), spente = data.varieta.filter((v) => !v.pronta);
+  let scelta = null;
+  nuovaEl.innerHTML = `<div class="card">
+    <h3>Nuova semina · microgreens</h3>
+    <div class="nota">Scegli la varietà. I SET sono interi. Cliente e ordine si collegano dopo.</div>
+    <div class="griglia" id="nsVarieta">${pronte.map((v) =>
+      `<button type="button" class="chip" aria-pressed="false" data-var="${escapeHtml(v.varieta)}">${escapeHtml(v.nome)}<small>${escapeHtml(v.codice)} · ${escapeHtml(v.g_per_set)} g/SET</small></button>`).join("")}</div>
+    ${spente.length ? `<div class="spenti"><b>Non seminabili ora</b>${spente.map((v) =>
+      `<div>${escapeHtml(v.nome)} — ${escapeHtml(v.motivo)}</div>`).join("")}</div>` : ""}
+    <div id="nsForm"></div>
+    <div><button type="button" class="secondary" id="nsChiudi">Chiudi</button></div>
+  </div>`;
+  document.getElementById("nsChiudi").onclick = () => { nuovaEl.innerHTML = ""; };
+  document.getElementById("nsVarieta").onclick = (ev) => {
+    const b = ev.target.closest("button[data-var]");
+    if (!b) return;
+    document.querySelectorAll("#nsVarieta .chip").forEach((c) => c.setAttribute("aria-pressed", String(c === b)));
+    scelta = pronte.find((v) => v.varieta === b.dataset.var);
+    formNuovaSemina(data, scelta);
+  };
+}
+
+function formNuovaSemina(data, v) {
+  const oggi = data.oggi, form = document.getElementById("nsForm");
+  const usabili = v.lotti.filter((l) => l.utilizzabile), inutili = v.lotti.filter((l) => !l.utilizzabile);
+  const maxSet = Math.min(data.set_max, Math.max(...usabili.map((l) => l.max_set)));
+  form.innerHTML = `
+    <h3 style="margin-top:16px">${escapeHtml(v.nome)}</h3>
+    <div class="stepper">
+      <button type="button" class="secondary" id="nsMeno" aria-label="Un SET in meno">−</button>
+      <input id="nsSet" type="number" inputmode="numeric" min="1" max="${maxSet}" step="1" value="1" aria-label="SET">
+      <button type="button" class="secondary" id="nsPiu" aria-label="Un SET in più">+</button>
+      <span>SET</span>
+    </div>
+    <div class="calcolo" id="nsCalcolo"></div>
+    ${usabili.length > 1 ? `<div class="riga-form"><label>Lotto di seme
+      <select id="nsLotto">${usabili.map((l) =>
+        `<option value="${escapeHtml(l.lotto)}">${escapeHtml(l.lotto)} · ${escapeHtml(l.fornitore)} · ${escapeHtml(l.residuo)} g</option>`).join("")}</select></label></div>` : ""}
+    ${inutili.map((l) => `<div class="nota">Lotto ${escapeHtml(l.lotto)} non usabile: ${escapeHtml(l.motivo)}.</div>`).join("")}
+    <div class="riga-form">
+      <select id="nsGiorno" aria-label="Giorno">
+        <option value="${oggi}">Oggi</option>
+        <option value="${giornoFa(oggi, 1)}">Ieri</option>
+        <option value="${giornoFa(oggi, 2)}">L'altro ieri</option>
+        <option value="altro">Altro giorno…</option>
+      </select>
+      <input type="date" id="nsAltro" max="${oggi}" hidden aria-label="Altro giorno">
+      <input type="time" id="nsOra" aria-label="Ora (facoltativa)">
+    </div>
+    <div class="rapidi">
+      <button type="button" class="secondary" data-ora="09:00">09:00 mattina</button>
+      <button type="button" class="secondary" data-ora="21:00">21:00 sera</button>
+      <button type="button" class="secondary" data-ora="">Adesso</button>
+    </div>
+    <div class="nota">Ora facoltativa: se non la metti, oggi vale adesso, un giorno passato vale le 12:00.</div>
+    <div><button type="button" id="nsPrepara">Prepara</button></div>
+    <div id="nsProposte"></div>`;
+  const set = document.getElementById("nsSet"), calcolo = document.getElementById("nsCalcolo");
+  const g = parseFloat(v.g_per_set);
+  const aggiorna = () => {
+    const n = Math.max(1, Math.min(maxSet, parseInt(set.value, 10) || 1));
+    const grammi = Math.round(n * g * 100) / 100;
+    calcolo.textContent = `${n} SET = ${grammi} g di seme · ${n * data.pezzi_per_set} vaschette + ${n * data.pezzi_per_set} substrati` +
+      (maxSet < data.set_max ? ` · con il seme a sistema al massimo ${maxSet} SET` : "");
+  };
+  set.oninput = aggiorna;
+  document.getElementById("nsMeno").onclick = () => { set.value = Math.max(1, (parseInt(set.value, 10) || 1) - 1); aggiorna(); };
+  document.getElementById("nsPiu").onclick = () => { set.value = Math.min(maxSet, (parseInt(set.value, 10) || 0) + 1); aggiorna(); };
+  aggiorna();
+  const sel = document.getElementById("nsGiorno"), altro = document.getElementById("nsAltro");
+  sel.onchange = () => { altro.hidden = sel.value !== "altro"; };
+  form.querySelector(".rapidi").onclick = (ev) => {
+    const b = ev.target.closest("button[data-ora]");
+    if (b) document.getElementById("nsOra").value = b.dataset.ora;
+  };
+  document.getElementById("nsPrepara").onclick = async () => {
+    const dove = document.getElementById("nsProposte");
+    const giorno = sel.value === "altro" ? altro.value : sel.value;
+    if (!giorno) { dove.innerHTML = `<div class="errore">Scegli il giorno.</div>`; return; }
+    dove.innerHTML = `<div class="vuoto">Preparo…</div>`;
+    const lotto = document.getElementById("nsLotto");
+    try {
+      const r = await fetch("/api/nuova-semina/prepara", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({varieta: v.varieta, set: set.value, giorno, ora: document.getElementById("nsOra").value || null,
+                              lotto: lotto ? lotto.value : null}),
+      });
+      const risposta = await r.json();
+      dove.innerHTML = "";
+      (risposta.errori || []).forEach((e) => { dove.insertAdjacentHTML("beforeend", `<div class="errore">${escapeHtml(e)}</div>`); });
+      (risposta.proposte || []).forEach((p, i) => dove.appendChild(cardProposta(p, i)));
+    } catch (e) {
+      dove.innerHTML = `<div class="errore">Errore di rete: ${escapeHtml(String(e))}</div>`;
+    }
+  };
+}
 
 /* ---------- Magazzino (sola lettura) ---------- */
 const NOMI_STADIO = {

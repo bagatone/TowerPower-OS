@@ -20,8 +20,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from datetime import date, datetime, time, timezone
 
-from . import (actions, avviso_semine, controlli, db_context, incassi, interpreter, magazzino, rendiconto,
-               sessioni_semina)
+from . import (actions, avviso_semine, controlli, db_context, incassi, interpreter, magazzino, nuova_semina,
+               rendiconto, sessioni_semina)
 from .auth import richiedi_autenticazione
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 
@@ -189,6 +189,12 @@ def conferma(body: dict, attore: str = Depends(richiedi_autenticazione)) -> JSON
                 scartati=proposta["scartati"], nota=proposta.get("nota", ""), istante=proposta["istante"],
                 motivo=proposta["motivo"])
             esito = actions.esegui_chiusura(settings, p, ACTOR)
+        elif proposta.get("tipo") == "nuova_semina":
+            campi = ("varieta_public_id", "varieta_nome", "num_set", "grammi", "g_per_set", "lotto_seme_public_id",
+                     "lotto_fornitore", "protocollo_versione_public_id", "physical_started_at", "residuo_dopo",
+                     "vaschette", "substrati")
+            p = nuova_semina.PropostaNuovaSemina(**{k: str(proposta[k]) for k in campi})
+            esito = nuova_semina.esegui(settings, p, ACTOR)
         elif proposta.get("tipo") == "pagamento_consegna":
             p = incassi.PropostaPagamento(
                 consegne=[{"codice": c["codice"], "data": c.get("data", ""), "voci": c.get("voci", [])}
@@ -250,6 +256,35 @@ def api_avviso_semine(anteprima: bool = False, prova: bool = False, forza: bool 
     except Exception as exc:  # noqa: BLE001 -- mostrato, mai un crash silenzioso
         return JSONResponse({"inviato": False, "errore": f"Avviso non preparato: {exc}"}, status_code=503)
     return JSONResponse(esito)
+
+
+@app.get("/api/nuova-semina/opzioni")
+def api_nuova_semina_opzioni(_: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Varieta' (microgreens) per la schermata Nuova semina, con g/SET, lotti e il motivo se non si puo' seminare. Sola lettura."""
+    try:
+        oggi = datetime.now(actions.TZ_LOCALE).date()
+        dati = nuova_semina.a_dizionario(nuova_semina.leggi_opzioni(_settings()), oggi)
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"errore": f"Varieta' non disponibili: {exc}"}, status_code=503)
+    return JSONResponse(dati)
+
+
+@app.post("/api/nuova-semina/prepara")
+def api_nuova_semina_prepara(body: dict, _: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Anteprima esatta di una nuova semina (nulla viene scritto): la scrittura passa da /api/conferma."""
+    try:
+        giorno = date.fromisoformat(str(body.get("giorno") or ""))
+        ora_txt = str(body.get("ora") or "").strip()
+        ora = time.fromisoformat(ora_txt) if ora_txt else None
+        p = nuova_semina.prepara(_settings(), str(body.get("varieta") or ""), body.get("set"), giorno, ora,
+                                 str(body.get("lotto") or "") or None)
+    except ValueError:
+        return JSONResponse({"proposte": [], "errori": ["Giorno o ora non validi."]})
+    except actions.PropostaAmbigua as exc:
+        return JSONResponse({"proposte": [], "errori": [str(exc)]})
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"proposte": [], "errori": [f"Proposta non preparata: {exc}"]})
+    return JSONResponse({"proposte": [nuova_semina.a_dizionario_proposta(p)], "errori": []})
 
 
 @app.get("/api/magazzino")

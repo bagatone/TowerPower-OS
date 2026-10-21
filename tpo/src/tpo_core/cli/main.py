@@ -277,6 +277,8 @@ def _parser() -> argparse.ArgumentParser:
     genera_etichetta.add_argument("--etichette-per-set", type=int, default=1)
     genera_etichetta.add_argument("--output-dir")
     genera_etichetta.add_argument("--sovrascrivi", action="store_true")
+    genera_etichetta.add_argument("--foglio", action="store_true",
+                                  help="etichette affiancate su fogli A4 (27 per foglio) invece di una per pagina")
     fattura = commands.add_parser("fattura", help="Emissione governata FATTURA.")
     fattura_commands = fattura.add_subparsers(dest="fattura_command", required=True)
     emetti_fattura = fattura_commands.add_parser("emetti")

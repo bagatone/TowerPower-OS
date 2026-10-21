@@ -3,7 +3,8 @@
 ``tpo etichetta genera --consegna CON-000004`` legge la stessa vista della BOLLA
 (consegna, righe, provenienza di lotto) e salva un PDF con UNA etichetta
 (62x29 mm) per SET (--etichette-per-set, default 1; una frazione di SET, es. 0.5,
-riceve comunque 1 etichetta per origine di lotto). Non scrive
+riceve comunque 1 etichetta per origine di lotto). Con ``--foglio`` le etichette (sempre 62x29 mm) vengono
+affiancate su fogli A4 (27 per foglio) invece di una per pagina. Non scrive
 nulla sul database e non richiede --confirm. Le quantita' senza origine
 tracciata NON ricevono etichetta (nessun codice inventato): vengono segnalate.
 """
@@ -68,7 +69,7 @@ def run_etichetta_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) ->
         if args.etichette_per_set < 1:
             raise ValueError("--etichette-per-set deve essere >= 1.")
         try:
-            from ..infrastructure.pdf.etichette_pdf import render_etichette_pdf
+            from ..infrastructure.pdf.etichette_pdf import render_etichette_foglio_pdf, render_etichette_pdf
         except ImportError:
             print("ETICHETTA_FAILED: DIPENDENZA_MANCANTE: reportlab non installato "
                   "(.venv/bin/python -m pip install -r requirements.txt).", file=stderr)
@@ -78,13 +79,14 @@ def run_etichetta_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) ->
         etichette, senza_origine = costruisci_etichette(bolla, args.etichette_per_set)
         if not etichette:
             raise _EtichetteError("nessuna etichetta: la consegna non ha quantita' con origine tracciata.")
-        pdf = render_etichette_pdf(etichette)
+        foglio = bool(getattr(args, "foglio", False))
+        pdf = render_etichette_foglio_pdf(etichette) if foglio else render_etichette_pdf(etichette)
         output_dir = Path(args.output_dir) if args.output_dir else DEFAULT_OUTPUT_DIR
         output_dir.mkdir(parents=True, exist_ok=True)
         data = (bolla.data_effettiva.astimezone(LOCAL_TZ).date()
                 if bolla.data_effettiva else bolla.data_prevista)
         path = output_dir / (f"etichette_{bolla.consegna_id.value}_{_slug(bolla.cliente_denominazione)}"
-                             f"_{data.isoformat()}.pdf")
+                             f"_{data.isoformat()}{'_foglio' if foglio else ''}.pdf")
         try:
             with open(path, "wb" if args.sovrascrivi else "xb") as handle:
                 handle.write(pdf)

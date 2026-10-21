@@ -59,3 +59,20 @@ def test_pdf_has_one_page_per_label_at_62x29mm():
 def test_parser_defaults():
     ns = main_module._parser().parse_args(["etichetta", "genera", "--consegna", "CON-000004"])
     assert ns.etichette_per_set == 1 and ns.etichetta_command == "genera"
+
+
+def test_foglio_a4_puts_all_labels_on_one_page_and_paginates_after_27():
+    from src.tpo_core.infrastructure.pdf.etichette_pdf import ETICHETTE_PER_FOGLIO, render_etichette_foglio_pdf
+    e = Etichetta("Rábano", "RAB-2609-A", date(2026, 10, 3), "CON-000004")
+    pagine = lambda d: d.count(b"/Type /Page\n") + d.count(b"/Type /Page ") + d.count(b"/Type /Page/")
+    uno = render_etichette_foglio_pdf([e] * 3)
+    assert uno.startswith(b"%PDF") and ETICHETTE_PER_FOGLIO == 27 and pagine(uno) == 1
+    assert pagine(render_etichette_foglio_pdf([e] * 27)) == 1
+    assert pagine(render_etichette_foglio_pdf([e] * 28)) == 2
+    with pytest.raises(ValueError):
+        render_etichette_foglio_pdf([])
+
+
+def test_parser_accepts_foglio_flag():
+    ns = main_module._parser().parse_args(["etichetta", "genera", "--consegna", "CON-000004", "--foglio"])
+    assert ns.foglio is True

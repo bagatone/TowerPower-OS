@@ -10,7 +10,7 @@ un codice.
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
 from typing import Sequence
 from zoneinfo import ZoneInfo
@@ -35,6 +35,12 @@ def format_quantity(value: Decimal) -> str:
     if "." in text:
         text = text.rstrip("0").rstrip(".")
     return text.replace(".", ",") or "0"
+
+
+def format_money(value: Decimal) -> str:
+    """Importo con due decimali e virgola (es. 12,50 EUR); arrotondamento half-up al centesimo."""
+    cents = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{cents:.2f}".replace(".", ",") + " EUR"
 
 
 def _local(value: datetime) -> datetime:
@@ -112,8 +118,10 @@ def render_bolla_pdf(
     story.append(meta_table)
     story.append(Spacer(1, 5 * mm))
 
-    rows: list[list] = [[p("Pos.", small), p("Variedad", small), p("Cantidad", small),
-                         p("Código de trazabilidad / procedencia", small)]]
+    con_prezzi = bolla.ha_prezzi        # i prezzi compaiono solo se il listino li ha: mai inventati
+    rows: list[list] = [[p("Pos.", small), p("Variedad", small), p("Cantidad", small)]
+                        + ([p("Precio unit.", small), p("Importe", small)] if con_prezzi else [])
+                        + [p("Código de trazabilidad / procedencia", small)]]
     style_cmds: list[tuple] = [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.HexColor("#999999")),
@@ -142,12 +150,28 @@ def render_bolla_pdf(
             giorno = (f" - {riga.data_consegna_origine.strftime('%d/%m/%Y')}"
                       if riga.data_consegna_origine else "")
             label_cell = [p(label, strong), p(f"{riga.consegna_origine}{giorno}", small)]
-        rows.append([p(str(riga.posizione), base), label_cell, p(qty, base), detail])
+        riga_cells = [p(str(riga.posizione), base), label_cell, p(qty, base)]
+        if con_prezzi:
+            riga_cells += [
+                p(format_money(riga.prezzo_unitario) if riga.prezzo_unitario is not None else "-", base),
+                p(format_money(riga.importo) if riga.importo is not None else "-", base),
+            ]
+        rows.append(riga_cells + [detail])
         style_cmds.append(("LINEBELOW", (0, len(rows) - 1), (-1, len(rows) - 1), 0.25,
                            colors.HexColor("#cccccc")))
-    lines_table = Table(rows, colWidths=[12 * mm, 42 * mm, 26 * mm, 100 * mm], repeatRows=1)
+    widths = ([11 * mm, 32 * mm, 20 * mm, 24 * mm, 24 * mm, 69 * mm] if con_prezzi
+              else [12 * mm, 42 * mm, 26 * mm, 100 * mm])
+    lines_table = Table(rows, colWidths=widths, repeatRows=1)
     lines_table.setStyle(TableStyle(style_cmds))
     story.append(lines_table)
+    if con_prezzi:
+        story.append(Spacer(1, 3 * mm))
+        total_label = "TOTAL" if bolla.prezzi_completi else "TOTAL (parcial: falta el precio de alguna línea)"
+        total_table = Table([[p(total_label, strong), p(format_money(bolla.totale), strong)]],
+                            colWidths=[87 * mm, 24 * mm], hAlign="LEFT")   # il totale sta sotto la colonna Importe
+        total_table.setStyle(TableStyle([("LINEABOVE", (0, 0), (-1, 0), 0.5, colors.HexColor("#999999")),
+                                         ("ALIGN", (0, 0), (0, 0), "RIGHT")]))
+        story.append(total_table)
     story.append(Spacer(1, 6 * mm))
 
     if bolla.righe_senza_origine:

@@ -128,3 +128,26 @@ def test_bolla_traces_gram_carico_through_its_set_raccolta(writer_postgresql_eng
         ("AFI-1309-A", "RAC-930003", Decimal("1")),
     ]
     assert riga.quantita_senza_origine == Decimal("0")
+
+
+def test_bolla_reads_listino_price_per_riga_and_none_when_missing(writer_postgresql_engine) -> None:
+    """Il prezzo della riga viene dal LISTINO_VARIETA (LEFT JOIN): senza riga di listino resta None, mai inventato."""
+    engine = writer_postgresql_engine
+    _seed(engine, 930005, stock="2")
+    _writer(engine).publish(_command(930005, "1", movement=930005))
+
+    prima = _service(engine).bolla(RichiediBolla(ConsegnaId("CON-930005")))
+    assert prima.righe[0].prezzo_unitario is None and prima.totale is None and not prima.ha_prezzi
+
+    with engine.begin() as connection:
+        connection.exec_driver_sql("""
+          INSERT INTO tpo.listino_varieta
+            (varieta_id,prezzo_unitario,aliquota_igic,created_at,created_by,updated_at,updated_by)
+          SELECT id,12.50,0,CURRENT_TIMESTAMP,'bolla-test',CURRENT_TIMESTAMP,'bolla-test'
+          FROM tpo.varieta WHERE public_id='VAR-930005'
+        """)
+    dopo = _service(engine).bolla(RichiediBolla(ConsegnaId("CON-930005")))
+    riga = dopo.righe[0]
+    assert riga.prezzo_unitario == Decimal("12.50")
+    assert riga.importo == riga.quantita * Decimal("12.50")
+    assert dopo.prezzi_completi and dopo.totale == riga.importo

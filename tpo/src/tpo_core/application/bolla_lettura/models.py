@@ -54,6 +54,13 @@ class RigaBolla:
     # Solo nelle bolle unite (vedi unione.py): da quale CONSEGNA viene la riga e quando e' stata consegnata.
     consegna_origine: str | None = None
     data_consegna_origine: date | None = None
+    # Prezzo unitario dal LISTINO_VARIETA (per unita' della riga, IGIC non aggiunta); None = listino senza prezzo.
+    prezzo_unitario: Decimal | None = None
+
+    @property
+    def importo(self) -> Decimal | None:
+        """quantita' x prezzo unitario (come lo calcola l'emissione fattura); None se manca il prezzo."""
+        return None if self.prezzo_unitario is None else self.quantita * self.prezzo_unitario
 
 
 @dataclass(frozen=True)
@@ -85,3 +92,18 @@ class Bolla:
     @property
     def righe_senza_origine(self) -> int:
         return sum(1 for riga in self.righe if riga.quantita_senza_origine > 0)
+
+    @property
+    def ha_prezzi(self) -> bool:
+        return any(riga.prezzo_unitario is not None for riga in self.righe)
+
+    @property
+    def prezzi_completi(self) -> bool:
+        return bool(self.righe) and all(riga.prezzo_unitario is not None for riga in self.righe)
+
+    @property
+    def totale(self) -> Decimal | None:
+        """Somma degli importi delle righe con prezzo; None se nessuna riga ha il prezzo."""
+        if not self.ha_prezzi:
+            return None
+        return sum((r.importo for r in self.righe if r.importo is not None), Decimal(0))

@@ -29,9 +29,10 @@ _SELECT_CONSEGNA = (
 )
 _SELECT_RIGHE = (
     "SELECT rc.id, rc.posizione, o.public_id, v.public_id, v.denominazione, "
-    "rc.quantita, rc.unita_misura, (rc.rettifica_riga_consegna_id IS NOT NULL) "
+    "rc.quantita, rc.unita_misura, (rc.rettifica_riga_consegna_id IS NOT NULL), l.prezzo_unitario "
     "FROM tpo.righe_consegna rc "
     "JOIN tpo.varieta v ON v.id = rc.varieta_id "
+    "LEFT JOIN tpo.listino_varieta l ON l.varieta_id = rc.varieta_id "
     "JOIN tpo.ordini o ON o.id = rc.ordine_id "
     "WHERE rc.consegna_id = %s ORDER BY rc.posizione"
 )
@@ -86,7 +87,7 @@ class PostgreSQLBollaLetturaReader:
                 )
             righe = []
             for (riga_pk, posizione, ordine_id, varieta_id, varieta_nome,
-                 quantita, unita, rettifica) in righe_rows:
+                 quantita, unita, rettifica, prezzo) in righe_rows:
                 quantita = Decimal(quantita)
                 origini = tuple(origini_per_riga.get(riga_pk, ()))
                 spiegata = sum((o.quantita for o in origini), Decimal(0))
@@ -94,6 +95,7 @@ class PostgreSQLBollaLetturaReader:
                 righe.append(RigaBolla(
                     posizione, ordine_id, varieta_id, varieta_nome, quantita, unita,
                     bool(rettifica), origini, senza_origine,
+                    prezzo_unitario=None if prezzo is None else Decimal(prezzo),
                 ))
             return Bolla(
                 ConsegnaId(query.consegna_id.value), stato, cliente_public_id,

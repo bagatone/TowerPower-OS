@@ -102,3 +102,42 @@ def test_pdf_payment_status_line_unpaid_paid_and_historical() -> None:
         pdf = render_bolla_pdf(bolla, emittente=["Tower Power (prova)"], generata_il=NOW,
                                compress=False)
         assert atteso in pdf
+
+
+def _riga_prezzo(pos: int, nome: str, qty: str, prezzo: str | None) -> RigaBolla:
+    return RigaBolla(pos, "ORD-000001", f"VAR-00000{pos}", nome, Decimal(qty), "SET", False, (), Decimal(0),
+                     prezzo_unitario=None if prezzo is None else Decimal(prezzo))
+
+
+def test_totals_use_quantity_times_listino_price() -> None:
+    b = _bolla(righe=(_riga_prezzo(1, "Afila", "0.5", "12.50"), _riga_prezzo(2, "Cilantro", "3", "12.50")))
+    assert [r.importo for r in b.righe] == [Decimal("6.250"), Decimal("37.50")]
+    assert b.ha_prezzi and b.prezzi_completi and b.totale == Decimal("43.750")
+    senza = _bolla(righe=(_riga_prezzo(1, "Afila", "1", None),))
+    assert not senza.ha_prezzi and senza.totale is None and senza.righe[0].importo is None
+    parziale = _bolla(righe=(_riga_prezzo(1, "Afila", "1", "12.50"), _riga_prezzo(2, "Cilantro", "1", None)))
+    assert parziale.ha_prezzi and not parziale.prezzi_completi and parziale.totale == Decimal("12.50")
+
+
+def test_pdf_shows_prices_and_total_only_when_listino_has_them() -> None:
+    pytest.importorskip("reportlab")
+    from src.tpo_core.infrastructure.pdf.bolla_pdf import format_money, render_bolla_pdf
+
+    assert format_money(Decimal("12.5")) == "12,50 EUR"
+    assert format_money(Decimal("6.250")) == "6,25 EUR"
+    assert format_money(Decimal("43.755")) == "43,76 EUR"          # half-up al centesimo
+    assert format_money(Decimal("0")) == "0,00 EUR"
+
+    con = _bolla(righe=(_riga_prezzo(1, "Afila", "0.5", "12.50"), _riga_prezzo(2, "Cilantro", "3", "12.50")))
+    pdf = render_bolla_pdf(con, emittente=["Tower Power (prova)"], generata_il=NOW, compress=False)
+    for atteso in (b"Precio unit.", b"Importe", b"12,50 EUR", b"6,25 EUR", b"37,50 EUR", b"TOTAL", b"43,75 EUR"):
+        assert atteso in pdf, atteso
+    assert b"parcial" not in pdf
+
+    parziale = _bolla(righe=(_riga_prezzo(1, "Afila", "1", "12.50"), _riga_prezzo(2, "Cilantro", "1", None)))
+    pdf = render_bolla_pdf(parziale, emittente=["x"], generata_il=NOW, compress=False)
+    assert b"parcial" in pdf and b"12,50 EUR" in pdf
+
+    # listino vuoto: la bolla resta com'era, nessuna colonna e nessun totale
+    pdf = render_bolla_pdf(_bolla(), emittente=["x"], generata_il=NOW, compress=False)
+    assert b"Precio unit." not in pdf and b"TOTAL" not in pdf and b"EUR" not in pdf

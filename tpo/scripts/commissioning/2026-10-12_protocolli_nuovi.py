@@ -16,7 +16,7 @@ non vanno bene, dimmelo prima di --esegui; dopo si possono rivedere con 2026-10-
 versione, non retroattiva).
 
 Senza --esegui NON scrive nulla (anteprima). Rilanciabile: cio' che esiste gia' viene saltato.
-Richiede la migrazione 20261010_0038 (o successive).
+Richiede la migrazione 20261020_0039.
 
 Uso (dalla cartella del progetto):
   .venv/bin/python scripts/commissioning/2026-10-12_protocolli_nuovi.py            # anteprima
@@ -42,7 +42,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts" / "commissioning"))
 
 BASE_SCRIPT = ROOT / "scripts" / "commissioning" / "2026-10-08_consegne_giornata.py"
-HEAD = "20261010_0038"
+HEAD = "20261020_0039"
 VALIDO_DAL = date(2026, 10, 12)
 PROVENANCE = "OWNER_AUTHORIZED_REAL_GROWING_PROTOCOL_2026-10"
 # l'uso produttivo condiviso "Microgreens" fu creato dall'attore di sistema tpo.owner e la scrittura governata richiede lo

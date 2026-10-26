@@ -122,3 +122,55 @@ def test_script_solo_chiudibili_lists_the_rest_and_closes_only_the_closable(writ
     assert _scalar(engine, "SELECT stato::text FROM tpo.ordini WHERE public_id='ORD-940102'") == "APERTO"
     assert _scalar(engine, "SELECT count(*) FROM tpo.audit_eventi WHERE correlation_id='chiudi-residuo-ordini-2026-10-15' "
                            "AND reason LIKE '%%dichiarato da Matteo il 15/10/2026%%'") >= 1
+
+
+def _partial_with_unserved_line(engine):
+    """ORD-940201: due righe da 2 SET; la prima consegnata per intero, la seconda mai consegnata."""
+    _delivery_seed(engine, 940201, stock="2", lines=2, order_quantity="2")
+    _delivery_writer(engine).publish(_delivery_command(940201, "2", movement=940201))
+    assert _scalar(engine, "SELECT stato::text FROM tpo.ordini WHERE public_id='ORD-940201'") == "PARZIALMENTE_EVASO"
+
+
+def test_never_delivered_line_is_waived_not_zeroed_and_order_becomes_evaso(writer_postgresql_engine):
+    engine = writer_postgresql_engine
+    _partial_with_unserved_line(engine)
+    before = _snapshot(engine)
+
+    orders, _ = _close(engine, ("ORD-940201",))
+
+    assert [line.never_delivered for line in orders[0].lines] == [False, True]
+    assert _scalar(engine, "SELECT stato::text FROM tpo.ordini WHERE public_id='ORD-940201'") == "EVASO"
+    righe = _scalar(engine, "SELECT string_agg(quantita::text||'/'||quantita_rinunciata::text, ',' ORDER BY posizione) "
+                            "FROM tpo.righe_ordine ro JOIN tpo.ordini o ON o.id=ro.ordine_id "
+                            "WHERE o.public_id='ORD-940201'")
+    assert righe == "2.000000/0.000000,2.000000/2.000000"      # quantita' ordinata MAI toccata
+    assert _snapshot(engine) == before
+    audit = _scalar(engine, "SELECT after_data->>'residual_waived' FROM tpo.audit_eventi "
+                            "WHERE entity_type='RIGA_ORDINE' AND correlation_id='residuo-test' "
+                            "AND entity_public_id='RO-940202'")
+    assert audit == "2.000000"
+
+
+def test_waived_order_is_invisible_to_demand_and_cannot_be_reopened_by_state(writer_postgresql_engine):
+    engine = writer_postgresql_engine
+    _partial_with_unserved_line(engine)
+    _close(engine, ("ORD-940201",))
+    # nessuna domanda residua: la lettura del planner considera solo APERTO / PARZIALMENTE_EVASO
+    assert _scalar(engine, "SELECT count(*) FROM tpo.ordini WHERE public_id='ORD-940201' "
+                           "AND stato IN ('APERTO','PARZIALMENTE_EVASO')") == 0
+    # il database rifiuta uno stato incoerente con consegnato + rinunciato
+    with pytest.raises(Exception, match="ct_ordini_fulfilment_state"):
+        with engine.begin() as connection:
+            connection.exec_driver_sql("UPDATE tpo.ordini SET stato='PARZIALMENTE_EVASO' WHERE public_id='ORD-940201'")
+    # la rinuncia non puo' superare la quantita' ordinata
+    with pytest.raises(Exception, match="ck_righe_ordine_quantita_rinunciata_range"):
+        with engine.begin() as connection:
+            connection.exec_driver_sql("UPDATE tpo.righe_ordine SET quantita_rinunciata=quantita+1 "
+                                       "WHERE public_id='RO-940202'")
+
+
+def test_order_with_no_delivered_line_is_not_closable_by_residual(writer_postgresql_engine):
+    engine = writer_postgresql_engine
+    _delivery_seed(engine, 940301, stock="2", lines=2, order_quantity="2")      # APERTO, nessuna consegna
+    with pytest.raises(OrderResidualClosureError, match="PARZIALMENTE_EVASO"):
+        _close(engine, ("ORD-940301",))

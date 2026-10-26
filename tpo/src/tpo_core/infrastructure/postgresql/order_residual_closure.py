@@ -6,16 +6,18 @@ la quantita' ordinata supera quella consegnata. Se il cliente non deve piu' rice
 chiusura onesta e' emendare la quantita' ordinata di ogni riga a quella effettivamente consegnata.
 
 Per ogni ordine, in una sola transazione:
-- ``righe_ordine.quantita`` = quantita' consegnata (CAS su versione, +1) + audit RIGA_ORDINE con
-  la quantita' ORIGINALE ordinata nel ``before_data`` (nulla va perso);
+- riga con consegne parziali: ``righe_ordine.quantita`` = quantita' consegnata (CAS su versione, +1) + audit
+  RIGA_ORDINE con la quantita' ORIGINALE ordinata nel ``before_data`` (nulla va perso);
+- riga MAI consegnata (migrazione 0039, 20/10/2026): la quantita' ordinata resta com'e' e
+  ``righe_ordine.quantita_rinunciata`` = quantita' ordinata (la quantita' non puo' diventare 0); una riga e'
+  completa quando consegnato + rinunciato = ordinato, quindi l'ordine puo' passare a EVASO;
 - ``ordini.stato`` PARZIALMENTE_EVASO -> EVASO (CAS, +1) + audit STATE_TRANSITION: ora e' coerente
   con le consegne registrate (il database lo verifica a fine transazione);
 - ogni allocazione ATTIVA sulle sue righe viene RILASCIATA (append-only + audit).
 
 Non tocca consegne, righe di consegna, stock, semine, movimenti, fatture, programmi di fornitura.
 
-Rifiuta: ordini non PARZIALMENTE_EVASO, con consegne non ancora CONSEGNATE, con righe mai consegnate
-(la quantita' non puo' diventare 0: quel pezzo andrebbe annullato, non emendato), senza residuo.
+Rifiuta: ordini non PARZIALMENTE_EVASO, con consegne non ancora CONSEGNATE, senza residuo.
 
 Usa un cursore DB-API (psycopg, ``%s``); non fa commit.
 """
@@ -45,10 +47,15 @@ class LineResidual:
     ordered: Decimal
     delivered: Decimal
     unit: str
+    waived: Decimal = Decimal("0")
 
     @property
     def residual(self) -> Decimal:
-        return self.ordered - self.delivered
+        return self.ordered - self.delivered - self.waived
+
+    @property
+    def never_delivered(self) -> bool:
+        return self.delivered <= 0
 
 
 @dataclass(frozen=True)
@@ -75,12 +82,14 @@ def read(cursor: Any, order_public_ids: tuple[str, ...]) -> tuple[OrderResidual,
     for row in orders:
         cursor.execute(
             """SELECT ro.public_id,ro.id,ro.version,ro.posizione,v.denominazione,ro.quantita,
-                      COALESCE(SUM(rc.quantita) FILTER (WHERE c.stato='CONSEGNATA'),0),ro.unita_misura::text
+                      COALESCE(SUM(rc.quantita) FILTER (WHERE c.stato='CONSEGNATA'),0),ro.unita_misura::text,
+                      ro.quantita_rinunciata
                FROM tpo.righe_ordine ro JOIN tpo.varieta v ON v.id=ro.varieta_id
                LEFT JOIN tpo.righe_consegna rc ON rc.riga_ordine_id=ro.id
                LEFT JOIN tpo.consegne c ON c.id=rc.consegna_id
                WHERE ro.ordine_id=%s GROUP BY ro.id,v.denominazione ORDER BY ro.posizione""", (row[1],))
-        lines = tuple(LineResidual(r[0], r[1], int(r[2]), int(r[3]), r[4], Decimal(r[5]), Decimal(r[6]), r[7])
+        lines = tuple(LineResidual(r[0], r[1], int(r[2]), int(r[3]), r[4], Decimal(r[5]), Decimal(r[6]), r[7],
+                              Decimal(r[8]))
                       for r in cursor.fetchall())
         result.append(OrderResidual(row[0], row[1], int(row[2]), row[3], row[4], row[5], int(row[6]), lines))
     return tuple(result)
@@ -95,10 +104,8 @@ def _problem(order: OrderResidual) -> str | None:
         return "nessun residuo da chiudere"
     if any(line.public_id is None for line in order.lines):
         return "righe senza identificativo pubblico (RO-): assegnarlo prima"
-    never = [line.public_id for line in order.lines if line.delivered <= 0]
-    if never:
-        return ("righe mai consegnate (" + ", ".join(never) + "): la quantita' non puo' diventare 0, "
-                "serve una decisione diversa")
+    if all(line.never_delivered for line in order.lines):
+        return "nessuna riga consegnata (si annulla l'ordine, non si chiude il residuo)"
     return None
 
 
@@ -161,16 +168,24 @@ def close_residual(cursor: Any, *, order_public_ids: tuple[str, ...], actor: str
                {"remaining": "0", "state": "RILASCIATA"}, correlation_id, provenance)
     for order in orders:
         for line in order.lines:
-            cursor.execute(
-                """UPDATE tpo.righe_ordine SET quantita=%s,version=version+1
-                   WHERE id=%s AND version=%s RETURNING version""",
-                (line.delivered, line.pk, line.version))
+            if line.never_delivered:
+                cursor.execute(
+                    """UPDATE tpo.righe_ordine SET quantita_rinunciata=%s,version=version+1
+                       WHERE id=%s AND version=%s RETURNING version""",
+                    (line.ordered, line.pk, line.version))
+            else:
+                cursor.execute(
+                    """UPDATE tpo.righe_ordine SET quantita=%s,version=version+1
+                       WHERE id=%s AND version=%s RETURNING version""",
+                    (line.delivered, line.pk, line.version))
             if cursor.fetchone() != (line.version + 1,):
                 raise OrderResidualClosureError(f"{line.public_id}: CAS fallita, riprovare.")
             _audit(cursor, actor, "RIGA_ORDINE", line.public_id, "UPDATE", reason,
                    {"order": order.public_id, "variety": line.variety, "ordered": str(line.ordered),
-                    "delivered": str(line.delivered), "unit": line.unit, "version": line.version},
-                   {"order": order.public_id, "variety": line.variety, "ordered": str(line.delivered),
+                    "delivered": str(line.delivered), "waived": str(line.waived), "unit": line.unit,
+                    "version": line.version},
+                   {"order": order.public_id, "variety": line.variety,
+                    "ordered": str(line.ordered if line.never_delivered else line.delivered),
                     "residual_waived": str(line.residual), "unit": line.unit, "version": line.version + 1},
                    correlation_id, provenance)
         cursor.execute(

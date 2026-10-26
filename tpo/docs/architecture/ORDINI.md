@@ -176,6 +176,16 @@ zero. `ANNULLATO` è terminale e vieta nuovo fulfilment. Una rettifica negativa
 può produrre `EVASO -> PARZIALMENTE_EVASO` e, se tutto il netto torna zero,
 `-> APERTO`, preservando la storia append-only.
 
+Addendum 20/10/2026 (migrazione `20261020_0039`, richiesta di Matteo): il residuo di una riga puo' essere dichiarato
+NON PIU' DOVUTO senza azzerare la quantita' ordinata (che deve restare positiva). `righe_ordine.quantita_rinunciata`
+(0 <= rinunciata <= ordinata) conta come "residuo chiuso": la riga e' completa quando `consegnato + rinunciato =
+ordinato`, e `fn_check_ordine_fulfilment_state` usa questa regola (con rinunciata = 0 la semantica e' quella di
+prima). La scrive solo la chiusura governata del residuo (`order_residual_closure`, script
+`2026-10-05_chiudi_residuo_ordini.py`): righe con consegne -> quantita' ordinata portata al consegnato (originale
+nell'audit); righe MAI consegnate -> quantita' rinunciata = ordinata. Un ordine EVASO con righe rinunciate non genera
+domanda (le letture di domanda considerano solo APERTO e PARZIALMENTE_EVASO). Il downgrade rifiuta se esiste una
+rinuncia registrata.
+
 Ogni variazione autorevole incrementa atomicamente `righe_ordine.version` per
 ogni riga interessata e `ordini.version` una sola volta per ORDINE nella
 transazione. La sola preparazione di una CONSEGNA non modifica le versioni

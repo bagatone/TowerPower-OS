@@ -256,7 +256,7 @@ def testo(p: PianoSessioni) -> list[str]:
         if parziali:
             out.append("  Se il residuo NON e' piu' dovuto (ordini PARZIALMENTE_EVASO, anteprima, senza --esegui non scrive):\n"
                        "    .venv/bin/python scripts/commissioning/2026-10-05_chiudi_residuo_ordini.py --ordini " + " ".join(parziali)
-                       + " --solo-chiudibili\n    (chiude solo quelli chiudibili; gli altri, es. con righe mai consegnate, li elenca col motivo)")
+                       + " --solo-chiudibili\n    (chiude solo quelli chiudibili; gli altri, es. senza alcuna riga consegnata, li elenca col motivo)")
         if aperti:
             out.append("  Se NON li consegni piu' (ordini APERTO, nessuna consegna: si annullano; anteprima, senza --esegui non scrive):\n"
                        "    .venv/bin/python scripts/commissioning/2026-10-07_modifica_ordine.py annulla " + " ".join(aperti)

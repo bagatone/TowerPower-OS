@@ -25,7 +25,7 @@ Sempre in ANTEPRIMA finche' non aggiungi --esegui. Uso (dalla cartella del proge
   opzioni: --metodo CONTANTI|BONIFICO|CARTA|BIZUM|ALTRO   --ordine ORD-...   --manuale
            --cilantro-da SEM-...   --rabano-da SEM-...   --pdf-dir CARTELLA
 
-Si ferma (senza scrivere altro) se: la migrazione non e' 20261010_0038; SEM-000021 non e' un'Afila da 7 SET in
+Si ferma (senza scrivere altro) se: la migrazione non e' 20261020_0039; SEM-000021 non e' un'Afila da 7 SET in
 LUCE/CRESCITA/PRONTA; una semina non e' PRONTA_ALLA_RACCOLTA; una raccolta supera i SET attesi; la giacenza di una
 varieta' non e' 0 prima del carico; gli ordini aperti di La Jaira sono ambigui.
 
@@ -50,7 +50,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "commissioning"))
 
 BASE_SCRIPT = ROOT / "scripts" / "commissioning" / "2026-10-08_consegne_giornata.py"
 TAG = "jaira-2026-10-12"
-HEAD = "20261010_0038"
+HEAD = "20261020_0039"
 GIORNO = date(2026, 10, 12)
 WORK = ROOT / "outputs" / "jaira_2026_10_12"
 METODI = ("BONIFICO", "CONTANTI", "CARTA", "BIZUM", "ALTRO")

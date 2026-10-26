@@ -42,7 +42,7 @@ class Runner:
         self.calls.append(cmd)
         if self.fail:
             return SimpleNamespace(returncode=1, stdout="", stderr="CLI_ERROR")
-        return SimpleNamespace(returncode=0, stdout="STATUS: INSERTED\nORDINE_ID: ORD-999001\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="STATUS: INSERTED\nORDINE_ID=ORD-999001\nCLIENTE_ID=CLI-000011\n", stderr="")
 
 
 def _go(engine, ordine, righe, esegui=False, runner=None, module=None):

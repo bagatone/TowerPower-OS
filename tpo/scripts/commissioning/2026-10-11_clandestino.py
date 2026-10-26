@@ -22,7 +22,7 @@ Sempre in ANTEPRIMA finche' non aggiungi --esegui. Uso (dalla cartella del proge
   .venv/bin/python scripts/commissioning/2026-10-11_clandestino.py --metodo CONTANTI     # anteprima con pagamento
   .venv/bin/python scripts/commissioning/2026-10-11_clandestino.py --metodo CONTANTI --esegui
 
-Si ferma (senza scrivere altro) se: la migrazione non e' 20261010_0038; SEM-000013 non e' un Cilantro da 2 SET attesi in
+Si ferma (senza scrivere altro) se: la migrazione non e' 20261020_0039; SEM-000013 non e' un Cilantro da 2 SET attesi in
 LUCE/CRESCITA/PRONTA; una raccolta supera i SET attesi; la giacenza di una varieta' non e' 0 prima del carico.
 
 COMANDI CORRETTIVI (stampati anche a fine esecuzione con gli id esatti):
@@ -50,7 +50,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "commissioning"))
 BASE_SCRIPT = ROOT / "scripts" / "commissioning" / "2026-10-08_consegne_giornata.py"
 PROGRAMMA_SCRIPT = ROOT / "scripts" / "commissioning" / "2026-10-08_nuovo_programma.py"
 TAG = "clandestino-2026-10-10"
-HEAD = "20261010_0038"
+HEAD = "20261020_0039"
 LOCAL_TZ = ZoneInfo("Atlantic/Canary")
 GIORNO = date(2026, 10, 10)
 CLIENTE = "Clandestino"

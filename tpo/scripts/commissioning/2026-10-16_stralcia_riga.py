@@ -127,7 +127,7 @@ def run(conn, ordine: str, selettori: list[str], motivo: str, esegui: bool, out=
            "--correlation-id", chiave, "--idempotency-key", chiave, "--confirm"]
     done = runner(cmd)
     testo = (done.stdout or "") + (done.stderr or "")
-    nuovo = re.search(r"ORDINE_ID:\s*(ORD-\d+)", testo)
+    nuovo = re.search(r"^ORDINE_ID\s*[:=]\s*(ORD-\d+)", testo, re.M)
     if done.returncode != 0 or not nuovo:
         conn.rollback()
         out(f"ERRORE, il nuovo ordine NON e' stato creato e {ordine} non e' stato toccato:\n{testo.rstrip()}")

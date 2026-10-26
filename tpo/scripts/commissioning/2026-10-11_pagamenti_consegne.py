@@ -28,7 +28,7 @@ registrato), e in anteprima la forma generica.
 Dopo ogni registrazione le bolle delle consegne interessate vengono rigenerate (--sovrascrivi) nella cartella del
 cliente (default ~/Desktop/bolle), cosi' il PDF dice PAGADO. --senza-bolle per saltarle.
 Rilanciabile: una consegna gia' pagata viene saltata e lo dice; chiavi di idempotenza fisse.
-Richiede la migrazione 20261010_0038 (migrate_to_head.sh): senza, si ferma.
+Richiede la migrazione 20261020_0039 (migrate_to_head.sh): senza, si ferma.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "commissioning"))
 
 BASE_SCRIPT = ROOT / "scripts" / "commissioning" / "2026-10-08_consegne_giornata.py"
 TAG = "pagamenti-consegne-2026-10-11"
-HEAD = "20261010_0038"
+HEAD = "20261020_0039"
 LOCAL_TZ = ZoneInfo("Atlantic/Canary")
 METODI = ("BONIFICO", "CONTANTI", "CARTA", "BIZUM", "ALTRO")
 PDF_DIR_DEFAULT = Path.home() / "Desktop" / "bolle"

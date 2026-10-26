@@ -38,7 +38,7 @@ Opzioni: --metodo BONIFICO|CONTANTI|CARTA|BIZUM|ALTRO  --pronta SEM-...:SET (rip
          --nuovo-cliente [--anche-se-simile]   --programma-riga Var:SET (ripetibile) --programma-prima AAAA-MM-GG
          --programma-ogni N (default 14)   --pdf-dir CARTELLA
 
-Si ferma (senza scrivere altro) se: la migrazione non e' 20261010_0038; una varieta' e' ripetuta; una semina non e'
+Si ferma (senza scrivere altro) se: la migrazione non e' 20261020_0039; una varieta' e' ripetuta; una semina non e'
 PRONTA_ALLA_RACCOLTA (e non dichiarata con --pronta); una raccolta supera i SET attesi; la giacenza di una varieta'
 non e' 0 prima del carico; la giacenza non basta (--da-giacenza); la consegna di un giorno passato non ha --ora.
 
@@ -66,7 +66,7 @@ sys.path.insert(0, str(ROOT / "scripts" / "commissioning"))
 
 BASE_SCRIPT = ROOT / "scripts" / "commissioning" / "2026-10-08_consegne_giornata.py"
 PROGRAMMA_SCRIPT = ROOT / "scripts" / "commissioning" / "2026-10-08_nuovo_programma.py"
-HEAD = "20261010_0038"
+HEAD = "20261020_0039"
 LOCAL_TZ = ZoneInfo("Atlantic/Canary")
 METODI = ("BONIFICO", "CONTANTI", "CARTA", "BIZUM", "ALTRO")
 WORK = ROOT / "outputs" / "consegna"

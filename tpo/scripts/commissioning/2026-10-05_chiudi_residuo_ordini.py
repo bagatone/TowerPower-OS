@@ -1,9 +1,11 @@
 """Chiude il RESIDUO NON PIU' DOVUTO di ordini parzialmente evasi (5/10/2026, decisione di Matteo).
 
 Un ordine PARZIALMENTE_EVASO non si puo' annullare (ha consegne) ne' evadere (ordinato > consegnato).
-Se il residuo non e' piu' dovuto, la chiusura onesta e': per ogni riga la quantita' ordinata diventa quella
-effettivamente CONSEGNATA (la quantita' originale resta nell'audit) e l'ordine passa a EVASO; le allocazioni
-attive sulle sue righe vengono rilasciate. Tutto o niente, una transazione.
+Se il residuo non e' piu' dovuto, la chiusura onesta e': per ogni riga CON consegne la quantita' ordinata diventa
+quella effettivamente CONSEGNATA (la quantita' originale resta nell'audit); per ogni riga MAI consegnata la quantita'
+ordinata resta e il residuo viene RINUNCIATO (colonna quantita_rinunciata, migrazione 0039: la quantita' non puo'
+diventare 0). L'ordine passa a EVASO; le allocazioni attive sulle sue righe vengono rilasciate. Tutto o niente, una
+transazione.
 
 Non tocca consegne, righe di consegna, stock, semine, movimenti, fatture, programmi di fornitura.
 Senza --esegui NON scrive nulla (anteprima).
@@ -13,7 +15,7 @@ Uso:
   .venv/bin/python scripts/commissioning/2026-10-05_chiudi_residuo_ordini.py --esegui
   (default: ORD-000009 ORD-000014; altri ordini con --ordini ORD-... ORD-...)
   --solo-chiudibili : invece di rifiutare TUTTO al primo ordine non chiudibile, elenca quelli non chiudibili col motivo
-                      (es. righe mai consegnate: il database vieta quantita' 0) e lavora solo sugli altri.
+                      (es. ordini senza alcuna riga consegnata: si annullano) e lavora solo sugli altri.
 """
 import argparse
 import sys
@@ -42,8 +44,9 @@ def _oggi() -> date:
 def _motivo(oggi: date) -> str:
     """Il motivo registrato porta la data VERA dell'esecuzione (non quella della prima volta, 5/10/2026)."""
     return (f"residuo non piu' dovuto, dichiarato da Matteo il {oggi.day}/{oggi.month}/{oggi.year}: ordine "
-            "parzialmente evaso e scaduto, il cliente non deve ricevere il residuo; quantita' ordinata portata a "
-            "quella consegnata (quantita' originale conservata nell'audit)")
+            "parzialmente evaso e scaduto, il cliente non deve ricevere il residuo; righe con consegne: quantita' "
+            "ordinata portata a quella consegnata (originale nell'audit); righe mai consegnate: residuo rinunciato "
+            "(quantita' ordinata invariata)")
 
 
 def _correlazione(oggi: date) -> str:
@@ -88,8 +91,14 @@ def run(conn, order_ids, esegui: bool, out=print, solo_chiudibili: bool = False,
     for o in orders:
         out(f"{o.public_id} | {o.customer} | consegna prevista {o.delivery_date} | {o.state} -> EVASO")
         for line in o.lines:
+            if line.residual <= 0:
+                esito = "nessun residuo, resta com'e'"
+            elif line.never_delivered:
+                esito = "mai consegnata: residuo RINUNCIATO (quantita' ordinata invariata)"
+            else:
+                esito = f"quantita' ordinata diventa {line.delivered}"
             out(f"    {line.public_id} {line.variety}: ordinato {line.ordered} {line.unit}, consegnato "
-                f"{line.delivered}, residuo non piu' dovuto {line.residual} -> quantita' ordinata diventa {line.delivered}")
+                f"{line.delivered}, residuo non piu' dovuto {line.residual} -> {esito}")
     out(f"\n== ALLOCAZIONI ATTIVE CHE VERRANNO RILASCIATE ({len(allocs)})")
     for a in allocs:
         extra = f" (raccolta {a.source}, interamente caricata a stock: {'SI' if a.harvest_fully_loaded else 'NO'})" \

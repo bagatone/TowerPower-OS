@@ -16,7 +16,7 @@ non vanno bene, dimmelo prima di --esegui; dopo si possono rivedere con 2026-10-
 versione, non retroattiva).
 
 Senza --esegui NON scrive nulla (anteprima). Rilanciabile: cio' che esiste gia' viene saltato.
-Richiede la migrazione 20261010_0038.
+Richiede la migrazione 20261010_0038 (o successive).
 
 Uso (dalla cartella del progetto):
   .venv/bin/python scripts/commissioning/2026-10-12_protocolli_nuovi.py            # anteprima
@@ -59,7 +59,7 @@ NUOVI = [
 TEMPLATE_SQL = """
 SELECT v.public_id, v.denominazione, c.denominazione, up.codice, up.denominazione, p.denominazione,
        pv.orario_semina_previsto, pv.orario_raccolta_target, pv.resa_attesa, pv.granularita_produttiva,
-       pv.harvest_min_lead_giorni, pv.buffer_temporale_minuti, pv.public_id
+       pv.harvest_min_lead_giorni, pv.buffer_temporale_minuti, pv.public_id, pv.harvest_max_lead_giorni
 FROM tpo.protocollo_versioni pv
 JOIN tpo.protocolli p ON p.id = pv.protocollo_id
 JOIN tpo.cultivar_usi cu ON cu.id = p.cultivar_uso_id
@@ -138,7 +138,7 @@ def prepara(b, ctx, modello_nome):
     """Valida tutto e costruisce il piano; non scrive."""
     ctx.check_head()
     m = leggi_modello(b, ctx, modello_nome)
-    (_, m_var, m_cult, up_code, up_name, m_prot, sowing, harvest, resa, gran, lead_min, buffer, m_pv) = m
+    (_, m_var, m_cult, up_code, up_name, m_prot, sowing, harvest, resa, gran, lead_min, buffer, m_pv, m_lead_max) = m
     numeri = [int(x.group(1)) for (pid,) in ctx.q("SELECT public_id FROM tpo.protocollo_versioni")
               if (x := re.fullmatch(r"PV-(\d+)", pid))]
     prossimo = max(numeri or [0]) + 1
@@ -148,6 +148,9 @@ def prepara(b, ctx, modello_nome):
         if not trovata:
             raise b.Stop(f"varieta' '{spec['nome']}' non trovata a sistema.")
         vid, den = trovata
+        lead_copiato = spec["lead_max"] is None
+        if lead_copiato:
+            spec = {**spec, "lead_max": m_lead_max}   # non dichiarato: copiato dal modello e MOSTRATO come tale
         if lead_min > spec["lead_max"]:
             raise b.Stop(f"{den}: anticipo minimo copiato da {m_var} ({lead_min} gg) supera il massimo dichiarato "
                          f"({spec['lead_max']} gg): dimmi quale minimo usare.")
@@ -159,7 +162,7 @@ def prepara(b, ctx, modello_nome):
         if not esistenti:
             prossimo += 1
         piano.append({
-            **spec, "valido_dal": spec.get("valido_dal", VALIDO_DAL), "variety_id": vid, "denominazione": den, "esiste": bool(esistenti), "pv": pv,
+            **spec, "lead_copiato": lead_copiato, "valido_dal": spec.get("valido_dal", VALIDO_DAL), "variety_id": vid, "denominazione": den, "esiste": bool(esistenti), "pv": pv,
             "cultivar": den, "protocollo": f"Protocollo {den}",
             "uso_codice": up_code, "uso_nome": up_name,
             "semina": sowing, "raccolta": harvest, "resa": resa, "granularita": gran, "lead_min": lead_min,
@@ -174,7 +177,10 @@ def mostra(piano):
         print(f"\n=== {p['denominazione']} ({p['variety_id']}) -> {p['pv']}"
               + ("  [PROTOCOLLO GIA' ESISTENTE: salto]" if p["esiste"] else ""))
         print(f"  dichiarati da Matteo : idratazione {_n(p['idratazione'])} h, germinazione {p['germinazione']} gg, "
-              f"luce/crescita {p['luce']} gg, {_n(p['g_per_set'])} g/SET, consegna entro {p['lead_max']} gg dalla raccolta")
+              f"luce/crescita {p['luce']} gg, {_n(p['g_per_set'])} g/SET"
+              + ("" if p["lead_copiato"] else f", consegna entro {p['lead_max']} gg dalla raccolta"))
+        if p["lead_copiato"]:
+            print(f"  copiato da {p['modello']:8}: consegna entro {p['lead_max']} gg dalla raccolta (non dichiarato)")
         print(f"  copiati da {p['modello']:8}: anticipo minimo {p['lead_min']} gg, buffer {p['buffer']} min, "
               f"semina {p['semina']}, raccolta {p['raccolta']}, resa {_n(p['resa'])} SET, granularita' {_n(p['granularita'])}")
         print(f"  nomi                 : cultivar '{p['cultivar']}', protocollo '{p['protocollo']}', "
@@ -259,14 +265,14 @@ def main() -> int:
     ap.add_argument("--germinazione", type=int, help="giorni di germinazione")
     ap.add_argument("--luce", type=int, help="giorni di luce/crescita")
     ap.add_argument("--g-per-set", type=Decimal, help="grammi di seme per SET")
-    ap.add_argument("--consegna-entro", type=int, help="giorni massimi tra raccolta e consegna")
+    ap.add_argument("--consegna-entro", type=int, help="giorni massimi tra raccolta e consegna (default: come il modello)")
     ap.add_argument("--seme", help="parole (separate da virgola) per riconoscere il seme a magazzino")
     ap.add_argument("--valido-dal", help="AAAA-MM-GG (default: oggi)")
     a = ap.parse_args()
     nuovi = None
     if a.varieta:
         mancano = [n for n, v in (("--germinazione", a.germinazione), ("--luce", a.luce), ("--g-per-set", a.g_per_set),
-                                  ("--consegna-entro", a.consegna_entro), ("--seme", a.seme)) if v is None]
+                                  ("--seme", a.seme)) if v is None]
         if mancano:
             print(f"STOP: con --varieta servono anche {', '.join(mancano)}.", file=sys.stderr)
             return 1

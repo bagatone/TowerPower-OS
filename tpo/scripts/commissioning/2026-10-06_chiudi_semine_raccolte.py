@@ -24,7 +24,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts" / "commissioning"))
 
 RUN = str(ROOT / "scripts" / "commissioning" / "run_tpo.sh")
-TZ = timezone(timedelta(hours=1))
+from zoneinfo import ZoneInfo
+TZ = ZoneInfo("Atlantic/Canary")  # Canarie: +01:00 fino al 25/10/2026 ore 02:00, poi +00:00 (ora solare)
 ESITI = ["raccolta completa", "raccolta parziale con scarto", "scarto totale", "interruzione"]
 DEFAULT_SEMINE = ("SEM-000001", "SEM-000002")
 PROV = '{"target_state":"OWNER_AUTHORIZED","effective_at":"OWNER_AUTHORIZED","final_outcome":"OWNER_AUTHORIZED"}'

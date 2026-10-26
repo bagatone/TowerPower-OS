@@ -37,7 +37,8 @@ from secret_boundary import load_postgresql_parameters  # noqa: E402
 import psycopg  # noqa: E402
 
 RUN = str(ROOT / "scripts" / "commissioning" / "run_tpo.sh")
-TZ = timezone(timedelta(hours=1))  # ora locale delle Canarie in ottobre (WEST)
+from zoneinfo import ZoneInfo
+TZ = ZoneInfo("Atlantic/Canary")  # Canarie: +01:00 fino al 25/10/2026 ore 02:00, poi +00:00 (ora solare)
 TODAY = date(2026, 10, 4)
 TAG = "2026-10-04"
 

@@ -32,7 +32,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts" / "commissioning"))
 
-TZ = timezone(timedelta(hours=1))      # Canarie, ora legale fino al 25/10/2026
+from zoneinfo import ZoneInfo
+TZ = ZoneInfo("Atlantic/Canary")  # Canarie: +01:00 fino al 25/10/2026 ore 02:00, poi +00:00 (ora solare)
 MATTINA = ROOT / "scripts" / "commissioning" / "2026-10-06_semine_mattina.py"
 PY, CHIUDI = ".venv/bin/python", "scripts/commissioning/2026-10-05_chiudi_semina.py"
 

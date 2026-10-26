@@ -31,7 +31,8 @@ base = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = base
 _spec.loader.exec_module(base)
 
-TZ = timezone(timedelta(hours=1))
+from zoneinfo import ZoneInfo
+TZ = ZoneInfo("Atlantic/Canary")  # Canarie: +01:00 fino al 25/10/2026 ore 02:00, poi +00:00 (ora solare)
 RUN = base.RUN
 DAY = date(2026, 10, 6)
 SEMINE = [("Mizuna", 1), ("Rucola", 1), ("Pak Choi", 1)]  # (varieta', SET dichiarati da Matteo)

@@ -19,7 +19,7 @@ def _module():
 
 
 PAK = ("VAR-000008", "Pak Choi", "Pak Choi White", "MICROGREEN", "Microgreen", "Protocollo Pak Choi White",
-       time(9, 0), time(8, 0), Decimal("1"), Decimal("1"), 1, 30, "PV-000010")
+       time(9, 0), time(8, 0), Decimal("1"), Decimal("1"), 1, 30, "PV-000010", 7)
 
 
 class FakeCtx:
@@ -30,7 +30,7 @@ class FakeCtx:
         self.sementi = sementi if sementi is not None else [
             (16, "Hyfarm", "Col Roja (Cavolo rosso)", Decimal("740")), (17, "Hyfarm", "Girasoli (Sunflower)", Decimal("20"))]
         self.impieghi = set(impieghi)
-        self.protocolli = protocolli if protocolli is not None else [PAK[:10] + (lead_min, 30, "PV-000010")]
+        self.protocolli = protocolli if protocolli is not None else [PAK[:10] + (lead_min, 30, "PV-000010", 7)]
 
     def check_head(self): pass
 
@@ -87,8 +87,8 @@ def test_plan_uses_declared_values_and_copies_the_rest_from_pak_choi(capsys):
 def test_rerun_skips_what_exists():
     module = _module()
     esistente = ("VAR-000012", "Cavolo rosso", "Cavolo rosso", "MICROGREEN", "Microgreen", "Protocollo Cavolo rosso",
-                 time(9, 0), time(8, 0), Decimal("1"), Decimal("1"), 1, 30, "PV-000012")
-    ctx = FakeCtx(impieghi={(16, "VAR-000012")}, protocolli=[PAK[:13], esistente])
+                 time(9, 0), time(8, 0), Decimal("1"), Decimal("1"), 1, 30, "PV-000012", 7)
+    ctx = FakeCtx(impieghi={(16, "VAR-000012")}, protocolli=[PAK, esistente])
     module.run(ctx)
     assert [_arg(c, "--variety-id") for c in ctx.calls if c[0] == "protocollo"] == ["VAR-000013"]
     assert [_arg(c, "--protocol-version") for c in ctx.calls if c[0] == "semente-impiego"] == ["PV-000013"]
@@ -130,3 +130,16 @@ def test_a_single_custom_variety_with_its_own_validity_date(capsys):
                                            "--seed-grams-per-set", "--harvest-max-lead-days")] == ["12", "3", "6", "40", "8"]
     assert [_arg(c, "--referenza-commerciale") for c in ctx.calls if c[0] == "semente-impiego"] == ["Lenticchie (Lentils)"]
     assert "valido dal 2026-10-13" in capsys.readouterr().out
+
+
+def test_undeclared_delivery_limit_is_copied_from_the_model_and_shown_as_copied(capsys):
+    from datetime import date
+    module = _module()
+    ctx = FakeCtxLenticchia()
+    nuovi = [{"nome": "Lenticchia", "idratazione": Decimal("12"), "germinazione": 3, "luce": 6, "g_per_set": Decimal("40"),
+              "lead_max": None, "valido_dal": date(2026, 10, 13), "seme": ("lenticch", "lentil")}]
+    assert module.run(ctx, nuovi=nuovi) == 0
+    [protocollo] = [c for c in ctx.calls if c[0] == "protocollo"]
+    assert _arg(protocollo, "--harvest-max-lead-days") == "7"       # dal modello (Pak Choi), non inventato
+    out = capsys.readouterr().out
+    assert "consegna entro 7 gg dalla raccolta (non dichiarato)" in out

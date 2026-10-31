@@ -33,3 +33,6 @@ runtime/
 
 # Pacchetti di sincronizzazione temporanei
 work/*.tgz
+
+# Dati emittente fatture (NIF, IBAN)
+config/fattura_emittente.yaml

@@ -52,7 +52,7 @@ def _describe(cursor, ids):
     return cursor.fetchall()
 
 
-def run(conn, ids, esegui: bool, out=print) -> int:
+def run(conn, ids, esegui: bool, out=print, reason: str = REASON, correlation: str = CORRELATION) -> int:
     """Anteprima o esecuzione su una connessione psycopg gia' aperta (non in autocommit)."""
     cur = conn.cursor()
     try:
@@ -73,15 +73,15 @@ def run(conn, ids, esegui: bool, out=print) -> int:
         seen.add((c.variety, c.unit))
         out(f"  {c.variety}: {c.stock_available} | {c.stock_active_allocated} | "
             f"{c.stock_active_allocated - c.stock_available} {c.unit}")
-    out(f"Motivo registrato: {REASON}")
+    out(f"Motivo registrato: {reason}")
     out("Non vengono toccati: piani, ordini, righe d'ordine, stock, semine, movimenti, consegne.")
     if not esegui:
         conn.rollback()
         out("\nANTEPRIMA: nulla e' stato scritto. Per eseguire aggiungi --esegui")
         return 0
     try:
-        done = invalidate(cur, allocation_public_ids=ids, actor=ACTOR, reason=REASON,
-                          correlation_id=CORRELATION, provenance=PROVENANCE)
+        done = invalidate(cur, allocation_public_ids=ids, actor=ACTOR, reason=reason,
+                          correlation_id=correlation, provenance=PROVENANCE)
         conn.commit()
     except Exception as exc:  # tutto o niente
         conn.rollback()
@@ -101,7 +101,11 @@ def main() -> int:
     ap.add_argument("--esegui", action="store_true")
     ap.add_argument("--allocazione", action="append",
                     help="ALL-xxxxxx (ripetibile). Default: ALL-000065 ALL-000067 ALL-000068")
+    ap.add_argument("--motivo", help="motivo da registrare (default: stock venduto fuori sistema, 5/10/2026)")
+    ap.add_argument("--correlazione", help="correlation-id (obbligatorio con --motivo)")
     a = ap.parse_args()
+    if bool(a.motivo) != bool(a.correlazione):
+        raise SystemExit("STOP: --motivo e --correlazione vanno dati insieme.")
     ids = tuple(sorted(set(a.allocazione or DEFAULT_ALLOCATIONS)))
 
     from secret_boundary import load_postgresql_parameters  # noqa: E402
@@ -111,7 +115,7 @@ def main() -> int:
                            password=p["password"], sslmode=p["sslmode"],
                            connect_timeout=p["connect_timeout"])
     try:
-        return run(conn, ids, a.esegui)
+        return run(conn, ids, a.esegui, reason=a.motivo or REASON, correlation=a.correlazione or CORRELATION)
     finally:
         conn.close()
 

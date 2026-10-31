@@ -1,0 +1,10 @@
+# Copia questo file in config/fattura_emittente.yaml e compila i dati dell'emittente delle fatture.
+# Il file reale NON va in git (contiene NIF e IBAN).
+emittente:
+  - "DA COMPILARE: nome | NIF"
+  - "DA COMPILARE: indirizzo"
+  - "DA COMPILARE: citta', provincia | email"
+pagamento:
+  - "DA COMPILARE: beneficiari"
+  - "DA COMPILARE: IBAN | BIC"
+piede: "DA COMPILARE: frase a piede pagina"

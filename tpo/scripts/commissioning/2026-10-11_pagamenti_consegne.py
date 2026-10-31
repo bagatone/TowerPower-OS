@@ -22,6 +22,14 @@ Tre usi (uno per volta). Senza --esegui NON scrive nulla (anteprima).
 3) --annulla PGC-000003 [PGC-...] : annulla uno o piu' pagamenti registrati per errore (restano nello storico;
    poi si puo' registrare quello giusto).
 
+4) --riordina : (29/10/2026) mette a posto le bolle PDF gia' salvate: quelle delle consegne PAGATE vanno in
+   ~/Desktop/bolle/pagate/<cliente>/, quelle ancora DA PAGARE restano (o tornano) in ~/Desktop/bolle/<cliente>/.
+   Non scrive nel database; senza --esegui e' solo anteprima. Mai cancella: sposta soltanto.
+
+Bolle PAGATE (29/10/2026, richiesta di Matteo): dopo --pagata/--storico la bolla rigenerata (PAGADO) viene spostata
+in <cartella bolle>/pagate/<cliente>/; con --annulla torna nella cartella del cliente e viene rigenerata. Per saltare
+lo spostamento: --senza-bolle.
+
 A fine esecuzione stampa sempre il COMANDO CORRETTIVO pronto da copiare (annulla esattamente cio' che ha appena
 registrato), e in anteprima la forma generica.
 
@@ -34,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import re
 import sys
 import unicodedata
@@ -117,6 +126,47 @@ def rigenera_bolla(ctx, con, pdf_dir):
              "--sovrascrivi"], f"bolla PDF {con} (rigenerata)")
 
 
+PAGATE = "pagate"
+
+
+def _cerca_bolla(pdf_dir, con, nelle_pagate):
+    """Le bolle PDF della consegna: nelle sottocartelle cliente (nelle_pagate=False) o in pagate/<cliente>/."""
+    base = pdf_dir / PAGATE if nelle_pagate else pdf_dir
+    if not base.is_dir():
+        return []
+    trovate = []
+    for sub in sorted(base.iterdir()):
+        if sub.is_dir() and (nelle_pagate or sub.name != PAGATE):
+            trovate += sorted(sub.glob(f"bolla_{con}_*.pdf"))
+    return trovate
+
+
+def metti_in_pagate(con, pdf_dir, esegui):
+    """Sposta (mai cancella) la bolla da <pdf_dir>/<cliente>/ a <pdf_dir>/pagate/<cliente>/. Ritorna quante."""
+    mosse = 0
+    for src in _cerca_bolla(pdf_dir, con, False):
+        dest = pdf_dir / PAGATE / src.parent.name / src.name
+        print(f"   bolla {con}: {'sposto' if esegui else 'sposterei'} in pagate/{src.parent.name}/")
+        if esegui:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src, dest)
+        mosse += 1
+    return mosse
+
+
+def rimetti_da_pagare(con, pdf_dir, esegui):
+    """Il contrario: da <pdf_dir>/pagate/<cliente>/ torna in <pdf_dir>/<cliente>/. Ritorna quante."""
+    mosse = 0
+    for src in _cerca_bolla(pdf_dir, con, True):
+        dest = pdf_dir / src.parent.name / src.name
+        print(f"   bolla {con}: {'rimetto' if esegui else 'rimetterei'} in {src.parent.name}/ (da pagare)")
+        if esegui:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(src, dest)
+        mosse += 1
+    return mosse
+
+
 SELF = "scripts/commissioning/2026-10-11_pagamenti_consegne.py"
 PY = ".venv/bin/python"
 
@@ -129,7 +179,22 @@ def run(ctx, a) -> int:
           f"{sum(1 for r in righe.values() if r[4])}; da pagare: {sum(1 for r in righe.values() if not r[4])}")
     if a.annulla:
         return _annulla(ctx, a)
+    if a.riordina:
+        return _riordina(ctx, a, righe)
     return _registra(ctx, a, righe)
+
+
+def _riordina(ctx, a, righe) -> int:
+    pdf_dir = Path(a.pdf_dir)
+    in_pagate = da_pagare = 0
+    for con, r in righe.items():
+        if r[4]:
+            in_pagate += metti_in_pagate(con, pdf_dir, ctx.execute)
+        else:
+            da_pagare += rimetti_da_pagare(con, pdf_dir, ctx.execute)
+    print(f"\nBolle {'spostate' if ctx.execute else 'da spostare'} in pagate/: {in_pagate}; "
+          f"rimesse nella cartella del cliente (da pagare): {da_pagare}.")
+    return _fine(ctx)
 
 
 def _annulla(ctx, a) -> int:
@@ -150,6 +215,7 @@ def _annulla(ctx, a) -> int:
                  "--correlation-id", key, "--idempotency-key", key],
                 f"annulla {originale} (consegna {row[1]}, {row[2]}, {row[3]})")
         if not a.senza_bolle:
+            rimetti_da_pagare(row[1], Path(a.pdf_dir), ctx.execute)
             rigenera_bolla(ctx, row[1], Path(a.pdf_dir))
         extra = f" --importo {row[4]}" if row[4] is not None else ""
         correttivi.append(f"{PY} {SELF} --pagata {row[1]} --metodo {row[3]} --data {row[2].isoformat()}{extra} --esegui")
@@ -208,6 +274,7 @@ def _registra(ctx, a, righe) -> int:
     if not a.senza_bolle:
         for con in elaborate:
             rigenera_bolla(ctx, con, Path(a.pdf_dir))
+            metti_in_pagate(con, Path(a.pdf_dir), ctx.execute)
 
     print("\nCOMANDO CORRETTIVO (se qualcosa non torna, annulla esattamente quanto registrato qui):")
     if ctx.execute and nuove:
@@ -239,6 +306,8 @@ def parser() -> argparse.ArgumentParser:
     uso.add_argument("--storico", action="store_true", help="dichiara pagate tutte le consegne gia' fatte")
     uso.add_argument("--pagata", nargs="+", metavar="CON-000000", help="consegne pagate (pagamento vero)")
     uso.add_argument("--annulla", nargs="+", metavar="PGC-000000", help="annulla pagamenti registrati per errore")
+    uso.add_argument("--riordina", action="store_true",
+                     help="mette le bolle PDF delle consegne pagate in bolle/pagate/<cliente>/ (non scrive nel DB)")
     ap.add_argument("--escludi-clienti", nargs="+", metavar="NOME",
                     help="con --storico: clienti che NON hanno pagato (le loro consegne restano DA PAGARE)")
     ap.add_argument("--escludi-consegne", nargs="+", metavar="CON-000000",

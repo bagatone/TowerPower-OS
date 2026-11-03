@@ -18,6 +18,8 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
+from .nomi_varieta import nome_spagnolo
+
 LARGHEZZA = 62 * mm
 ALTEZZA = 29 * mm
 MARGINE = 2.5 * mm
@@ -48,9 +50,10 @@ def _disegna(pdf, e: Etichetta, x: float = 0, y: float = 0) -> None:
     pdf.drawString(MARGINE, ALTEZZA - 6 * mm, "TOWER POWER")
     pdf.setFont("Helvetica", 6)
     pdf.drawRightString(LARGHEZZA - MARGINE, ALTEZZA - 6 * mm, e.consegna_id)
-    size = _fit(e.varieta, "Helvetica-Bold", 13, larghezza_utile)
+    nome = nome_spagnolo(e.varieta)
+    size = _fit(nome, "Helvetica-Bold", 13, larghezza_utile)
     pdf.setFont("Helvetica-Bold", size)
-    pdf.drawString(MARGINE, ALTEZZA - 12 * mm, e.varieta)
+    pdf.drawString(MARGINE, ALTEZZA - 12 * mm, nome)
     pdf.setFont("Helvetica", 6)
     pdf.drawString(MARGINE, ALTEZZA - 16 * mm, "Código de trazabilidad")
     size = _fit(e.codice_tracciabilita, "Helvetica-Bold", 16, larghezza_utile)

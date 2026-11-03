@@ -43,7 +43,7 @@ PER_CONSEGNA_DEFAULT = "Okra,Puipana,Splash,Tsunami"
 UNISCI_DEFAULT = "CLI-000014=CLI-000004"
 NUM_RE = re.compile(r"^TP-(\d{4})-(\d{3,})$")
 MESI = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-SPAGNOLO = {"Basilico": "Albahaca", "Girasole": "Girasol", "Rucola": "Rúcula"}
+from src.tpo_core.infrastructure.pdf.nomi_varieta import nome_spagnolo  # noqa: E402  (tabella unica per bolle, etichette e fatture)
 METODO = {"BONIFICO": "transferencia", "CONTANTI": "efectivo", "CARTA": "tarjeta", "BIZUM": "Bizum", "ALTRO": "otro"}
 
 
@@ -92,7 +92,7 @@ def carica_consegne(cur, pks):
     cur.execute(SQL_RIGHE, (pks,))
     righe_pk, righe = [], defaultdict(list)
     for rid, cpk, var, qty, uom, prezzo, aliq in cur.fetchall():
-        righe[cpk].append({"rid": rid, "varieta": SPAGNOLO.get(var, var), "qty": Decimal(qty), "uom": uom,
+        righe[cpk].append({"rid": rid, "varieta": nome_spagnolo(var), "qty": Decimal(qty), "uom": uom,
                            "prezzo": None if prezzo is None else Decimal(prezzo),
                            "igic": None if aliq is None else Decimal(aliq), "origini": []})
         righe_pk.append(rid)

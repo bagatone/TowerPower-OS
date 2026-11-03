@@ -23,6 +23,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from xml.sax.saxutils import escape
 
 from ...application.bolla_lettura.models import Bolla
+from .nomi_varieta import nome_spagnolo
 
 LOCAL_TZ = ZoneInfo("Atlantic/Canary")
 _UNITA = {"SET": "set", "GRAM": "g"}
@@ -131,7 +132,7 @@ def render_bolla_pdf(
     for riga in bolla.righe:
         unit = _UNITA.get(riga.unita_misura, riga.unita_misura)
         qty = f"{format_quantity(riga.quantita)} {unit}"
-        label = riga.varieta_denominazione + (" (rectificación)" if riga.rettifica else "")
+        label = nome_spagnolo(riga.varieta_denominazione) + (" (rectificación)" if riga.rettifica else "")
         detail: list = []
         for origine in riga.origini:
             line = (f"{origine.codice_tracciabilita} - cosecha {origine.raccolta_id} del "

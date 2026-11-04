@@ -41,6 +41,7 @@ def db(environment, monkeypatch):  # noqa: F811
     monkeypatch.setattr(cli_semina, "build_semina_commissioning_service",
                         lambda settings: SeminaCommissioningService(_writer))
     monkeypatch.setattr(ns, "_consuma_materiali", lambda *a: None)       # i materiali hanno il loro test
+    monkeypatch.setattr(ns, "_compila_resa_attesa", lambda *a: "")       # resa attesa: test unitario + script
     yield engine, aperte
     for c in aperte:
         c.close()

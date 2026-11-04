@@ -4,7 +4,11 @@ lista, i SET, il giorno e l'ora, senza passare dal terminale (richiesta di Matte
 E' la stessa procedura governata che finora si faceva con `scripts/commissioning/2026-10-12_semine.py`:
   1. `tpo semina commission` (stato AVVIATA, origine RIPRISTINO_STOCK, nessun cliente/ordine: si collega dopo);
      grammi = g/SET del protocollo APPROVATO corrente x SET, presi dal lotto di seme scelto;
-  2. consumo materiali (`tpo materiali consumo-semina`): 4 vaschette + 4 substrati per SET.
+  2. consumo materiali (`tpo materiali consumo-semina`): 4 vaschette + 4 substrati per SET;
+  3. resa attesa e finestra di raccolta (4/11/2026, richiesta di Matteo: "il sistema il piu' indipendente possibile"):
+     la stessa autorita' governata di `scripts/commissioning/2026-10-06_compila_semine_in_corso.py`
+     (`semina_predictive_authority.commission_predictive`), con i SET scelti qui. Prima restava "SET ?" finche' non
+     si lanciava lo script a parte, e il planner non vedeva la semina.
 Nessuna regola di dominio nuova qui: le regole le applicano i comandi governati. Qui si leggono i dati, si mostra
 l'anteprima ESATTA e, dopo la conferma, si rileggono i dati un istante prima di scrivere (mai fidarsi della proposta).
 
@@ -18,6 +22,7 @@ Solo microgreens (unita' SET, interi). La Towerfarm (grammi/unita') non c'e' anc
 """
 from __future__ import annotations
 
+import json
 import re
 from argparse import Namespace
 from dataclasses import asdict, dataclass, field
@@ -25,7 +30,10 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Sequence
 
+import psycopg
+
 from ..cli.consumo_materiali import run_consumo_materiali_command
+from ..infrastructure.postgresql import semina_predictive_authority as autorita_predittiva
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 from . import db_context, magazzino
 from .actions import PropostaAmbigua, SeminaOperazioneFallita, TZ_LOCALE, _esegui, _n
@@ -35,6 +43,8 @@ PEZZI_PER_SET = 4
 SET_MAX = 50                       # tetto di buon senso contro un refuso (es. 20 invece di 2)
 ORA_GIORNO_PASSATO = time(12, 0)   # stessa regola dei cambi di stadio: orario non osservato
 GIORNI_INDIETRO_MAX = 31
+PROVENANCE_RESA = json.dumps({"declared_sets": "OWNER_AUTHORIZED", "harvest_window_days": "OWNER_AUTHORIZED",
+                              "derivation": "PROTOCOL_VERSION"}, sort_keys=True)
 
 SQL_VARIETA = ("SELECT public_id, denominazione, codice_tracciabilita FROM tpo.varieta "
                "WHERE stato = 'ATTIVA' ORDER BY lower(denominazione)")
@@ -397,16 +407,24 @@ def esegui(settings: PostgreSQLSettings, p: PropostaNuovaSemina, actor: str, ade
             raise SeminaOperazioneFallita(f"Semina scritta ma risposta non riconosciuta: controlla il Magazzino.\n{testo}")
         semina, codice, prefisso = m_id.group(1), (m_cod.group(1) if m_cod else ""), "Semina registrata"
     etichetta = f"{codice} ({semina})" if codice else semina
+    mancanti = []
     try:
         _consuma_materiali(semina, n, actor, marca)
     except SeminaOperazioneFallita as exc:
+        mancanti.append(f"i materiali NON sono stati scalati: {exc}")
+    resa = ""
+    try:
+        resa = _compila_resa_attesa(settings, semina, n, actor, marca)
+    except SeminaOperazioneFallita as exc:
+        mancanti.append(f"la resa attesa e la finestra di raccolta NON sono state registrate: {exc}")
+    if mancanti:
         raise SeminaOperazioneFallita(
-            f"{prefisso}: {etichetta}, {n} SET {v.nome}. MA i materiali NON sono stati scalati: {exc}\n"
-            "La semina e' al sicuro. Per completare i materiali basta confermare di nuovo la stessa semina "
+            f"{prefisso}: {etichetta}, {n} SET {v.nome}. MA " + "; ".join(mancanti) + "\n"
+            "La semina e' al sicuro. Per completare basta confermare di nuovo la stessa semina "
             "(non si duplica nulla).") from None
     return (f"{prefisso}: {etichetta} — {n} SET {v.nome}, {p.grammi} g dal lotto {lotto.public_id} "
             f"(residuo {_n(lotto.residuo - Decimal(p.grammi)) if esistente is None else _n(lotto.residuo)} g).\n"
-            f"Materiali scalati: {PEZZI_PER_SET * n} vaschette + {PEZZI_PER_SET * n} substrati.")
+            f"Materiali scalati: {PEZZI_PER_SET * n} vaschette + {PEZZI_PER_SET * n} substrati.\n{resa}")
 
 
 def _consuma_materiali(semina: str, n: int, actor: str, marca: str) -> None:
@@ -420,6 +438,27 @@ def _consuma_materiali(semina: str, n: int, actor: str, marca: str) -> None:
     codice = run_consumo_materiali_command(args, stdout=out, stderr=err)
     if codice != 0:
         raise SeminaOperazioneFallita((err.getvalue() or out.getvalue() or f"codice {codice}").strip())
+
+
+def _compila_resa_attesa(settings: PostgreSQLSettings, semina: str, n: int, actor: str, marca: str) -> str:
+    """Scrive resa attesa e finestra di raccolta della semina, dal protocollo con cui e' stata seminata e dai SET
+    scelti qui (stessa autorita' governata dello script di compilazione). Idempotente: se sono gia' scritti con gli
+    stessi valori non cambia nulla; se sono diversi si rifiuta (la correzione e' una decisione separata)."""
+    reason = (f"Resa attesa e finestra di raccolta di {semina} ({n} SET) dal protocollo, con i SET scelti da {actor} "
+              "nella schermata nuova semina del diario.")
+    try:
+        with db_context._connect(settings) as conn:
+            with conn.cursor() as cur:
+                autorita_predittiva.commission_predictive(
+                    cur, declared_sets={semina: n}, actor=actor, reason=reason,
+                    correlation_id=f"DIARIO-RESA-ATTESA-{semina}", provenance=PROVENANCE_RESA)
+                (item,) = autorita_predittiva.read(cur, (semina,))
+            conn.commit()
+    except (autorita_predittiva.SeminaPredictiveAuthorityError, psycopg.Error, ValueError) as exc:
+        raise SeminaOperazioneFallita(str(exc)) from None
+    quantita, uom, inizio, fine = item.filled
+    return (f"Resa attesa {_n(quantita)} {uom}, finestra di raccolta dal {inizio.astimezone(TZ_LOCALE):%d/%m} "
+            f"al {fine.astimezone(TZ_LOCALE):%d/%m}.")
 
 
 def a_dizionario_proposta(p: PropostaNuovaSemina) -> dict:

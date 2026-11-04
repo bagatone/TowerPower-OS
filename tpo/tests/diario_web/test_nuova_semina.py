@@ -40,7 +40,7 @@ DUE_PROTOCOLLI = _var("VAR-000024", "Rucola", lotti=[_lotto("LSE-000024", "500")
 def finti(monkeypatch):
     """Sostituisce le tre letture e i due comandi governati; registra cosa viene chiamato."""
     stato = {"opzioni": [CIL, ACE], "stock": {"vaschette": Decimal(2624), "substrato": Decimal(2624)},
-             "semine": [], "comandi": [], "materiali": [], "materiali_errore": None}
+             "semine": [], "comandi": [], "materiali": [], "materiali_errore": None, "resa": [], "resa_errore": None}
     monkeypatch.setattr(ns, "leggi_opzioni", lambda settings: stato["opzioni"])
     monkeypatch.setattr(ns, "leggi_stock", lambda settings: stato["stock"])
     monkeypatch.setattr(ns, "semine_del_giorno", lambda settings, v, g: stato["semine"])
@@ -55,8 +55,15 @@ def finti(monkeypatch):
             raise SeminaOperazioneFallita(stato["materiali_errore"])
         stato["materiali"].append((semina, n, actor))
 
+    def compila_resa(settings, semina, n, actor, marca):
+        if stato["resa_errore"]:
+            raise SeminaOperazioneFallita(stato["resa_errore"])
+        stato["resa"].append((semina, n, actor))
+        return "Resa attesa 1 SET, finestra di raccolta dal 10/11 al 15/11."
+
     monkeypatch.setattr(ns, "_esegui", commissiona)
     monkeypatch.setattr(ns, "_consuma_materiali", consuma)
+    monkeypatch.setattr(ns, "_compila_resa_attesa", compila_resa)
     return stato
 
 
@@ -188,6 +195,22 @@ def test_conferma_registra_la_semina_poi_scala_i_materiali(finti) -> None:
     assert "ACE-2110-A (SEM-000053)" in out and "4 vaschette + 4 substrati" in out and "residuo 232 g" in out
 
 
+def test_conferma_scrive_anche_resa_attesa_e_finestra_cosi_la_semina_non_resta_set_punto_interrogativo(finti) -> None:
+    out = ns.esegui(object(), _prepara(n=2), "giulia@towerpower", ADESSO)
+    assert finti["resa"] == [("SEM-000053", 2, "giulia@towerpower")]
+    assert "Resa attesa 1 SET, finestra di raccolta dal 10/11 al 15/11." in out
+
+
+def test_se_la_resa_attesa_fallisce_la_semina_resta_e_il_messaggio_lo_dice(finti) -> None:
+    finti["resa_errore"] = "resa del protocollo in GRAM"
+    with pytest.raises(SeminaOperazioneFallita) as exc:
+        ns.esegui(object(), _prepara(), "x", ADESSO)
+    testo = str(exc.value)
+    assert "ACE-2110-A (SEM-000053)" in testo and "resa attesa e la finestra di raccolta NON sono state registrate" in testo
+    assert "resa del protocollo in GRAM" in testo and "confermare di nuovo" in testo and len(finti["comandi"]) == 1
+    assert finti["materiali"] == [("SEM-000053", 1, "x")]      # i materiali sono comunque stati scalati
+
+
 def test_la_chiave_di_idempotenza_dipende_da_istante_set_e_lotto(finti) -> None:
     ns.esegui(object(), _prepara(), "x", ADESSO)
     ns.esegui(object(), _prepara(ora=time(9, 0)), "x", ADESSO)
@@ -290,6 +313,55 @@ def test_la_pagina_semine_ha_il_pulsante_e_il_pannello(monkeypatch) -> None:
 
 
 # ------------------------------------------------------------------ materiali (vero comando di consumo, servizio finto)
+
+def test_compila_resa_attesa_usa_l_autorita_governata_con_i_set_scelti(monkeypatch) -> None:
+    from datetime import timezone
+    chiamate = {}
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    class Conn:
+        commit_fatto = False
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def cursor(self): return Cur()
+        def commit(self): Conn.commit_fatto = True
+
+    class Item:
+        filled = (Decimal("2.000000"), "SET", datetime(2026, 11, 10, 9, 0, tzinfo=timezone.utc),
+                  datetime(2026, 11, 15, 9, 0, tzinfo=timezone.utc))
+
+    def commissiona(cur, **kw):
+        chiamate.update(kw)
+        return ("SEM-000068",), ()
+
+    monkeypatch.setattr(ns.db_context, "_connect", lambda settings: Conn())
+    monkeypatch.setattr(ns.autorita_predittiva, "commission_predictive", commissiona)
+    monkeypatch.setattr(ns.autorita_predittiva, "read", lambda cur, ids: (Item(),))
+    testo = ns._compila_resa_attesa(object(), "SEM-000068", 2, "giulia@towerpower", "marca")
+    assert chiamate["declared_sets"] == {"SEM-000068": 2} and chiamate["actor"] == "giulia@towerpower"
+    assert chiamate["correlation_id"] == "DIARIO-RESA-ATTESA-SEM-000068" and "OWNER_AUTHORIZED" in chiamate["provenance"]
+    assert Conn.commit_fatto is True
+    assert testo == "Resa attesa 2 SET, finestra di raccolta dal 10/11 al 15/11."
+
+
+def test_compila_resa_attesa_rifiutata_diventa_un_errore_leggibile(monkeypatch) -> None:
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def cursor(self): return self
+        def commit(self): raise AssertionError("niente commit se l'autorita' rifiuta")
+
+    def rifiuta(cur, **kw):
+        raise ns.autorita_predittiva.SeminaPredictiveAuthorityError("SEM-000068: impossibile derivare")
+
+    monkeypatch.setattr(ns.db_context, "_connect", lambda settings: Conn())
+    monkeypatch.setattr(ns.autorita_predittiva, "commission_predictive", rifiuta)
+    with pytest.raises(SeminaOperazioneFallita, match="impossibile derivare"):
+        ns._compila_resa_attesa(object(), "SEM-000068", 2, "x", "m")
+
 
 def test_consumo_materiali_usa_il_comando_governato_con_4_pezzi_per_set(monkeypatch) -> None:
     visti = []

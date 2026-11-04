@@ -89,7 +89,8 @@ def prepare(cur, cliente: str, righe: list[str], prima: date, today: date):
 
 
 def run(conn, cliente: str, righe: list[str], prima: date, ogni: int, motivo: str, esegui: bool,
-        generazione: str = "05:00", finestra: int = 14, today: date | None = None, out=print, runner=None) -> int:
+        generazione: str = "05:00", finestra: int = 14, today: date | None = None, out=print, runner=None,
+        giorni: str = "") -> int:
     today = today or datetime.now(TIMEZONE).date()
     cur = conn.cursor()
     try:
@@ -100,14 +101,31 @@ def run(conn, cliente: str, righe: list[str], prima: date, ogni: int, motivo: st
     if ogni <= 0:
         out("RIFIUTATO, nulla scritto: --ogni-giorni deve essere > 0.")
         return 2
+    if giorni and (not all(g in "1234567" for g in giorni.replace("+", "")) or giorni.startswith("+")
+                   or giorni.endswith("+") or "++" in giorni):
+        out("RIFIUTATO, nulla scritto: --giorni-settimana vuole numeri ISO 1-7 separati da +, es. 2+5.")
+        return 2
+    if giorni and str(prima.isoweekday()) not in giorni.split("+"):
+        out(f"RIFIUTATO, nulla scritto: la prima consegna {prima} e' {GIORNI[prima.weekday()]}, non e' tra i giorni {giorni}.")
+        return 2
     out(f"== NUOVO PROGRAMMA DI FORNITURA ({'ESECUZIONE' if esegui else 'ANTEPRIMA, NULLA VIENE SCRITTO'})")
     out(f"{program_id} per {cname} ({cpublic}): versione 1, ATTIVO, dal {prima} ({GIORNI[prima.weekday()]})")
-    out(f"Una consegna ogni {ogni} giorni a partire dal {prima}; generazione ordini ore {generazione}, "
-        f"finestra operativa {finestra} giorni.")
+    if giorni:
+        nomi = ", ".join(GIORNI[int(g) - 1] for g in giorni.split("+"))
+        out(f"Ogni settimana, nei giorni: {nomi} (ISO {giorni}), a partire dal {prima}; generazione ordini ore "
+            f"{generazione}, finestra operativa {finestra} giorni.")
+    else:
+        out(f"Una consegna ogni {ogni} giorni a partire dal {prima}; generazione ordini ore {generazione}, "
+            f"finestra operativa {finestra} giorni.")
     for _, vname, quantity in lines:
         out(f"  riga: {vname} {_n(quantity)} SET")
-    out("Prime consegne: " + ", ".join(
-        f"{date.fromordinal(prima.toordinal() + ogni * k)}" for k in range(4)))
+    if giorni:
+        giorni_iso = {int(g) for g in giorni.split("+")}
+        prime = [date.fromordinal(prima.toordinal() + k) for k in range(60)]
+        out("Prime consegne: " + ", ".join([str(d) for d in prime if d.isoweekday() in giorni_iso][:6]))
+    else:
+        out("Prime consegne: " + ", ".join(
+            f"{date.fromordinal(prima.toordinal() + ogni * k)}" for k in range(4)))
     out(f"Motivo registrato: {motivo}")
     if not esegui:
         out("\nANTEPRIMA: nulla e' stato scritto. Per eseguire aggiungi --esegui")
@@ -117,7 +135,10 @@ def run(conn, cliente: str, righe: list[str], prima: date, ogni: int, motivo: st
             "--generation-time", generazione, "--operational-window-days", str(finestra),
             "--valid-from", datetime.now(TIMEZONE).replace(microsecond=0).isoformat()]
     for pid, _, quantity in lines:
-        args += ["--line", f"{pid},{_n(quantity)},SET,OGNI_X_GIORNI,{ogni},"]
+        if giorni:
+            args += ["--line", f"{pid},{_n(quantity)},SET,GIORNI_SETTIMANA,,{giorni}"]
+        else:
+            args += ["--line", f"{pid},{_n(quantity)},SET,OGNI_X_GIORNI,{ogni},"]
     args += ["--actor", ACTOR, "--reason", motivo,
              "--correlation-id", f"nuovo-programma-{cpublic}-{program_id}"]
     runner = runner or (lambda a: subprocess.run(a, capture_output=True, text=True))
@@ -137,6 +158,7 @@ def main() -> int:
     ap.add_argument("--prima-consegna", required=True, help="AAAA-MM-GG")
     ap.add_argument("--riga", action="append", default=[], help="Varieta:SET (ripetibile)")
     ap.add_argument("--ogni-giorni", type=int, default=14)
+    ap.add_argument("--giorni-settimana", default="", help="ricorrenza settimanale: giorni ISO 1-7 con +, es. 2+5 = martedi e venerdi (al posto di --ogni-giorni)")
     ap.add_argument("--generazione", default="05:00")
     ap.add_argument("--finestra-giorni", type=int, default=14)
     ap.add_argument("--motivo", required=True)
@@ -149,7 +171,7 @@ def main() -> int:
                            password=p["password"], sslmode=p["sslmode"], connect_timeout=p["connect_timeout"])
     try:
         return run(conn, a.cliente, a.riga, date.fromisoformat(a.prima_consegna), a.ogni_giorni, a.motivo,
-                   a.esegui, a.generazione, a.finestra_giorni)
+                   a.esegui, a.generazione, a.finestra_giorni, giorni=a.giorni_settimana)
     finally:
         conn.close()
 

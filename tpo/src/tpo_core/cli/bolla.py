@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from argparse import Namespace
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TextIO
@@ -57,6 +58,9 @@ def run_bolla_command(args: Namespace, *, stdout: TextIO, stderr: TextIO) -> int
             return OperationalExitCode.OPERATION_RUNTIME_UNAVAILABLE
         service = build_bolla_lettura_service(PostgreSQLSettings.from_environment())
         bolla = service.bolla(RichiediBolla(consegna_id))
+        if getattr(args, "senza_prezzi", False):
+            # Prova gratuita: nessun prezzo ne' totale sulla bolla (solo questo PDF, il listino non cambia).
+            bolla = replace(bolla, righe=tuple(replace(r, prezzo_unitario=None) for r in bolla.righe))
         pdf = render_bolla_pdf(
             bolla, emittente=emittente, generata_il=datetime.now(LOCAL_TZ),
         )

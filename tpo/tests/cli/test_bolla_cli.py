@@ -115,3 +115,21 @@ def test_emittente_file_is_loaded_and_validated(monkeypatch, tmp_path):
 def test_slug_is_ascii_and_never_empty():
     assert _slug("Azul y Sal Ñ") == "azul-y-sal-n"
     assert _slug("???") == "cliente"
+
+
+def test_senza_prezzi_toglie_prezzi_e_totale_dal_pdf(monkeypatch, tmp_path):
+    """Prova gratuita: --senza-prezzi azzera i prezzi solo per questo PDF."""
+    import src.tpo_core.infrastructure.pdf.bolla_pdf as pdf_module
+    from dataclasses import replace
+    base = _bolla()
+    con_prezzo = replace(base, righe=tuple(replace(r, prezzo_unitario=Decimal("12.50")) for r in base.righe))
+    visti = []
+    originale = pdf_module.render_bolla_pdf
+    monkeypatch.setattr(pdf_module, "render_bolla_pdf", lambda bolla, **kw: (visti.append(bolla), originale(bolla, **kw))[1])
+    _patch(monkeypatch, _Service(con_prezzo))
+    code, _, err = _run("--consegna", "CON-000012", "--output-dir", str(tmp_path))
+    assert code == 0, err
+    code, _, err = _run("--consegna", "CON-000012", "--output-dir", str(tmp_path), "--senza-prezzi", "--sovrascrivi")
+    assert code == 0, err
+    assert visti[0].ha_prezzi and visti[0].totale == Decimal("25.00")
+    assert not visti[1].ha_prezzi and visti[1].totale is None

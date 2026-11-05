@@ -268,6 +268,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     genera_bolla.add_argument("--emittente-file")
     genera_bolla.add_argument("--sovrascrivi", action="store_true")
+    genera_bolla.add_argument(
+        "--senza-prezzi", action="store_true",
+        help="omette prezzi e totale dal PDF (es. prova gratuita)",
+    )
     etichetta = commands.add_parser(
         "etichetta", help="Etichette di tracciabilita' (una per SET) in PDF (sola lettura)."
     )

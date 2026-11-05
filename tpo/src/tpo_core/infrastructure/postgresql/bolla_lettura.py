@@ -29,10 +29,14 @@ _SELECT_CONSEGNA = (
 )
 _SELECT_RIGHE = (
     "SELECT rc.id, rc.posizione, o.public_id, v.public_id, v.denominazione, "
-    "rc.quantita, rc.unita_misura, (rc.rettifica_riga_consegna_id IS NOT NULL), l.prezzo_unitario "
+    "rc.quantita, rc.unita_misura, (rc.rettifica_riga_consegna_id IS NOT NULL), "
+    "CASE WHEN rc.unita_misura::text = 'SET' THEN COALESCE(d.prezzo_set_fattura, l.prezzo_unitario) "
+    "ELSE l.prezzo_unitario END "          # prezzo per SET concordato col cliente, se c'e'; altrimenti listino
     "FROM tpo.righe_consegna rc "
+    "JOIN tpo.consegne c ON c.id = rc.consegna_id "
     "JOIN tpo.varieta v ON v.id = rc.varieta_id "
     "LEFT JOIN tpo.listino_varieta l ON l.varieta_id = rc.varieta_id "
+    "LEFT JOIN tpo.dati_fiscali_cliente d ON d.cliente_id = c.cliente_id "
     "JOIN tpo.ordini o ON o.id = rc.ordine_id "
     "WHERE rc.consegna_id = %s ORDER BY rc.posizione"
 )

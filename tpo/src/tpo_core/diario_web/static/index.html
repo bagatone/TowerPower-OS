@@ -101,6 +101,13 @@
     border:1px solid var(--border); background:var(--surface); color:var(--text);
   }
   .incassi .vuoto{color:var(--muted); font-size:14px; padding:4px 0;}
+  .incassi .doc{margin-top:8px;}
+  .incassi a.btn{
+    display:inline-block; font:inherit; font-size:14px; font-weight:600; padding:9px 12px; border-radius:10px;
+    border:1px solid var(--accent); color:var(--accent); background:transparent; text-decoration:none;
+  }
+  .incassi a.btn:active{background:var(--accent); color:#fff;}
+  .incassi .cliente h3 .dettaglio{font-weight:400;}
 
   /* --- navigazione a 4 schermate --- */
   .wrap{padding-bottom:96px;}
@@ -239,6 +246,7 @@
     <div id="statoIncassi" class="stato"></div>
     <div id="risultatiIncassi"></div>
     <div id="incassi" class="incassi"><div class="vuoto">Carico le consegne da incassare…</div></div>
+    <div id="consegne" class="incassi"><div class="vuoto">Carico le consegne recenti…</div></div>
   </section>
 
   <section id="vista-semine" class="vista">
@@ -728,6 +736,36 @@ async function caricaIncassi() {
   }
 }
 caricaIncassi();
+
+async function caricaConsegneRecenti() {
+  const el = document.getElementById("consegne");
+  try {
+    const r = await fetch("/api/consegne-recenti");
+    const data = await r.json();
+    if (data.errore) { el.innerHTML = `<div class="errore">${escapeHtml(data.errore)}</div>`; return; }
+    el.innerHTML = `<h2>Bolle ed etichette · ultimi 14 giorni</h2>`;
+    if (!data.consegne.length) {
+      el.insertAdjacentHTML("beforeend", `<div class="vuoto">Nessuna consegna negli ultimi 14 giorni.</div>`);
+      return;
+    }
+    data.consegne.forEach((c) => {
+      const cod = encodeURIComponent(c.codice);
+      const div = document.createElement("div");
+      div.className = "cliente";
+      div.innerHTML = `<h3>${escapeHtml(c.cliente)} <span class="dettaglio">· ${escapeHtml(dataBreve(c.data))} · ${escapeHtml(c.codice)}${c.pagata ? " · pagata" : ""}</span></h3>
+        <div class="dettaglio">${escapeHtml(c.voci.join(", ") || "—")}</div>
+        <div class="azioni doc">
+          <a class="btn" href="/api/consegna/${cod}/bolla.pdf" target="_blank" rel="noopener">Bolla</a>
+          <a class="btn" href="/api/consegna/${cod}/bolla.pdf?senza_prezzi=true" target="_blank" rel="noopener">Bolla senza prezzi</a>
+          <a class="btn" href="/api/consegna/${cod}/etichette.pdf" target="_blank" rel="noopener">Etichette</a>
+        </div>`;
+      el.appendChild(div);
+    });
+  } catch (e) {
+    el.innerHTML = `<div class="errore">Consegne non caricate: ${escapeHtml(String(e))}</div>`;
+  }
+}
+caricaConsegneRecenti();
 
 function numero(x) { return String(x); }
 function dataBreve(iso) { const [, m, d] = iso.split("-"); return `${d}/${m}`; }

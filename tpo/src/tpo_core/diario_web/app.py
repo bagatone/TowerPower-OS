@@ -16,12 +16,12 @@ import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from datetime import date, datetime, time, timezone
 
-from . import (actions, avviso_semine, controlli, db_context, incassi, interpreter, magazzino, nuova_semina,
-               rendiconto, sessioni_semina)
+from . import (actions, avviso_semine, controlli, db_context, documenti_consegna, incassi, interpreter, magazzino,
+               nuova_semina, rendiconto, sessioni_semina)
 from .auth import richiedi_autenticazione
 from ..infrastructure.postgresql.settings import PostgreSQLSettings
 
@@ -337,6 +337,41 @@ def api_pagamento_prepara(body: dict, _: str = Depends(richiedi_autenticazione))
     except incassi.PagamentoNonPossibile as exc:
         return JSONResponse({"proposte": [], "errori": [str(exc)]})
     return JSONResponse({"proposte": [_json_pagamento(p)], "errori": []})
+
+
+@app.get("/api/consegne-recenti")
+def api_consegne_recenti(giorni: int = 14, _: str = Depends(richiedi_autenticazione)) -> JSONResponse:
+    """Consegne effettuate negli ultimi giorni, per scaricarne bolla ed etichette. Sola lettura."""
+    try:
+        elenco = documenti_consegna.consegne_recenti(_settings(), max(1, min(giorni, 60)))
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"errore": f"Elenco non disponibile: {exc}"}, status_code=503)
+    return JSONResponse({"consegne": [
+        {"codice": c.codice, "cliente": c.cliente, "data": c.data, "voci": c.voci, "pagata": c.pagata}
+        for c in elenco]})
+
+
+def _pdf(produci) -> Response:
+    try:
+        documento = produci()
+    except documenti_consegna.DocumentoNonPossibile as exc:
+        return JSONResponse({"errore": str(exc)}, status_code=404)
+    except Exception as exc:  # noqa: BLE001 -- mostrato all'utente, mai un crash silenzioso
+        return JSONResponse({"errore": f"Documento non disponibile: {exc}"}, status_code=503)
+    return Response(content=documento.contenuto, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{documento.nome_file}"'})
+
+
+@app.get("/api/consegna/{codice}/bolla.pdf")
+def api_consegna_bolla(codice: str, senza_prezzi: bool = False, _: str = Depends(richiedi_autenticazione)) -> Response:
+    """Bolla PDF di una consegna (sola lettura). `senza_prezzi=true` per le prove gratuite."""
+    return _pdf(lambda: documenti_consegna.bolla_pdf(_settings(), codice, senza_prezzi=senza_prezzi))
+
+
+@app.get("/api/consegna/{codice}/etichette.pdf")
+def api_consegna_etichette(codice: str, foglio: bool = True, _: str = Depends(richiedi_autenticazione)) -> Response:
+    """Etichette di tracciabilita' di una consegna (sola lettura): foglio 62x29 mm da 27 per A4, o una per pagina."""
+    return _pdf(lambda: documenti_consegna.etichette_pdf(_settings(), codice, foglio=foglio))
 
 
 @app.get("/api/salute")

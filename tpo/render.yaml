@@ -26,6 +26,8 @@ services:
         sync: false
       - key: DIARIO_PASSWORD
         sync: false
+      - key: DIARIO_BOLLA_EMITTENTE
+        sync: false
       - key: DIARIO_ACTOR
         value: "giulia@towerpower"
       - key: DIARIO_MODEL
